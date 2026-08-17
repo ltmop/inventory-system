@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, CheckCircle, Copy, Loader2, Key } from 'lucide-react'
-import { useLicense } from '@/lib/license'
-import { daysText } from '@/lib/license'
+import { useLicense, daysText, LEVEL_NAMES } from '@/lib/license'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 // 收款码占位图（老板替换为自己真实的收款码）
@@ -57,7 +56,7 @@ export function ActivationPage() {
             <ArrowLeft className="size-4" />
             返回
           </button>
-          <div className="text-sm text-slate-400">渔具库存 AI 管理系统</div>
+          <div className="text-sm text-slate-400">通用进销存系统</div>
         </div>
 
         {/* 已激活状态 */}
@@ -69,13 +68,13 @@ export function ActivationPage() {
                   <CheckCircle className="size-5 text-green-600" />
                 </div>
                 <div>
-                  <div className="font-medium text-slate-800">Pro 已激活</div>
-                  <div className="text-sm text-slate-500">{level === 'pro' ? '专业版' : '免费版'} · {daysText(daysLeft)}</div>
+                  <div className="font-medium text-slate-800">{LEVEL_NAMES[level] ?? '普通版'} 已激活</div>
+                  <div className="text-sm text-slate-500">{LEVEL_NAMES[level] ?? '普通版'} · {daysText(daysLeft)}</div>
                 </div>
               </div>
               {daysLeft !== null && daysLeft <= 30 && daysLeft > 0 && (
                 <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                  订阅即将到期，请及时续费以保持 Pro 功能
+                  订阅即将到期，请及时续费以保持付费功能
                 </div>
               )}
             </CardContent>
@@ -88,8 +87,8 @@ export function ActivationPage() {
             <CardContent className="space-y-4 pt-6">
               <div className="flex items-center gap-2 text-slate-700">
                 <Key className="size-5 text-brand-600" />
-                <span className="font-medium">激活 Pro</span>
-                <span className="text-sm text-slate-400">¥365/年</span>
+                <span className="font-medium">激活付费版</span>
+                <span className="text-sm text-slate-400">进阶 ¥168/年 · 大师 ¥398/年</span>
               </div>
 
               {/* 机器 ID */}
@@ -151,7 +150,7 @@ export function ActivationPage() {
               </div>
             </div>
             <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
-              Pro 年费 ¥365 · 买断 ¥899（一次性永久）· 付款后联系客服微信获取激活码
+              普通版免费（300 商品·1店2人）｜进阶 ¥168/年（1000 商品·3店10人）｜大师 ¥398/年（无限）｜付款后联系客服微信获取激活码
             </div>
           </CardContent>
         </Card>

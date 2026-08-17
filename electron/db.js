@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sku_code TEXT UNIQUE NOT NULL,
     barcode TEXT,
-    category TEXT NOT NULL CHECK (category IN ('鱼竿','鱼线','鱼钩','渔轮','浮漂','铅坠','饵料','路亚假饵','渔网','钓箱钓椅','伞/遮阳','支架','服装穿戴','灯具','工具配件','收纳包具','增氧保鲜','活饵','小药','其他')),
+    -- 分类（通用版）：不限死，前端给预设通用分类 + 允许自由填
+    category TEXT NOT NULL DEFAULT '其他',
     sub_category TEXT,
     brand TEXT,
     model TEXT,
@@ -33,7 +34,9 @@ CREATE TABLE IF NOT EXISTS products (
     location TEXT,
     photo_path TEXT,
     name_vi TEXT,
-    status TEXT DEFAULT '待盘点' CHECK (status IN ('待盘点','已盘点','已上架虾皮','已售罄','停产')),
+    status TEXT DEFAULT '待盘点' CHECK (status IN ('待盘点','已盘点','在售','停售','清仓')),
+    -- 计量单位（v2.2）：件=整数按个卖（默认）；米=按长度小数卖（如布料/线材）
+    unit TEXT DEFAULT '件',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -71,6 +74,8 @@ CREATE TABLE IF NOT EXISTS customers (
     notes TEXT,
     -- 客户绑定价格档（可空，NULL=零售默认；老库由 migrateCustomerPriceLevel 补）
     price_level TEXT,
+    -- 老钓友偏好（v2.2）：自由文本
+    preferences TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -88,7 +93,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     product_id INTEGER NOT NULL REFERENCES products(id),
     batch_id INTEGER REFERENCES inventory_batches(id),
-    type TEXT NOT NULL CHECK (type IN ('in', 'out', 'return', 'exchange')),
+    type TEXT NOT NULL CHECK (type IN ('in', 'out', 'return', 'exchange', 'waste')),
     quantity INTEGER NOT NULL CHECK (quantity > 0),
     unit_price INTEGER,
     selling_price INTEGER,
@@ -235,11 +240,53 @@ CREATE TABLE IF NOT EXISTS waste_logs (
     product_id INTEGER NOT NULL REFERENCES products(id),
     batch_id INTEGER REFERENCES inventory_batches(id),
     quantity INTEGER NOT NULL CHECK (quantity > 0),
+    -- 报损该批次的进价（v2.2）：哪批报损按哪批的成本算，老数据 NULL 回退商品最近进价
+    cost_price INTEGER,
     reason TEXT NOT NULL DEFAULT '',  -- 报损原因：活饵死亡/饵料临期报废/破损等
     operator TEXT,
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_waste_logs_created ON waste_logs(created_at);
+
+-- 收款登记（v3.0 收款对账）：老板每天手动登记 微信/支付宝/现金 实际到账，系统对账
+CREATE TABLE IF NOT EXISTS payment_registers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    register_date TEXT NOT NULL,        -- YYYY-MM-DD
+    method TEXT NOT NULL CHECK (method IN ('现金','微信','支付宝','其他')),
+    amount INTEGER NOT NULL CHECK (amount >= 0),  -- 单位：分
+    operator TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(register_date, method)       -- 每天每方式一条，重复登记覆盖
+);
+
+-- AI 功能每日用量（v3.0）：视觉识别等按版本限每日额度（普通20/进阶100/大师不限）
+CREATE TABLE IF NOT EXISTS ai_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    usage_date TEXT NOT NULL,           -- YYYY-MM-DD
+    feature TEXT NOT NULL,              -- 如 'vision'（拍照识别）
+    count INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(usage_date, feature)
+);
+
+-- 套装（v2.2）：一套多个商品（新手套装/绑钩套装等），开单时一键加清单
+CREATE TABLE IF NOT EXISTS kits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    -- 打包价（v2.2）：一口价，单位分；NULL=没设，按组成件现价加清单
+    price INTEGER,
+    -- 总折扣（v2.2）：如 90 = 9 折（按组成件现价合计打这个折）；NULL=不设
+    discount_percent INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS kit_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kit_id INTEGER NOT NULL REFERENCES kits(id) ON DELETE CASCADE,
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    UNIQUE(kit_id, product_id)
+);
+CREATE INDEX IF NOT EXISTS idx_kit_items_kit ON kit_items(kit_id);
 `
 
 /**
@@ -258,7 +305,11 @@ function runMigrations(db) {
     ['收款方式补列', migratePayMethod],
     ['批次到期日补列', migrateBatchExpiry],
     ['盘点模式补列', migrateStockTakeMode],
-    ['配节字段补列', migratePartFields],
+    ['流水表重建加报损类型', migrateTransactionsWasteType],
+    ['报损成本补列', migrateWasteCostPrice],
+    ['商品计量单位补列', migrateProductUnit],
+    ['客户偏好补列', migrateCustomerPreferences],
+    ['套装价格补列', migrateKitPrice],
   ]
   const failures = []
   for (const [name, fn] of steps) {
@@ -355,7 +406,7 @@ function migrateOldProductsTable(db) {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           sku_code TEXT UNIQUE NOT NULL,
           barcode TEXT,
-          category TEXT NOT NULL CHECK (category IN ('鱼竿','鱼线','鱼钩','渔轮','浮漂','铅坠','饵料','路亚假饵','渔网','钓箱钓椅','伞/遮阳','支架','服装穿戴','灯具','工具配件','收纳包具','增氧保鲜','活饵','小药','其他')),
+          category TEXT NOT NULL DEFAULT '其他',
           sub_category TEXT,
           brand TEXT,
           model TEXT,
@@ -364,7 +415,7 @@ function migrateOldProductsTable(db) {
           location TEXT,
           photo_path TEXT,
           name_vi TEXT,
-          status TEXT DEFAULT '待盘点' CHECK (status IN ('待盘点','已盘点','已上架虾皮','已售罄','停产')),
+          status TEXT DEFAULT '待盘点' CHECK (status IN ('待盘点','已盘点','在售','停售','清仓')),
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
@@ -374,7 +425,13 @@ function migrateOldProductsTable(db) {
         id, sku_code, barcode,
         ${OLD_CATEGORY_MAP},
         CASE WHEN category IN ('台钓竿','路亚竿','海竿') THEN category ELSE NULL END,
-        brand, model, cost_price, suggest_price, location, photo_path, name_vi, status, created_at, updated_at
+        brand, model, cost_price, suggest_price, location, photo_path, name_vi,
+        CASE status
+          WHEN '已上架虾皮' THEN '在售'
+          WHEN '已售罄' THEN '清仓'
+          WHEN '停产' THEN '停售'
+          ELSE status END,
+        created_at, updated_at
       FROM products;
       DROP TABLE products;
       ALTER TABLE products_new RENAME TO products;
@@ -395,18 +452,14 @@ function migrateOldProductsTable(db) {
 }
 
 // ---------- 渔具专用属性迁移（v2.0）：只增不改，老数据新列为 NULL ----------
+// 通用版：只补通用商品属性（颜色/材质/保质期），去掉渔具专属规格列（长度/调性/硬度/线号/钩号）
 function migrateFishingAttrs(db) {
   const addCol = (col, ddl) => {
     const cols = db.prepare('PRAGMA table_info(products)').all().map((c) => c.name)
     if (!cols.includes(col)) db.exec(`ALTER TABLE products ADD COLUMN ${ddl}`)
   }
-  addCol('rod_length', 'rod_length TEXT')
-  addCol('line_number', 'line_number TEXT')
-  addCol('hook_size', 'hook_size TEXT')
   addCol('color', 'color TEXT')
   addCol('material', 'material TEXT')
-  addCol('rod_action', 'rod_action TEXT')
-  addCol('power_rating', 'power_rating TEXT')
   addCol('expiry_date', 'expiry_date TEXT')
 }
 
@@ -470,11 +523,78 @@ function migrateStockTakeMode(db) {
   }
 }
 
-// ---------- 配节字段迁移（v2.1）：products 补 parent_id（父主竿）+ part_type（配节类型：竿梢/手把节等） ----------
-function migratePartFields(db) {
+// ---------- 流水表重建（v2.2）：transactions 的 type CHECK 加 'waste'，老库重建表 ----------
+// SQLite 无法 ALTER CHECK 约束，只能"建新表→INSERT SELECT→DROP→RENAME"整表迁移。
+// 照抄 migrateOldProductsTable 模式：保留全部列（含赊账 customer_id/paid_amount/pay_method）+ 重建索引。
+function migrateTransactionsWasteType(db) {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'transactions'").get()
+  if (!row || row.sql.includes("'waste'")) return // 新库/已迁过都跳过
+  db.exec('PRAGMA foreign_keys = OFF')
+  db.exec('BEGIN')
+  try {
+    db.exec(`
+      CREATE TABLE transactions_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          product_id INTEGER NOT NULL REFERENCES products(id),
+          batch_id INTEGER REFERENCES inventory_batches(id),
+          type TEXT NOT NULL CHECK (type IN ('in', 'out', 'return', 'exchange', 'waste')),
+          quantity INTEGER NOT NULL CHECK (quantity > 0),
+          unit_price INTEGER,
+          selling_price INTEGER,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+          operator TEXT,
+          notes TEXT,
+          customer_id INTEGER REFERENCES customers(id),
+          paid_amount INTEGER,
+          pay_method TEXT CHECK (pay_method IN ('现金','微信','支付宝','其他'))
+      );
+      INSERT INTO transactions_new
+        (id, product_id, batch_id, type, quantity, unit_price, selling_price, timestamp, operator, notes, customer_id, paid_amount, pay_method)
+      SELECT
+        id, product_id, batch_id, type, quantity, unit_price, selling_price, timestamp, operator, notes, customer_id, paid_amount, pay_method
+      FROM transactions;
+      DROP TABLE transactions;
+      ALTER TABLE transactions_new RENAME TO transactions;
+    `)
+    db.exec('COMMIT')
+  } catch (e) {
+    db.exec('ROLLBACK')
+    db.exec('PRAGMA foreign_keys = ON')
+    throw e
+  }
+  db.exec('PRAGMA foreign_keys = ON')
+  // DROP TABLE 连带删了索引，需重建
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_transactions_product ON transactions(product_id);
+    CREATE INDEX IF NOT EXISTS idx_transactions_batch ON transactions(batch_id);
+    CREATE INDEX IF NOT EXISTS idx_transactions_timestamp ON transactions(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_transactions_customer ON transactions(customer_id);
+  `)
+}
+
+// ---------- 报损成本补列（v2.2）：waste_logs 补 cost_price（该批次进价；老数据 NULL=回退商品最近进价） ----------
+function migrateWasteCostPrice(db) {
+  const cols = db.prepare('PRAGMA table_info(waste_logs)').all().map((c) => c.name)
+  if (!cols.includes('cost_price')) db.exec('ALTER TABLE waste_logs ADD COLUMN cost_price INTEGER')
+}
+
+// ---------- 商品计量单位补列（v2.2）：products 补 unit（件/米，默认件） ----------
+function migrateProductUnit(db) {
   const cols = db.prepare('PRAGMA table_info(products)').all().map((c) => c.name)
-  if (!cols.includes('parent_id')) db.exec('ALTER TABLE products ADD COLUMN parent_id INTEGER REFERENCES products(id)')
-  if (!cols.includes('part_type')) db.exec('ALTER TABLE products ADD COLUMN part_type TEXT')
+  if (!cols.includes('unit')) db.exec("ALTER TABLE products ADD COLUMN unit TEXT DEFAULT '件'")
+}
+
+// ---------- 客户偏好补列（v2.2）：customers 补 preferences（自由文本） ----------
+function migrateCustomerPreferences(db) {
+  const cols = db.prepare('PRAGMA table_info(customers)').all().map((c) => c.name)
+  if (!cols.includes('preferences')) db.exec('ALTER TABLE customers ADD COLUMN preferences TEXT')
+}
+
+// ---------- 套装价格补列（v2.2）：kits 补 price（一口价）+ discount_percent（总折扣） ----------
+function migrateKitPrice(db) {
+  const cols = db.prepare('PRAGMA table_info(kits)').all().map((c) => c.name)
+  if (!cols.includes('price')) db.exec('ALTER TABLE kits ADD COLUMN price INTEGER')
+  if (!cols.includes('discount_percent')) db.exec('ALTER TABLE kits ADD COLUMN discount_percent INTEGER')
 }
 
 /** 软件正常退出时调用一次：收尾 checkpoint，截断 WAL */

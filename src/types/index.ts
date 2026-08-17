@@ -1,71 +1,45 @@
 // 与后端数据库 Schema 一一对应的类型契约，字段名不可改
 
-// 20大类，与知识库品类层级匹配
+// 通用版分类：预设常用通用分类，category 字段不受限，用户可自由填新分类
 export type Category =
-  | '鱼竿'
-  | '鱼线'
-  | '鱼钩'
-  | '渔轮'
-  | '浮漂'
-  | '铅坠'
-  | '饵料'
-  | '路亚假饵'
-  | '渔网'
-  | '钓箱钓椅'
-  | '伞/遮阳'
-  | '支架'
-  | '服装穿戴'
-  | '灯具'
-  | '工具配件'
-  | '收纳包具'
-  | '增氧保鲜'
-  | '活饵'
-  | '小药'
+  | '食品饮料'
+  | '日用百货'
+  | '五金工具'
+  | '电子电器'
+  | '服饰鞋帽'
+  | '文具办公'
+  | '清洁日化'
   | '其他'
 
+// 通用版分类：预设常用通用分类，category 字段不受限，用户可自由填新分类
 export const CATEGORIES: Category[] = [
-  '鱼竿',
-  '鱼线',
-  '鱼钩',
-  '渔轮',
-  '浮漂',
-  '铅坠',
-  '饵料',
-  '路亚假饵',
-  '渔网',
-  '钓箱钓椅',
-  '伞/遮阳',
-  '支架',
-  '服装穿戴',
-  '灯具',
-  '工具配件',
-  '收纳包具',
-  '增氧保鲜',
-  '活饵',
-  '小药',
+  '食品饮料',
+  '日用百货',
+  '五金工具',
+  '电子电器',
+  '服饰鞋帽',
+  '文具办公',
+  '清洁日化',
   '其他',
 ]
 
 // 品类代码速查（用于SKU自动生成）
 export const CATEGORY_CODES: Record<Category, string> = {
-  '鱼竿': 'FG', '鱼线': 'XL', '鱼钩': 'YG', '渔轮': 'YL',
-  '浮漂': 'FP', '铅坠': 'QZ', '饵料': 'ER', '路亚假饵': 'JL',
-  '渔网': 'WL', '钓箱钓椅': 'ZX', '伞/遮阳': 'SP', '支架': 'ZJ',
-  '服装穿戴': 'FZ', '灯具': 'DJ', '工具配件': 'GJ', '收纳包具': 'BN',
-  '增氧保鲜': 'ZY', '活饵': 'HE', '小药': 'XY', '其他': 'QT',
+  '食品饮料': 'SP', '日用百货': 'BH', '五金工具': 'WJ', '电子电器': 'DQ',
+  '服饰鞋帽': 'FS', '文具办公': 'BG', '清洁日化': 'RH', '其他': 'QT',
 }
 
-export type ProductStatus = '待盘点' | '已盘点' | '已上架虾皮' | '已售罄' | '停产'
+export type ProductStatus = '待盘点' | '已盘点' | '在售' | '停售' | '清仓'
 
 export const PRODUCT_STATUSES: ProductStatus[] = [
   '待盘点',
   '已盘点',
-  '已上架虾皮',
-  '已售罄',
-  '停产',
+  '在售',
+  '停售',
+  '清仓',
 ]
 
-// 计量单位（v2.2）：件=按个/按包整数卖（默认）；米=鱼线等按长度小数卖（如 3.5 米）
+// 计量单位（v2.2）：件=按个/按包整数卖（默认）；米=按长度小数卖（如 3.5 米）
 export type Unit = '件' | '米'
 export const UNITS: Unit[] = ['件', '米']
 
@@ -82,17 +56,13 @@ export interface Product {
   location: string | null
   photo_path: string | null
   name_vi: string | null
-  rod_length: string | null
-  line_number: string | null
-  hook_size: string | null
+  /** 通用商品属性（可选）：颜色/材质/保质期 */
   color: string | null
   material: string | null
-  rod_action: string | null
-  power_rating: string | null
   expiry_date: string | null
   /** 最低库存预警线：NULL=用默认阈值 5；设了按各自阈值预警（COALESCE(min_stock, 5)） */
   min_stock: number | null
-  /** 计量单位（v2.2）：件=整数按个卖（默认）；米=鱼线按长度小数卖 */
+  /** 计量单位（v2.2）：件=整数按个卖（默认）；米=按长度小数卖 */
   unit?: '件' | '米' | null
   status: ProductStatus
   created_at: string
@@ -429,6 +399,10 @@ export interface BackupStatus {
 export interface Kit {
   id: number
   name: string
+  /** 打包一口价（分）：NULL=没设，按组成件现价加清单 */
+  price?: number | null
+  /** 总折扣（如 90 = 9 折）：NULL=不设；设了一口价则一口价优先 */
+  discount_percent?: number | null
   created_at: string
   updated_at: string
 }
@@ -444,6 +418,10 @@ export interface KitItem {
 export interface KitInput {
   id?: number
   name: string
+  /** 打包一口价（分，可选）；设了优先于折扣 */
+  price?: number | null
+  /** 总折扣（如 90 = 9 折，可选） */
+  discount_percent?: number | null
   items: { productId: number; quantity: number }[]
 }
 

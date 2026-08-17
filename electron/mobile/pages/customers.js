@@ -60,7 +60,7 @@ page('customers', function (app) {
       overlay.querySelector('#pay-go').disabled = true
       overlay.querySelector('#pay-go').textContent = '收款中...'
       try {
-        await api('payment:record', { customer_id: c.id, amount, method, notes: null })
+        await api('payment:record', { customerId: c.id, amount, method, notes: null })
         overlay.remove()
         toast('已收 ' + fmt(amount) + '（' + method + '）')
         load()

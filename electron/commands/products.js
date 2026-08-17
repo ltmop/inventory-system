@@ -11,10 +11,12 @@ import {
   assertPositiveInt,
   PRODUCT_STATUSES,
 } from './helpers.js'
+import { enforceSkuQuota } from '../license.js'
 
 export function createProduct(db, input) {
   const ts = now()
   const minStock = minStockOrNull(input.min_stock)
+  const unit = input.unit === '米' ? '米' : '件'
   // SKU 规则（简化版）：显式传入的原样用（如 CSV 导入、老五段式）；
   // 留空时有条码直接用条码（扫码枪扫出来就是它），无条码用纯数字编号（1001 起递增）
   let skuCode = input.sku_code?.trim()
@@ -26,10 +28,12 @@ export function createProduct(db, input) {
   }
   if (!skuCode) skuCode = nextNumericSku(db)
   return inTransaction(db, () => {
+    // v3.0 SKU 配额：超过当前版本商品上限直接拒绝（普通300/进阶1000/大师无限）
+    enforceSkuQuota(db, 1)
     const info = db
       .prepare(
-        `INSERT INTO products (sku_code, barcode, category, sub_category, brand, model, cost_price, suggest_price, location, status, rod_length, rod_action, power_rating, line_number, hook_size, color, material, expiry_date, min_stock, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO products (sku_code, barcode, category, sub_category, brand, model, cost_price, suggest_price, location, status, color, material, expiry_date, min_stock, unit, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         skuCode,
@@ -44,6 +48,7 @@ export function createProduct(db, input) {
         input.status ?? '待盘点',
         ...SPEC_FIELDS.map((f) => specOrNull(input[f])),
         minStock,
+        unit,
         ts,
         ts,
       )
@@ -60,9 +65,10 @@ export function updateProduct(db, id, input) {
   // 与现有行合并，允许前端只传要改的字段；SKU 创建后不可改
   const v = { ...cur, ...input, id: cur.id, sku_code: cur.sku_code }
   const minStock = minStockOrNull(v.min_stock)
+  const unit = v.unit === '米' ? '米' : '件'
   return inTransaction(db, () => {
     db.prepare(
-      `UPDATE products SET category = ?, sub_category = ?, brand = ?, model = ?, cost_price = ?, suggest_price = ?, location = ?, status = ?, rod_length = ?, rod_action = ?, power_rating = ?, line_number = ?, hook_size = ?, color = ?, material = ?, expiry_date = ?, min_stock = ?, photo_path = ?, updated_at = ?
+      `UPDATE products SET category = ?, sub_category = ?, brand = ?, model = ?, cost_price = ?, suggest_price = ?, location = ?, status = ?, color = ?, material = ?, expiry_date = ?, min_stock = ?, unit = ?, photo_path = ?, updated_at = ?
        WHERE id = ?`,
     ).run(
       v.category,
@@ -75,6 +81,7 @@ export function updateProduct(db, id, input) {
       v.status ?? '待盘点',
       ...SPEC_FIELDS.map((f) => specOrNull(v[f])),
       minStock,
+      unit,
       // 图片相对文件名（images 目录内）；与现有行合并，不传 photo_path 时保持原值
       v.photo_path ?? null,
       now(),
@@ -93,7 +100,7 @@ export function deleteProduct(db, id, operator = null) {
   const batchCount = db.prepare('SELECT COUNT(*) AS n FROM inventory_batches WHERE product_id = ?').get(id).n
   const txCount = db.prepare('SELECT COUNT(*) AS n FROM transactions WHERE product_id = ?').get(id).n
   if (batchCount > 0 || txCount > 0) {
-    return { ok: false, reason: `该商品存在 ${batchCount} 个批次、${txCount} 条流水，不能删除；可改为"停产"状态` }
+    return { ok: false, reason: `该商品存在 ${batchCount} 个批次、${txCount} 条流水，不能删除；可改为"停售"状态` }
   }
   return inTransaction(db, () => {
     const cur = db.prepare('SELECT * FROM products WHERE id = ?').get(id)

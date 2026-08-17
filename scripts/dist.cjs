@@ -60,6 +60,8 @@ function syntaxCheckMainProcess() {
 }
 
 ;(async () => {
+  // 临时输出目录复用会残留历史安装包，导致 find 匹配到旧版本——先清空
+  fs.rmSync(tmpOut, { recursive: true, force: true })
   syntaxCheckMainProcess()
   execSync('npm.cmd run build', { stdio: 'inherit' })
 

@@ -15,12 +15,7 @@ const HEADER_MAP: Record<string, string> = {
   售价: 'suggest_price', 建议售价: 'suggest_price', suggest_price: 'suggest_price', '建议售价(元)': 'suggest_price',
   数量: 'quantity', 库存: 'quantity', quantity: 'quantity',
   货位: 'location', 库位: 'location', location: 'location',
-  // 渔具规格列（全部可选，空着也能导入）
-  长度: 'rod_length', 竿长: 'rod_length', rod_length: 'rod_length',
-  调性: 'rod_action', rod_action: 'rod_action',
-  硬度: 'power_rating', power_rating: 'power_rating',
-  线号: 'line_number', line_number: 'line_number',
-  钩号: 'hook_size', hook_size: 'hook_size',
+  // 通用规格列（全部可选，空着也能导入）
   颜色: 'color', color: 'color',
   材质: 'material', material: 'material',
   保质期: 'expiry_date', expiry_date: 'expiry_date',
@@ -38,12 +33,7 @@ export interface ImportRow {
   quantity: number
   location?: string
   operator?: string
-  // 渔具规格（可选）
-  rod_length?: string
-  rod_action?: string
-  power_rating?: string
-  line_number?: string
-  hook_size?: string
+  // 通用规格（可选）
   color?: string
   material?: string
   expiry_date?: string
@@ -52,8 +42,8 @@ export interface ImportRow {
 }
 
 // 模板列头（第一行）和示例数据（第二行）；规格列可选，空着也能导入
-export const TEMPLATE_HEADERS = ['sku编码', '品类', '子类', '品牌', '型号', '进价(元)', '建议售价(元)', '数量', '货位', '长度', '调性', '硬度', '线号', '钩号', '颜色', '材质', '保质期']
-const TEMPLATE_EXAMPLE = ['JC-FG-SG-HD-36', '鱼竿', '手竿', '汉鼎', '一号 3.6m', 45, 85, 10, 'A区-东墙-1层', '3.6m', '28调', '', '', '', '黑', '碳素', '']
+export const TEMPLATE_HEADERS = ['sku编码', '品类', '子类', '品牌', '型号', '进价(元)', '建议售价(元)', '数量', '货位', '颜色', '材质', '保质期']
+const TEMPLATE_EXAMPLE = ['JC-SP-BH-SODA-01', '食品饮料', '零食', '怡客', '原味苏打饼干 400g', 8, 15, 10, 'A货架-1', '', '', '']
 
 const REQUIRED_LABELS: Record<string, string> = {
   sku_code: 'sku编码', category: '品类', cost_price: '进价', quantity: '数量',

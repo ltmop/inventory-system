@@ -18,17 +18,17 @@ async function makeXlsx(rows: (string | number)[][]): Promise<ArrayBuffer> {
 
 describe('parseCSVText', () => {
   it('正常解析：元转分、数量取整', () => {
-    const rows = parseCSVText(`${HEADER}\nJC-1,鱼竿,手竿,汉鼎,一号 3.6m,45.00,85.00,10,A区-1层`)
+    const rows = parseCSVText(`${HEADER}\nJC-1,食品饮料,手竿,汉鼎,一号 3.6m,45.00,85.00,10,A区-1层`)
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({
-      sku_code: 'JC-1', category: '鱼竿', cost_price: 4500, suggest_price: 8500, quantity: 10,
+      sku_code: 'JC-1', category: '食品饮料', cost_price: 4500, suggest_price: 8500, quantity: 10,
     })
     expect(rows[0].__errors).toEqual([])
     expect(rows[0].__line).toBe(2)
   })
 
   it('缺必要列时抛出中文大白话错误', () => {
-    expect(() => parseCSVText('sku编码,品类\nJC-1,鱼竿')).toThrow('缺少必要列')
+    expect(() => parseCSVText('sku编码,品类\nJC-1,食品饮料')).toThrow('缺少必要列')
   })
 
   it('列名完全对不上时提示用模板', () => {
@@ -41,15 +41,14 @@ describe('parseCSVText', () => {
     expect(rows[0].__errors.join()).toContain('进价无效')
   })
 
-  it('渔具规格列透传，空列为 null', () => {
+  it('通用规格列透传，空列为 null', () => {
     const rows = parseCSVText(
-      'sku编码,品类,进价,数量,长度,调性,钩号,保质期\n' +
-        'JC-9,鱼竿,45,10,3.6m,28调,,\n' +
-        'JC-10,鱼钩,3,20,,,伊势尼5号,',
+      'sku编码,品类,进价,数量,颜色,材质,保质期\n' +
+        'JC-9,食品饮料,8,10,红,塑料,2027-06\n' +
+        'JC-10,日用百货,5,20,,,',
     )
-    expect(rows[0]).toMatchObject({ rod_length: '3.6m', rod_action: '28调' })
-    expect(rows[0].hook_size).toBeNull()
-    expect(rows[1].hook_size).toBe('伊势尼5号')
+    expect(rows[0]).toMatchObject({ color: '红', material: '塑料', expiry_date: '2027-06' })
+    expect(rows[1].material).toBeNull()
     expect(rows[0].__errors).toEqual([])
   })
 })
@@ -58,7 +57,7 @@ describe('parseXlsxBuffer', () => {
   it('解析 exceljs 生成的 xlsx，与 CSV 结果一致', async () => {
     const buf = await makeXlsx([
       HEADER.split(','),
-      ['JC-1', '鱼竿', '手竿', '汉鼎', '一号 3.6m', 45, 85, 10, 'A区-1层'],
+      ['JC-1', '食品饮料', '手竿', '汉鼎', '一号 3.6m', 45, 85, 10, 'A区-1层'],
     ])
     const rows = await parseXlsxBuffer(buf)
     expect(rows).toHaveLength(1)
@@ -69,19 +68,19 @@ describe('parseXlsxBuffer', () => {
   it('支持模板里的"进价(元)"列头', async () => {
     const buf = await makeXlsx([
       TEMPLATE_HEADERS,
-      ['JC-2', '鱼线', 'PE线', 'YGK', 'PE 1.5号', 18, 35, 25, 'C区'],
+      ['JC-2', '食品饮料', '零食', '怡客', '苏打饼干 400g', 8, 15, 25, 'C区'],
     ])
     const rows = await parseXlsxBuffer(buf)
-    expect(rows[0]).toMatchObject({ sku_code: 'JC-2', cost_price: 1800, quantity: 25 })
+    expect(rows[0]).toMatchObject({ sku_code: 'JC-2', cost_price: 800, quantity: 25 })
     expect(rows[0].__errors).toEqual([])
   })
 
   it('跳过空行，行号按实际数据行编号', async () => {
     const buf = await makeXlsx([
       HEADER.split(','),
-      ['JC-1', '鱼竿', '', '', '', 10, '', 5, ''],
+      ['JC-1', '食品饮料', '', '', '', 10, '', 5, ''],
       ['', '', '', '', '', '', '', '', ''],
-      ['JC-2', '鱼钩', '', '', '', 3, '', 7, ''],
+      ['JC-2', '日用百货', '', '', '', 3, '', 7, ''],
     ])
     const rows = await parseXlsxBuffer(buf)
     expect(rows).toHaveLength(2)
@@ -105,8 +104,8 @@ describe('buildTemplateBlob', () => {
     const buf = await blob.arrayBuffer()
     const rows = await parseXlsxBuffer(buf)
     expect(rows).toHaveLength(1)
-    expect(rows[0].sku_code).toBe('JC-FG-SG-HD-36')
-    expect(rows[0].cost_price).toBe(4500)
+    expect(rows[0].sku_code).toBe('JC-SP-BH-SODA-01')
+    expect(rows[0].cost_price).toBe(800)
     expect(rows[0].__errors).toEqual([])
   })
 })

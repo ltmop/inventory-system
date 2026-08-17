@@ -29,7 +29,7 @@ export function LowStockAlert() {
   const lowItems = useMemo(
     () =>
       products
-        .filter((p) => p.status !== '停产')
+        .filter((p) => p.status !== '停售')
         .map((p) => ({ p, total: totalStockOf(p.id) }))
         .filter((x) => x.total < (x.p.min_stock ?? LOW_STOCK_THRESHOLD))
         .sort((a, b) => a.total - b.total),

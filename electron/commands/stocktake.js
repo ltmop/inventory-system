@@ -5,6 +5,7 @@ import {
   now,
   nextTakeNo,
   logAudit,
+  roundQty,
 } from './helpers.js'
 
 /**
@@ -76,14 +77,25 @@ export function createStockTake(db, { locationFilter, category, supplierId, oper
 }
 
 export function updateStockTakeItem(db, { itemId, actualQty, reason }) {
-  // 与 submitStockTake 同一套校验：实盘数必须是非负整数，
-  // 负数/小数/非数字一律拒绝，不允许落库
+  // 与 submitStockTake 同一套校验：实盘数必须是非负数（米商品允许小数），
+  // 负数/非法小数/非数字一律拒绝，不允许落库
+  const row = db
+    .prepare(
+      `SELECT i.product_id, p.unit FROM stock_take_items i JOIN products p ON p.id = i.product_id WHERE i.id = ?`,
+    )
+    .get(itemId)
+  if (!row) throw new Error('盘点明细不存在')
+  const unit = row.unit === '米' ? '米' : '件'
   const qty = Number(actualQty)
-  if (!Number.isInteger(qty) || qty < 0) {
+  if (unit === '米') {
+    if (!Number.isFinite(qty) || qty < 0 || Math.abs(roundQty(qty) - qty) >= 1e-9) {
+      throw new Error(`实盘数量最多 1 位小数且不能为负，收到：${actualQty}`)
+    }
+  } else if (!Number.isInteger(qty) || qty < 0) {
     throw new Error(`实盘数量必须是非负整数，收到：${actualQty}`)
   }
   db.prepare('UPDATE stock_take_items SET actual_qty = ?, reason = ? WHERE id = ?').run(
-    qty,
+    roundQty(qty),
     reason ?? '',
     itemId,
   )
@@ -115,11 +127,18 @@ export function submitStockTake(db, { takeId, items, operator }) {
     const updItem = db.prepare(
       'UPDATE stock_take_items SET actual_qty = ?, reason = ? WHERE id = ? AND stock_take_id = ?',
     )
+    // 计量单位校验（v2.2）：米商品（鱼线）允许小数实盘数
+    const itemUnit = db.prepare(
+      'SELECT p.unit FROM stock_take_items i JOIN products p ON p.id = i.product_id WHERE i.id = ?',
+    )
     for (const it of items ?? []) {
       const qty = Number(it.actualQty)
-      if (Number.isInteger(qty) && qty >= 0) {
-        updItem.run(qty, String(it.reason ?? ''), it.itemId, takeId)
-      }
+      if (!Number.isFinite(qty) || qty < 0) continue
+      const unitRow = itemUnit.get(Number(it.itemId))
+      const unit = unitRow?.unit === '米' ? '米' : '件'
+      const valid =
+        unit === '米' ? Math.abs(roundQty(qty) - qty) < 1e-9 : Number.isInteger(qty)
+      if (valid) updItem.run(roundQty(qty), String(it.reason ?? ''), it.itemId, takeId)
     }
     if (isSkuMode) {
       // 按 SKU 合并：一个商品一行（batch_id NULL），把商品实盘总数按各批次数量比例摊回批次库存
@@ -129,9 +148,26 @@ export function submitStockTake(db, { takeId, items, operator }) {
            WHERE stock_take_id = ? AND actual_qty IS NOT NULL AND batch_id IS NULL`,
         )
         .all(takeId)
+      // 前端带上的 batchAllocations（v2.2）：摊完结果已预览给老板看，直接落这批，兜底才走比例分摊
+      const allocByItem = new Map()
+      for (const it of items ?? []) {
+        if (Array.isArray(it.batchAllocations) && it.batchAllocations.length > 0) {
+          allocByItem.set(Number(it.itemId), it.batchAllocations)
+        }
+      }
       const updBatch = db.prepare('UPDATE inventory_batches SET quantity = ? WHERE id = ?')
       let batchCount = 0
       for (const r of skuRows) {
+        const explicit = allocByItem.get(r.id)
+        if (explicit) {
+          for (const a of explicit) {
+            if (a.batchId != null && a.quantity != null) {
+              updBatch.run(roundQty(Number(a.quantity)), Number(a.batchId))
+              batchCount++
+            }
+          }
+          continue
+        }
         const target = r.actual_qty
         const sys = r.system_qty || 0
         const batchList = db
@@ -146,6 +182,8 @@ export function submitStockTake(db, { takeId, items, operator }) {
           batchCount++
           continue
         }
+        // 米商品（鱼线）目标带小数 → 每批按 1 位小数摊；件商品整数摊。与前端预览逐字节一致
+        const precision = Number.isInteger(target) ? 1 : 10
         let allocated = 0
         for (let i = 0; i < batchList.length; i++) {
           const b = batchList[i]
@@ -153,8 +191,8 @@ export function submitStockTake(db, { takeId, items, operator }) {
           const share =
             i === batchList.length - 1
               ? target - allocated
-              : Math.round((target * b.quantity) / sys)
-          updBatch.run(Math.max(0, share), b.id)
+              : Math.max(0, Math.round(((target * b.quantity) / sys) * precision) / precision)
+          updBatch.run(roundQty(Math.max(0, share)), b.id)
           allocated += share
           batchCount++
         }

@@ -1,4 +1,5 @@
 import { ArrowLeft, ClipboardCheck, Loader2, Search } from 'lucide-react'
+import { Fragment } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -20,8 +21,9 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { productName } from '@/lib/formatters'
+import { allocSkuToBatches } from '@/lib/stocktakeAlloc'
 import { cn } from '@/lib/utils'
-import type { Product, StockTake, StockTakeItem, Supplier } from '@/types'
+import type { InventoryBatch, Product, StockTake, StockTakeItem, Supplier } from '@/types'
 import { statusBadge, takeScopeLabel } from './shared'
 
 /** 盘点录入的本地暂存（itemId → 实盘数/原因），完成时页面统一提交 */
@@ -31,6 +33,8 @@ interface StockTakeExecuteProps {
   take: StockTake
   suppliers: Supplier[]
   products: Product[]
+  /** 全量批次（sku 模式预览"摊完每个批次剩多少"用） */
+  batches: InventoryBatch[]
   keyword: string
   onKeywordChange: (v: string) => void
   /** 已按关键词筛选好的盘点明细 */
@@ -55,6 +59,7 @@ export function StockTakeExecute({
   take,
   suppliers,
   products,
+  batches,
   keyword,
   onKeywordChange,
   items,
@@ -128,63 +133,98 @@ export function StockTakeExecute({
                   const p = products.find((x) => x.id === it.product_id)
                   const edit = edits[it.id] ?? { qty: '', reason: '' }
                   const actual = edit.qty.trim() === '' ? null : Number(edit.qty)
-                  const valid = actual === null || (Number.isInteger(actual) && actual >= 0)
+                  // 计量单位（v2.2）：米商品允许小数实盘数
+                  const isMeter = p?.unit === '米'
+                  const valid =
+                    actual === null ||
+                    (isMeter
+                      ? Number.isFinite(actual) && actual >= 0 && Math.round(actual * 10) === actual * 10
+                      : Number.isInteger(actual) && actual >= 0)
                   const diff = valid && actual !== null ? actual - it.system_qty : null
+                  // sku 模式（按总数盘）：算出摊完后每个批次剩多少，让老板看得见
+                  const isSku = take.mode === 'sku' && it.batch_id === null
+                  let breakdown: { batchId: number; quantity: number }[] = []
+                  if (isSku && valid && actual !== null) {
+                    const productBatches = batches
+                      .filter((b) => b.product_id === it.product_id)
+                      .sort((a, b) => a.id - b.id)
+                      .map((b) => ({ id: b.id, quantity: b.quantity }))
+                    breakdown = allocSkuToBatches(productBatches, actual, it.system_qty)
+                  }
                   return (
-                    <TableRow key={it.id}>
-                      <TableCell className="font-mono text-xs">{p?.sku_code ?? '-'}</TableCell>
-                      <TableCell>
-                        {p ? productName(p) : `#${it.product_id}`}
-                      </TableCell>
-                      <TableCell className="text-right">{it.system_qty}</TableCell>
-                      <TableCell className="text-right">
-                        {readOnly ? (
-                          (it.actual_qty ?? '-')
-                        ) : (
-                          <Input
-                            type="number"
-                            min={0}
-                            value={edit.qty}
-                            onChange={(e) =>
-                              onEditsChange((prev) => ({
-                                ...prev,
-                                [it.id]: { ...edit, qty: e.target.value },
-                              }))
-                            }
-                            className={cn(
-                              'ml-auto w-24 text-right',
-                              !valid && 'border-red-500 focus-visible:ring-red-500',
-                            )}
-                          />
-                        )}
-                      </TableCell>
-                      <TableCell
-                        className={cn(
-                          'text-right font-medium',
-                          diff !== null && diff > 0 && 'text-green-600',
-                          diff !== null && diff < 0 && 'text-red-600',
-                        )}
-                      >
-                        {diff === null ? '-' : diff > 0 ? `+${diff}` : diff}
-                      </TableCell>
-                      <TableCell>
-                        {readOnly ? (
-                          (it.reason || '-')
-                        ) : (
-                          <Input
-                            value={edit.reason}
-                            onChange={(e) =>
-                              onEditsChange((prev) => ({
-                                ...prev,
-                                [it.id]: { ...edit, reason: e.target.value },
-                              }))
-                            }
-                            placeholder="差异原因..."
-                            className="w-40"
-                          />
-                        )}
-                      </TableCell>
-                    </TableRow>
+                    <Fragment key={it.id}>
+                      <TableRow>
+                        <TableCell className="font-mono text-xs">{p?.sku_code ?? '-'}</TableCell>
+                        <TableCell>
+                          {p ? productName(p) : `#${it.product_id}`}
+                        </TableCell>
+                        <TableCell className="text-right">{it.system_qty}</TableCell>
+                        <TableCell className="text-right">
+                          {readOnly ? (
+                            (it.actual_qty ?? '-')
+                          ) : (
+                            <Input
+                              type="number"
+                              min={0}
+                              value={edit.qty}
+                              onChange={(e) =>
+                                onEditsChange((prev) => ({
+                                  ...prev,
+                                  [it.id]: { ...edit, qty: e.target.value },
+                                }))
+                              }
+                              className={cn(
+                                'ml-auto w-24 text-right',
+                                !valid && 'border-red-500 focus-visible:ring-red-500',
+                              )}
+                            />
+                          )}
+                        </TableCell>
+                        <TableCell
+                          className={cn(
+                            'text-right font-medium',
+                            diff !== null && diff > 0 && 'text-green-600',
+                            diff !== null && diff < 0 && 'text-red-600',
+                          )}
+                        >
+                          {diff === null ? '-' : diff > 0 ? `+${diff}` : diff}
+                        </TableCell>
+                        <TableCell>
+                          {readOnly ? (
+                            (it.reason || '-')
+                          ) : (
+                            <Input
+                              value={edit.reason}
+                              onChange={(e) =>
+                                onEditsChange((prev) => ({
+                                  ...prev,
+                                  [it.id]: { ...edit, reason: e.target.value },
+                                }))
+                              }
+                              placeholder="差异原因..."
+                              className="w-40"
+                            />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                      {isSku && breakdown.length > 0 && !readOnly && (
+                        <TableRow className="bg-slate-50/70">
+                          <TableCell colSpan={6} className="px-8 py-1.5 text-xs text-slate-500">
+                            摊完后各批次：
+                            {breakdown.map((a) => {
+                              const b = batches.find((x) => x.id === a.batchId)
+                              return (
+                                <span key={a.batchId} className="mr-3">
+                                  「{b?.batch_no ?? `批次#${a.batchId}`}」→{' '}
+                                  <span className="font-semibold text-slate-700">{a.quantity}</span>
+                                  <span className="text-slate-400">（原 {b?.quantity ?? '?'}）</span>
+                                </span>
+                              )
+                            })}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </Fragment>
                   )
                 })}
               </TableBody>

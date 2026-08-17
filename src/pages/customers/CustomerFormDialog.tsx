@@ -21,6 +21,8 @@ export interface CustomerForm {
   phone: string
   notes: string
   price_level: PriceLevel | ''
+  /** 老钓友偏好（v2.2）：自由文本，如"爱用红虫/常买3.6m竿/月底结账" */
+  preferences: string
 }
 
 interface CustomerFormDialogProps {
@@ -109,6 +111,17 @@ export function CustomerFormDialog({
             </div>
             <div className="text-xs text-muted-foreground">
               选了他来买货自动按这个价（商品设了这档价才生效，没设就按建议价），卖货时还能临时改
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label>偏好</Label>
+            <Textarea
+              value={form.preferences}
+              onChange={(e) => onFormChange({ ...form, preferences: e.target.value })}
+              placeholder="比如：爱用红虫、常买 3.6m 手竿、主钓鲤鱼..."
+            />
+            <div className="text-xs text-muted-foreground">
+              记下老钓友爱用什么饵/竿、钓什么鱼，他来了直接推荐
             </div>
           </div>
           <div className="space-y-1">

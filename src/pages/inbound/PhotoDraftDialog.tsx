@@ -18,6 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { requiresExpiry } from '@/lib/productSpecs'
 
 export interface PhotoDraftItem {
   key: number
@@ -27,6 +28,8 @@ export interface PhotoDraftItem {
   category: string
   quantity: number
   costYuan: string // 可编辑，元
+  /** 该批次的到期日（保质期商品必填） */
+  expiryDate: string
 }
 
 interface PhotoDraftDialogProps {
@@ -59,53 +62,69 @@ export function PhotoDraftDialog({ draft, onClose, onPatchItem, busy, onConfirm 
                 <TableHead>品类</TableHead>
                 <TableHead className="w-24 text-right">数量</TableHead>
                 <TableHead className="w-32 text-right">进价（元）</TableHead>
+                <TableHead className="w-36">到期日</TableHead>
                 <TableHead className="w-24">匹配</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {draft?.map((it) => (
-                <TableRow key={it.key}>
-                  <TableCell>
-                    {[it.brand, it.model].filter(Boolean).join(' ') || (
-                      <span className="text-muted-foreground">未识别名称</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-sm">{it.category}</TableCell>
-                  <TableCell className="text-right">
-                    <Input
-                      type="number"
-                      min={1}
-                      value={it.quantity}
-                      onChange={(e) =>
-                        onPatchItem(it.key, { quantity: parseInt(e.target.value, 10) || 0 })
-                      }
-                      className="h-8 w-20 text-right"
-                    />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={it.costYuan}
-                      onChange={(e) => onPatchItem(it.key, { costYuan: e.target.value })}
-                      placeholder="必填"
-                      className="h-8 w-28 text-right"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {it.product_id ? (
-                      <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">
-                        已有商品
-                      </span>
-                    ) : (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
-                        新商品
-                      </span>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
+              {draft?.map((it) => {
+                const needExpiry = requiresExpiry(it.category)
+                return (
+                  <TableRow key={it.key}>
+                    <TableCell>
+                      {[it.brand, it.model].filter(Boolean).join(' ') || (
+                        <span className="text-muted-foreground">未识别名称</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm">{it.category}</TableCell>
+                    <TableCell className="text-right">
+                      <Input
+                        type="number"
+                        min={1}
+                        value={it.quantity}
+                        onChange={(e) =>
+                          onPatchItem(it.key, { quantity: parseInt(e.target.value, 10) || 0 })
+                        }
+                        className="h-8 w-20 text-right"
+                      />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={it.costYuan}
+                        onChange={(e) => onPatchItem(it.key, { costYuan: e.target.value })}
+                        placeholder="必填"
+                        className="h-8 w-28 text-right"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {needExpiry ? (
+                        <Input
+                          type="date"
+                          value={it.expiryDate}
+                          onChange={(e) => onPatchItem(it.key, { expiryDate: e.target.value })}
+                          className={`h-8 w-36 ${needExpiry && !it.expiryDate ? 'border-red-400 focus-visible:ring-red-400' : ''}`}
+                        />
+                      ) : (
+                        <span className="text-xs text-slate-400">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {it.product_id ? (
+                        <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">
+                          已有商品
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
+                          新商品
+                        </span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
             </TableBody>
           </Table>
         </div>

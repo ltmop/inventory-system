@@ -1,6 +1,6 @@
 // 入库
 import {
-  assertPositiveInt,
+  assertQuantity,
   assertFen,
   inTransaction,
   now,
@@ -11,7 +11,10 @@ import {
 } from './helpers.js'
 
 export function createInbound(db, { productId, quantity, costPrice, location, supplierId, operator, expiryDate }) {
-  assertPositiveInt(quantity, '入库数量')
+  // 计量单位（v2.2）：米商品（鱼线）允许小数入库，如 500 米 / 3.5 米
+  const prod = db.prepare('SELECT * FROM products WHERE id = ?').get(productId)
+  if (!prod) throw new Error('商品不存在')
+  const qty = assertQuantity(quantity, '入库数量', prod.unit === '米' ? '米' : '件')
   assertFen(costPrice, '入库成本价')
   // 到期日可选：YYYY-MM-DD；填了非法格式直接报错（保质期商品防手误）
   let expiry = null
@@ -27,13 +30,13 @@ export function createInbound(db, { productId, quantity, costPrice, location, su
         `INSERT INTO inventory_batches (product_id, batch_no, quantity, cost_price, location, inbound_date, supplier_id, expiry_date)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(productId, batchNo, quantity, costPrice, location ?? null, today(), supplierId ?? null, expiry)
+      .run(productId, batchNo, qty, costPrice, location ?? null, today(), supplierId ?? null, expiry)
     const batchId = Number(batchInfo.lastInsertRowid)
 
     db.prepare(
       `INSERT INTO transactions (product_id, batch_id, type, quantity, unit_price, selling_price, timestamp, operator, notes)
        VALUES (?, ?, 'in', ?, ?, NULL, ?, ?, NULL)`,
-    ).run(productId, batchId, quantity, costPrice, ts, operator ?? null)
+    ).run(productId, batchId, qty, costPrice, ts, operator ?? null)
 
     // 商品主表同步最近进价
     db.prepare('UPDATE products SET cost_price = ?, updated_at = ? WHERE id = ?').run(
@@ -42,8 +45,8 @@ export function createInbound(db, { productId, quantity, costPrice, location, su
       productId,
     )
     const prod = db.prepare('SELECT * FROM products WHERE id = ?').get(productId)
-    logAudit(db, '入库', `${prod ? productLabel(prod) : `#${productId}`} x${quantity}`,
-      { batchNo, quantity, costPrice, supplierId: supplierId ?? null }, operator)
+    logAudit(db, '入库', `${prod ? productLabel(prod) : `#${productId}`} x${qty}`,
+      { batchNo, quantity: qty, costPrice, supplierId: supplierId ?? null }, operator)
     return { batchId, batchNo }
   })
 }

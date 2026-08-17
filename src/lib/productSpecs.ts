@@ -1,65 +1,43 @@
-// 渔具规格字段：品类 → 该显示的字段列表 + 中文标签 + 一行格式化
+// 通用商品规格字段：品类 → 该显示的字段列表 + 中文标签 + 一行格式化
 // 纯函数，不依赖 store / UI，InboundPage / InventoryPage / 导入导出共用
 import type { Category } from '@/types'
 
 export type SpecField =
-  | 'rod_length'   // 鱼竿长度，如 3.6m
-  | 'rod_action'   // 调性，如 28调
-  | 'power_rating' // 硬度，如 H / ML
-  | 'line_number'  // 线号，如 1.5号
-  | 'hook_size'    // 钩号，如 伊势尼5号
   | 'color'        // 颜色
   | 'material'     // 材质
-  | 'expiry_date'  // 保质期（鱼饵用），如 2027-06
+  | 'expiry_date'  // 保质期，如 2027-06
 
 export const SPEC_FIELDS: SpecField[] = [
-  'rod_length', 'rod_action', 'power_rating', 'line_number',
-  'hook_size', 'color', 'material', 'expiry_date',
+  'color', 'material', 'expiry_date',
 ]
 
 export const SPEC_LABELS: Record<SpecField, string> = {
-  rod_length: '长度',
-  rod_action: '调性',
-  power_rating: '硬度',
-  line_number: '线号',
-  hook_size: '钩号',
   color: '颜色',
   material: '材质',
   expiry_date: '保质期',
 }
 
-// 输入占位提示：老板手输，给个例子就知道填什么格式
+// 输入占位提示：给个例子就知道填什么格式
 export const SPEC_PLACEHOLDERS: Record<SpecField, string> = {
-  rod_length: '如：3.6m',
-  rod_action: '如：28调',
-  power_rating: '如：H / ML',
-  line_number: '如：1.5号',
-  hook_size: '如：伊势尼5号',
-  color: '如：黑 / 腥香',
-  material: '如：碳素 / 高碳钢',
+  color: '如：红 / 黑',
+  material: '如：不锈钢 / 塑料',
   expiry_date: '如：2027-06',
 }
 
-/** 品类 → 表单该显示的规格字段（全部选填）；未列出的品类只给通用的颜色/材质 */
-export function specFieldsFor(category: Category | string): SpecField[] {
-  switch (category) {
-    case '鱼竿':
-      return ['rod_length', 'rod_action', 'power_rating']
-    case '鱼钩':
-      return ['hook_size', 'material', 'color']
-    case '鱼线':
-      return ['line_number', 'material', 'color']
-    case '饵料':
-    case '活饵':
-    case '小药':
-    case '路亚假饵':
-      return ['expiry_date', 'color']
-    default:
-      return ['color', 'material']
-  }
+/**
+ * 是否入库必填到期日（通用版）：不按品类强制——所有商品到期日都可选，
+ * 填了该批次就走保质期批次管理（临期预警/FEFO），没填当普通商品。
+ */
+export function requiresExpiry(_category: Category | string | null | undefined): boolean {
+  return false
 }
 
-/** 把商品的非空规格拼成一行展示，如「3.6m · 28调 · 碳素」；全空返回空串 */
+/** 品类 → 表单该显示的规格字段（全部选填）；通用版统一给颜色/材质/保质期 */
+export function specFieldsFor(_category: Category | string): SpecField[] {
+  return ['color', 'material', 'expiry_date']
+}
+
+/** 把商品的非空规格拼成一行展示，如「红 · 不锈钢」；全空返回空串 */
 export function formatSpecs(
   p: Partial<Record<SpecField, string | null>>,
 ): string {

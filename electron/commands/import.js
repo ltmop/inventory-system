@@ -14,6 +14,7 @@ import {
   minStockOrNull,
   logAudit,
 } from './helpers.js'
+import { enforceSkuQuota } from '../license.js'
 
 /**
  * 批量导入商品 + 批次，每条商品自动生成批次入库记录。
@@ -78,9 +79,11 @@ export function importBatch(db, { rows, mode = 'skip' }) {
       }
     }
 
+    // v3.0 SKU 配额：本次新增商品数 + 现有总数 超过当前版本上限直接拒绝
+    enforceSkuQuota(db, newRows.length || 1)
     const insProduct = db.prepare(
-      `INSERT INTO products (sku_code, barcode, category, sub_category, brand, model, cost_price, suggest_price, location, status, rod_length, rod_action, power_rating, line_number, hook_size, color, material, expiry_date, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '待盘点', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO products (sku_code, barcode, category, sub_category, brand, model, cost_price, suggest_price, location, status, color, material, expiry_date, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '待盘点', ?, ?, ?, ?, ?)`,
     )
     const insBatch = db.prepare(
       `INSERT INTO inventory_batches (product_id, batch_no, quantity, cost_price, location, inbound_date, supplier_id)

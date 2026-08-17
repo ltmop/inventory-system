@@ -18,6 +18,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { formatDateTime, productName } from '@/lib/formatters'
+import { unitOf } from '@/lib/quantity'
 import { usePagination } from '@/lib/usePagination'
 import { useAppStore } from '@/store/appStore'
 import type { Product, Transaction, TransactionType } from '@/types'
@@ -57,7 +58,8 @@ export function ProductHistoryDialog({ product, onClose }: ProductHistoryDialogP
     let outQty = 0
     for (const t of rows) {
       if (t.type === 'in' || t.type === 'return') inQty += t.quantity
-      else if (t.type === 'out') outQty += t.quantity
+      // 报损跟出库一样是减库存，计入"累计出"
+      else if (t.type === 'out' || t.type === 'waste') outQty += t.quantity
       // exchange 只记差价不动库存，不进进出平衡
     }
     return { inQty, outQty }
@@ -70,9 +72,9 @@ export function ProductHistoryDialog({ product, onClose }: ProductHistoryDialogP
           <DialogTitle>库存变动历史{product ? `：${productName(product)}` : ''}</DialogTitle>
           {product && (
             <DialogDescription>
-              累计入 <span className="font-medium text-green-600">{totals.inQty} 件</span>
-              {' / '}累计出 <span className="font-medium text-red-600">{totals.outQty} 件</span>
-              {' / '}当前库存 <span className="font-medium">{totalStockOf(product.id)} 件</span>
+              累计入 <span className="font-medium text-green-600">{totals.inQty} {unitOf(product)}</span>
+              {' / '}累计出 <span className="font-medium text-red-600">{totals.outQty} {unitOf(product)}</span>
+              {' / '}当前库存 <span className="font-medium">{totalStockOf(product.id)} {unitOf(product)}</span>
             </DialogDescription>
           )}
         </DialogHeader>

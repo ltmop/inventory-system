@@ -79,6 +79,14 @@ export function CustomerDetailDialog({
           </div>
         )}
 
+        {/* 老钓友偏好：记下爱用什么，他来了一眼能看出该推荐啥 */}
+        {detail?.preferences && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <div className="text-xs font-medium text-amber-700">偏好</div>
+            <div className="mt-0.5 whitespace-pre-wrap text-sm text-slate-700">{detail.preferences}</div>
+          </div>
+        )}
+
         {statementLoading && (
           <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />

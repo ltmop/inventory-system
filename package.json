@@ -1,7 +1,7 @@
 {
-  "name": "fishing-inventory",
+  "name": "inventory-general",
   "private": true,
-  "version": "2.1.9",
+  "version": "2.3.0",
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
@@ -12,7 +12,7 @@
     "dev-electron": "node scripts/dev-electron.cjs",
     "dist": "node scripts/dist.cjs"
   },
-  "description": "渔具库存AI管理系统 — 面向中小渔具店的本地进销存桌面软件",
+  "description": "通用进销存系统 — 面向中小商户的本地进销存桌面软件",
   "author": "阿杜",
   "dependencies": {
     "@fontsource/plus-jakarta-sans": "^5.3.0",
@@ -23,7 +23,11 @@
     "@radix-ui/react-separator": "^1.1.2",
     "@radix-ui/react-slot": "^1.1.2",
     "@radix-ui/react-tabs": "^1.1.3",
+    "@refinedev/antd": "^6.0.3",
+    "@refinedev/core": "^5.0.12",
+    "@refinedev/simple-rest": "^6.0.1",
     "@sentry/electron": "^7.16.0",
+    "antd": "^5.29.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "electron-updater": "^6.8.9",
@@ -61,8 +65,8 @@
     "esbuild@0.25.12": true
   },
   "build": {
-    "appId": "com.adu.fishing-inventory",
-    "productName": "渔具库存AI管理系统",
+    "appId": "com.adu.inventory-general",
+    "productName": "通用进销存系统",
     "files": [
       "dist/**",
       "electron/**",

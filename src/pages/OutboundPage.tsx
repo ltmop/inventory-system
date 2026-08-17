@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeftRight, Printer, RotateCcw } from 'lucide-react'
+import { ArrowLeftRight, PackageOpen, Printer, RotateCcw } from 'lucide-react'
 import { PageHeader, SuccessBanner, ErrorBanner } from '@/components/feedback'
 import { ReceiptDialog, makeReceiptNo, type ReceiptData } from '@/components/Receipt'
 import { ScanHero } from '@/components/scan/ScanHero'
+import { VoiceSearchButton } from '@/components/voice/VoiceSearchButton'
 import { useAppStore, priceForCustomer } from '@/store/appStore'
 import { previewFifo } from '@/lib/fifo'
+import { validateQty, unitOf } from '@/lib/quantity'
 import { playSound } from '@/lib/sounds'
 import { formatPrice, isToday, productName } from '@/lib/formatters'
 import type { CreditOptions } from '@/store/appStore'
 import { type Customer, type PaymentMethod, type PriceLevel, type Product } from '@/types'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { CartPanel, type CartItem } from './outbound/CartPanel'
 import { CheckoutDialog } from './outbound/CheckoutDialog'
 import { ConfirmOutboundDialog } from './outbound/ConfirmOutboundDialog'
@@ -38,6 +41,8 @@ export function OutboundPage() {
   const customers = useAppStore((s) => s.customers)
   const loadCustomers = useAppStore((s) => s.loadCustomers)
   const addCustomer = useAppStore((s) => s.addCustomer)
+  const kits = useAppStore((s) => s.kits)
+  const kitDetail = useAppStore((s) => s.kitDetail)
   // 多级定价：选中商品若设了档次价，确认出库时可一键带出
   const priceTiers = useAppStore((s) => s.priceTiers)
 
@@ -66,6 +71,66 @@ export function OutboundPage() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [checkoutExecuting, setCheckoutExecuting] = useState(false)
+
+  // 套装一键开单：搜索套装名，点一下把里面的商品按现价全加进清单
+  const [kitKw, setKitKw] = useState('')
+  const kitCandidates = kitKw.trim()
+    ? kits.filter((k) => k.name.toLowerCase().includes(kitKw.trim().toLowerCase())).slice(0, 6)
+    : []
+  const addKitToCart = async (kitId: number) => {
+    try {
+      const { kit, items } = await kitDetail(kitId)
+      // 组成件先按现价（散客零售档 → 建议价）算合计
+      const lines = items
+        .map((it) => {
+          const p = products.find((x) => x.id === it.product_id)
+          if (!p) return null
+          const { price } = priceForCustomer(p, priceTiers, null)
+          return { product: p, quantity: it.quantity, priceCents: price ?? 0 }
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null)
+      const sum = lines.reduce((s, i) => s + i.priceCents * i.quantity, 0)
+      // 打包价（v2.2）：一口价优先，其次总折扣；按比例折算到每行，取整误差补到最后一行
+      let target = sum
+      let priceNote = ''
+      if (kit.price != null) {
+        target = kit.price
+        priceNote = `一口价 ${(kit.price / 100).toFixed(2)} 元`
+      } else if (kit.discount_percent != null) {
+        target = Math.round((sum * kit.discount_percent) / 100)
+        priceNote = `${kit.discount_percent} 折`
+      }
+      if (target > 0 && sum > 0 && target !== sum) {
+        const ratio = target / sum
+        lines.forEach((l) => {
+          l.priceCents = Math.max(1, Math.round(l.priceCents * ratio))
+        })
+        const after = lines.reduce((s, i) => s + i.priceCents * i.quantity, 0)
+        if (lines.length > 0 && after !== target) {
+          const last = lines[lines.length - 1]
+          last.priceCents = Math.max(1, last.priceCents + Math.round((target - after) / last.quantity))
+        }
+      }
+      setCart((prev) => {
+        const byId = new Map(prev.map((i) => [i.product.id, i]))
+        for (const l of lines) {
+          const existing = byId.get(l.product.id)
+          byId.set(l.product.id, existing ? { ...existing, quantity: existing.quantity + l.quantity, priceCents: l.priceCents } : l)
+        }
+        return [...byId.values()]
+      })
+      setKitKw('')
+      playSound('success')
+      setSuccess(
+        kit.price != null || kit.discount_percent != null
+          ? `套装「${kit.name}」${priceNote}已加进清单（组成件按打包价折算）`
+          : `套装「${kit.name}」的 ${lines.length} 样商品已加进清单，可改数量/价格后去开单`,
+      )
+    } catch (e) {
+      playSound('error')
+      setError(`套装加载失败：${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
 
   // 赊账包：确认出库时选客户 + 付款方式（散客只能全额收款）
   const WALK_IN = '__walkin__'
@@ -141,8 +206,10 @@ export function OutboundPage() {
     [selected, priceTiers],
   )
 
-  const qty = Number(quantity)
-  const qtyValid = Number.isInteger(qty) && qty > 0
+  // 计量单位（v2.2）：件=整数；米商品（鱼线）允许小数（最多 1 位）
+  const qtyNum = Number(quantity)
+  const qtyValid = selected ? validateQty(qtyNum, unitOf(selected)) !== null : false
+  const qty = qtyValid ? qtyNum : NaN
   const totalStock = selected ? totalStockOf(selected.id) : 0
   const { plan, byBatch } = useMemo(
     () => (selected && qtyValid ? previewFifo(productBatches, qty) : { plan: null, byBatch: new Map<number, number>() }),
@@ -193,12 +260,12 @@ export function OutboundPage() {
   const handleConfirmClick = () => {
     if (!selected) return
     if (!qtyValid) {
-      setError('出库数量必须是 ≥1 的整数')
+      setError(unitOf(selected) === '米' ? '出库数量要大于 0，且最多 1 位小数' : '出库数量必须是 ≥1 的整数')
       playSound('error')
       return
     }
     if (overStock) {
-      setError(`出库数量超过当前库存（还差 ${plan!.shortage} 个）`)
+      setError(`出库数量超过当前库存（还差 ${plan!.shortage} ${unitOf(selected)}）`)
       playSound('error')
       return
     }
@@ -305,7 +372,7 @@ export function OutboundPage() {
           .map((b: { batch_no: string; expiry_date: string }) => `${b.batch_no}（${b.expiry_date}）`)
           .join('，')
         const confirmed = window.confirm(
-          `⚠ 这个商品有已过期批次要出（${desc}）\n\n确认继续出库吗？临期/过期饵料低价处理可继续。`,
+          `⚠ 这个商品有已过期批次要出（${desc}）\n\n确认继续出库吗？临期/过期商品低价处理可继续。`,
         )
         if (!confirmed) {
           playSound('error')
@@ -340,7 +407,7 @@ export function OutboundPage() {
         receiptNo: makeReceiptNo(),
         time: new Date().toISOString(),
         operator: operator.trim() || '未署名',
-        items: [{ name: productName(selected), quantity: qty, unitPrice: price }],
+        items: [{ name: productName(selected), quantity: qty, unitPrice: price, unit: unitOf(selected) }],
         paid: credit?.paidAmount ?? null,
         customerName: custName,
       })
@@ -368,7 +435,7 @@ export function OutboundPage() {
   const addToCart = () => {
     if (!selected) return
     if (!qtyValid) {
-      setError('出库数量必须是 ≥1 的整数')
+      setError(unitOf(selected) === '米' ? '出库数量要大于 0，且最多 1 位小数' : '出库数量必须是 ≥1 的整数')
       playSound('error')
       return
     }
@@ -378,11 +445,12 @@ export function OutboundPage() {
       playSound('error')
       return
     }
+    const unit = unitOf(selected)
     const stock = totalStockOf(selected.id)
     const existing = cart.find((i) => i.product.id === selected.id)
     const mergedQty = (existing?.quantity ?? 0) + qty
     if (mergedQty > stock) {
-      setError(`清单里已有 ${existing?.quantity ?? 0} 件，再加 ${qty} 件超过当前库存（共 ${stock} 件）`)
+      setError(`清单里已有 ${existing?.quantity ?? 0} ${unit}，再加 ${qty} ${unit}超过当前库存（共 ${stock} ${unit}）`)
       playSound('error')
       return
     }
@@ -398,8 +466,14 @@ export function OutboundPage() {
 
   const cartQtyChange = (productId: number, quantity: number) => {
     const stock = totalStockOf(productId)
+    const p = products.find((x) => x.id === productId)
+    const min = p && unitOf(p) === '米' ? 0.5 : 1
     setCart((c) =>
-      c.map((i) => (i.product.id === productId ? { ...i, quantity: Math.max(1, Math.min(quantity, stock)) } : i)),
+      c.map((i) =>
+        i.product.id === productId
+          ? { ...i, quantity: Math.max(min, Math.min(Math.round(quantity * 10) / 10, stock)) }
+          : i,
+      ),
     )
   }
   const cartPriceChange = (productId: number, priceCents: number | null) => {
@@ -462,7 +536,7 @@ export function OutboundPage() {
             return `${p.name}【${bs}】`
           })
           .join('；')
-        const confirmed = window.confirm(`⚠ 单子里有商品含已过期批次：\n${names}\n\n确认继续开单吗？临期/过期饵料低价处理可继续。`)
+        const confirmed = window.confirm(`⚠ 单子里有商品含已过期批次：\n${names}\n\n确认继续开单吗？临期/过期商品低价处理可继续。`)
         if (!confirmed) {
           setCheckoutOpen(false)
           playSound('error')
@@ -477,7 +551,7 @@ export function OutboundPage() {
             'expired' in result && result.expired
               ? '仍被拦截，请先处理过期批次'
               : 'shortages' in result
-                ? `库存不足：${result.shortages.map((s) => `${s.name} 还差 ${s.shortage} 件`).join('；')}，开单未记账`
+                ? `库存不足：${result.shortages.map((s) => `${s.name} 还差 ${s.shortage} ${unitOf(products.find((p) => p.id === s.productId))}`).join('；')}，开单未记账`
                 : '开单失败，请重试',
           )
           return
@@ -488,7 +562,7 @@ export function OutboundPage() {
         playSound('error')
         setError(
           'shortages' in result
-            ? `库存不足：${result.shortages.map((s) => `${s.name} 还差 ${s.shortage} 件`).join('；')}，开单未记账`
+            ? `库存不足：${result.shortages.map((s) => `${s.name} 还差 ${s.shortage} ${unitOf(products.find((p) => p.id === s.productId))}`).join('；')}，开单未记账`
             : '开单失败，请重试',
         )
         return
@@ -502,7 +576,7 @@ export function OutboundPage() {
         receiptNo: makeReceiptNo(),
         time: new Date().toISOString(),
         operator: operator.trim() || '未署名',
-        items: cart.map((i) => ({ name: productName(i.product), quantity: i.quantity, unitPrice: i.priceCents })),
+        items: cart.map((i) => ({ name: productName(i.product), quantity: i.quantity, unitPrice: i.priceCents, unit: unitOf(i.product) })),
         paid: credit?.paidAmount ?? null,
         customerName: custName,
       })
@@ -571,9 +645,9 @@ export function OutboundPage() {
 
   const handleReturnSubmit = async () => {
     if (!retSelected || retBusy) return
-    const q = Number(retQty)
-    if (!Number.isInteger(q) || q < 1) {
-      setError('退货数量必须是 ≥1 的整数')
+    const q = validateQty(Number(retQty), unitOf(retSelected))
+    if (q === null) {
+      setError(unitOf(retSelected) === '米' ? '退货数量要大于 0，且最多 1 位小数' : '退货数量必须是 ≥1 的整数')
       return
     }
     const refund = yuanToCents(retRefund)
@@ -667,9 +741,9 @@ export function OutboundPage() {
     return { unitPrice: 0, source: 'none', tx: null }
   }, [exchOld, transactions])
 
-  // 差价试算：新腿售价合计 - 旧腿原售价合计（与后端一致）
+  // 差价试算：新腿售价合计 - 旧腿原售价合计（与后端一致）；换货数量按新货计量单位校验
   const exchQtyN = Number(exchQty)
-  const exchQtyValid = Number.isInteger(exchQtyN) && exchQtyN > 0
+  const exchQtyValid = exchNew ? validateQty(exchQtyN, unitOf(exchNew)) !== null : false
   const exchNewPriceCents = yuanToCents(exchPrice)
   const exchDiff =
     exchOld && exchNew && exchQtyValid && exchNewPriceCents != null && exchOldPrice
@@ -700,9 +774,9 @@ export function OutboundPage() {
       setError('换货的旧商品和新商品不能是同一个')
       return
     }
-    const q = Number(exchQty)
-    if (!Number.isInteger(q) || q < 1) {
-      setError('换货数量必须是 ≥1 的整数')
+    const q = exchNew ? validateQty(Number(exchQty), unitOf(exchNew)) : null
+    if (q === null) {
+      setError(exchNew && unitOf(exchNew) === '米' ? '换货数量要大于 0，且最多 1 位小数' : '换货数量必须是 ≥1 的整数')
       return
     }
     const price = yuanToCents(exchPrice)
@@ -737,7 +811,7 @@ export function OutboundPage() {
       })
       if (!r.ok) {
         playSound('error')
-        setError(`新货「${productName(exchNew)}」库存不足，还差 ${r.shortage} 件，换货未记账`)
+        setError(`新货「${productName(exchNew)}」库存不足，还差 ${r.shortage} ${unitOf(exchNew)}，换货未记账`)
         return
       }
       setExchOpen(false)
@@ -788,7 +862,7 @@ export function OutboundPage() {
         }
       />
 
-      {/* 搜索区：与入库页同款 ScanHero，回车选中首个候选（适配扫码枪） */}
+      {/* 搜索区：与入库页同款 ScanHero，回车选中首个候选（适配扫码枪）；语音搜索全版本开放 */}
       <ScanHero
         inputRef={inputRef}
         autoFocus
@@ -798,6 +872,14 @@ export function OutboundPage() {
           setKeyword(v)
           if (selected) setSelected(null)
         }}
+        action={
+          <VoiceSearchButton
+            onText={(text) => {
+              setKeyword(text)
+              setSelected(null)
+            }}
+          />
+        }
         onSubmit={() => {
           if (candidates.length > 0) {
             playSound('scan')
@@ -834,6 +916,37 @@ export function OutboundPage() {
 
       {success && <SuccessBanner>{success}</SuccessBanner>}
       {error && <ErrorBanner>{error}</ErrorBanner>}
+
+      {/* 套装一键开单：先建好套装（套装管理页），这里搜一下全进清单 */}
+      {kits.length > 0 && (
+        <div className="rounded-xl border border-lake-200 bg-white px-4 py-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="inline-flex items-center gap-1.5 text-sm text-slate-500">
+              <PackageOpen className="size-4 text-lake-500" />
+              套装一键开单
+            </span>
+            <Input
+              value={kitKw}
+              onChange={(e) => { setKitKw(e.target.value); setError('') }}
+              placeholder="搜索套装名（如：新手套装），点一下全进清单..."
+              className="h-9 max-w-md"
+            />
+          </div>
+          {kitCandidates.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {kitCandidates.map((k) => (
+                <button
+                  key={k.id}
+                  onClick={() => addKitToCart(k.id)}
+                  className="cursor-pointer rounded-lg border border-lake-200 bg-lake-50 px-3 py-1.5 text-sm text-lake-700 transition-colors hover:bg-lake-100"
+                >
+                  {k.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 上一单小票：成功横幅 3 秒消失后，这里还能补打 */}
       {receipt && (

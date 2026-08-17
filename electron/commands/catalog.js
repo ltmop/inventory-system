@@ -11,5 +11,7 @@ export function loadAll(db) {
     stockTakeItems: q('SELECT * FROM stock_take_items ORDER BY id'),
     priceTiers: q('SELECT * FROM price_tiers ORDER BY product_id, id'),
     expenses: q('SELECT * FROM expenses ORDER BY expense_date DESC, id DESC'),
+    kits: q('SELECT * FROM kits ORDER BY id DESC'),
+    kitItems: q('SELECT * FROM kit_items ORDER BY id'),
   }
 }

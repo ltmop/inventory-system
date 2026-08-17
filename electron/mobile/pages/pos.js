@@ -8,7 +8,11 @@ page('pos', function (app) {
   loadHot()
 
   async function loadHot() {
-    try { hotProducts = await api('report:hotSellers', { days: 30 }) } catch { hotProducts = [] }
+    try {
+      hotProducts = await api('report:hotSellers', { days: 30 })
+      // 没设建议售价的货不上热销榜——否则按进价卖会倒贴钱
+      hotProducts = (hotProducts || []).filter((p) => p.suggest_price > 0)
+    } catch { hotProducts = [] }
     render()
   }
 
@@ -29,8 +33,19 @@ page('pos', function (app) {
       }, 300)
     }
     scanrow.appendChild(scanbtn); scanrow.appendChild(search)
+    // 语音搜索（v3.0 全版本开放）：手机浏览器 HTTP 下麦克风被浏览器禁用，引导用输入法语音；HTTPS/未来 APP 下才可用
+    const mic = document.createElement('button'); mic.className = 'scanbtn'; mic.style.flex = '0 0 auto'
+    mic.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zM5 10a7 7 0 0 0 14 0M12 17v4"/></svg>'
+    mic.onclick = () => {
+      if (window.isSecureContext) {
+        toast('语音识别已开放；当前需 HTTPS 才能用麦克风，正式 APP 上线后可直接说')
+      } else {
+        toast('当前网络(HTTP)不让用麦克风，请用手机输入法自带的语音，或到电脑上用语音搜索')
+      }
+    }
+    scanrow.appendChild(mic)
     app.appendChild(scanrow)
-    const hint = document.createElement('div'); hint.className = 'hint'; hint.textContent = '人多时直接点下面热销榜，不用搜索'
+    const hint = document.createElement('div'); hint.className = 'hint'; hint.textContent = '人多时直接点下面热销榜，不用搜索；语音搜索全版本开放'
     app.appendChild(hint)
 
     // 热销榜
@@ -59,13 +74,22 @@ page('pos', function (app) {
     } else {
       cart.forEach(c => {
         const name = prodName(c.product)
+        const isMeter = c.product.unit === '米'
+        const step = isMeter ? 0.5 : 1
+        const unitLabel = isMeter ? '米' : ''
         const line = document.createElement('div'); line.className = 'line'
         line.innerHTML =
           '<div class="ph" style="background:' + phColor(c.product) + '">' + phChar(c.product) + '</div>' +
-          '<div class="info"><div class="n">' + name + '</div><div class="p">' + fmt(c.selling_price) + '</div></div>' +
-          '<div class="qty"><button onclick="void(0)">−</button><span class="n">' + c.qty + '</span><button onclick="void(0)">+</button></div>'
-        line.querySelectorAll('button')[0].onclick = () => { c.qty--; if (c.qty <= 0) cart.splice(cart.indexOf(c), 1); render() }
-        line.querySelectorAll('button')[1].onclick = () => { c.qty++; render() }
+          '<div class="info"><div class="n">' + name + '</div><div class="p">' + fmt(c.selling_price) + (isMeter ? '/米' : '/件') + '</div></div>' +
+          '<div class="qty"><button onclick="void(0)">−</button><span class="n" data-edit="1" style="cursor:pointer">' + c.qty + unitLabel + '</span><button onclick="void(0)">+</button></div>'
+        // 点数量弹输入框精确改：米商品能填小数（15.5 米），件商品整数
+        line.querySelector('[data-edit]').onclick = () => editQty(c)
+        line.querySelectorAll('button')[0].onclick = () => {
+          c.qty = Math.round((c.qty - step) * 10) / 10
+          if (c.qty <= 0) cart.splice(cart.indexOf(c), 1)
+          render()
+        }
+        line.querySelectorAll('button')[1].onclick = () => { c.qty = Math.round((c.qty + step) * 10) / 10; render() }
         cartDiv.appendChild(line)
       })
     }
@@ -90,10 +114,50 @@ page('pos', function (app) {
     app.appendChild(chk)
   }
 
-  function addToCart(p) {
+  // 点购物车数量 → 弹输入框精确改：米商品（鱼线）可填小数如 15.5，件商品必须是整数
+  function editQty(c) {
+    const isMeter = c.product.unit === '米'
+    const v = prompt(
+      isMeter ? '「' + prodName(c.product) + '」卖几米？' : '「' + prodName(c.product) + '」卖几个？',
+      String(c.qty),
+    )
+    if (v === null) return
+    const n = parseFloat(v)
+    if (isMeter) {
+      const rounded = Math.round(n * 10) / 10
+      if (!(n > 0) || Math.abs(rounded - n) > 1e-9) { toast('米数要大于 0，最多 1 位小数'); return }
+      c.qty = rounded
+    } else {
+      if (!Number.isInteger(n) || n <= 0) { toast('件数要是 ≥1 的整数'); return }
+      c.qty = n
+    }
+    render()
+  }
+
+  async function addToCart(p) {
     const existing = cart.find(c => c.product_id === p.id)
-    if (existing) { existing.qty++ }
-    else { cart.push({ product_id: p.id, product: p, qty: 1, selling_price: p.suggest_price || p.cost_price || 0 }) }
+    const isMeter = p.unit === '米'
+    if (existing) {
+      // 米商品步进 0.5，件商品步进 1
+      existing.qty = isMeter ? Math.round((existing.qty + 0.5) * 10) / 10 : existing.qty + 1
+      render(); return
+    }
+    let price = p.suggest_price
+    // 没设售价的货必须现场填售价，不按进价兜底卖（不然倒贴钱）
+    if (!price) {
+      const s = prompt('「' + prodName(p) + '」没设售价，卖多少钱？（元）', '')
+      if (!s || !(parseFloat(s) > 0)) { toast('得填个售价才能卖'); return }
+      price = Math.round(parseFloat(s) * 100)
+    }
+    let qty = 1
+    if (isMeter) {
+      // 鱼线按米卖：让伙计直接填米数（小数也行，如 15 米）
+      const s = prompt('「' + prodName(p) + '」卖多少米？', '1')
+      const n = s ? parseFloat(s) : NaN
+      if (!(n > 0)) { toast('得填个米数'); return }
+      qty = Math.round(n * 10) / 10
+    }
+    cart.push({ product_id: p.id, product: p, qty, selling_price: price })
     render()
   }
 
@@ -102,16 +166,16 @@ page('pos', function (app) {
     try {
       const rows = await api('product:search', { keyword: code })
       if (!rows || rows.length === 0) {
-        const p = await createOnTheFly(code); if (p) addToCart(p); return
+        const p = await createOnTheFly(code); if (p) await addToCart(p); return
       }
-      addToCart(rows[0])
+      await addToCart(rows[0])
     } catch (e) { toast('查找失败: ' + e.message) }
   }
 
   async function handleSearch(kw) {
     try {
       const rows = await api('product:search', { keyword: kw })
-      if (rows && rows.length > 0) addToCart(rows[0])
+      if (rows && rows.length > 0) await addToCart(rows[0])
       else toast('没找到「' + kw + '」，扫码试试')
     } catch { toast('搜索失败') }
   }
@@ -125,14 +189,18 @@ page('pos', function (app) {
     const cost = Math.round(parseFloat(costStr) * 100)
     const priceStr = prompt('卖多少钱？（元）例如 85', '')
     const price = priceStr ? Math.round(parseFloat(priceStr) * 100) : 0
+    // 鱼线按米卖：建档问一句单位，打上"米"，之后手机开单就能填小数米数（如 15.5 米）
+    const isMeter = confirm('这卷是鱼线吗？（确定=按米卖，取消=按个/包卖）')
+    const category = isMeter ? '鱼线' : '其他'
+    const unit = isMeter ? '米' : '件'
     try {
       const r = await api('product:create', {
-        sku_code: code, barcode: code, category: '其他', brand: '', model: name,
-        cost_price: cost, suggest_price: price, status: '待盘点',
+        sku_code: code, barcode: code, category, brand: '', model: name,
+        cost_price: cost, suggest_price: price, status: '待盘点', unit,
       })
-      const qty = parseInt(prompt('大概多少个？不准没关系，以后盘点会校正', '1')) || 1
-      await api('inbound:create', { product_id: r.id, quantity: qty, cost_price: cost, location: '', operator: '手机' })
-      return { id: r.id, sku_code: code, brand: '', model: name, suggest_price: price, cost_price: cost }
+      const qty = parseFloat(prompt(isMeter ? '大概几米？不准没关系，以后盘点会校正' : '大概多少个？不准没关系，以后盘点会校正', '1')) || 1
+      await api('inbound:create', { productId: r.id, quantity: qty, costPrice: cost, location: '', operator: '手机' })
+      return { id: r.id, sku_code: code, brand: '', model: name, suggest_price: price, cost_price: cost, unit }
     } catch (e) { toast('新建失败: ' + e.message); return null }
   }
 
@@ -140,9 +208,10 @@ page('pos', function (app) {
     if (cart.length === 0 || busy) return
     busy = true; render()
     try {
+      // 后端 confirmCheckout 字段是 camelCase：productId/sellingPrice/payMethod
       await api('outbound:checkout', {
-        items: cart.map(c => ({ product_id: c.product_id, quantity: c.qty, selling_price: c.selling_price })),
-        method: method, operator: '手机',
+        items: cart.map(c => ({ productId: c.product_id, quantity: c.qty, sellingPrice: c.selling_price })),
+        payMethod: method, operator: '手机',
       })
       const totalFen = cart.reduce((s, c) => s + c.selling_price * c.qty, 0)
       showStamp('收讫', fmt(totalFen) + ' · ' + method, false)
@@ -159,9 +228,9 @@ page('pos', function (app) {
         const totalFen = cart.reduce((s, c) => s + c.selling_price * c.qty, 0)
         try {
           await api('outbound:checkout', {
-            items: cart.map(c => ({ product_id: c.product_id, quantity: c.qty, selling_price: c.selling_price })),
-            method: '微信', operator: '手机',
-            customer_id: customer.id, paid_amount: 0,
+            items: cart.map(c => ({ productId: c.product_id, quantity: c.qty, sellingPrice: c.selling_price })),
+            operator: '手机',
+            customerId: customer.id, paidAmount: 0,
           })
           showStamp('已赊', fmt(totalFen) + ' · ' + customer.name, false)
           cart.length = 0

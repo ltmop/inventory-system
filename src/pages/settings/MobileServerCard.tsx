@@ -110,7 +110,7 @@ export function MobileServerCard({
               </div>
               <div className="space-y-1 text-xs text-muted-foreground">
                 <p>· 开了店里的 WiFi 就能用，不花流量。</p>
-                <p>· 可以「添加到主屏幕」，桌面上会多个「阿东渔具」APP 图标。</p>
+                <p>· 可以「添加到主屏幕」，桌面上会多个「通用进销存」APP 图标。</p>
               </div>
             </div>
           </div>

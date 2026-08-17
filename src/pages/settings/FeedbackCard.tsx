@@ -63,22 +63,18 @@ export function FeedbackCard({
           <Input
             value={webhook}
             onChange={(e) => onWebhookChange(e.target.value)}
-            placeholder="反馈接收地址（找阿东要这个地址）"
+            placeholder="接收地址（选填，店主配了才能转发到后台，不填也会保存在本机）"
             className="w-96 font-mono text-xs"
             disabled={!hasBackend}
           />
           <Button
             onClick={onSend}
-            disabled={!hasBackend || busy || !webhook.trim() || !message.trim()}
-            title={!webhook.trim() ? '先填反馈接收地址（找阿东要）' : undefined}
+            disabled={!hasBackend || busy || !message.trim()}
             className="bg-brand-600 hover:bg-brand-700"
           >
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
             {busy ? '发送中...' : '提交反馈'}
           </Button>
-          {!webhook.trim() && (
-            <span className="text-xs text-amber-600">还没填反馈接收地址，找阿东要了填上就能提交</span>
-          )}
         </div>
         {result && (
           <div

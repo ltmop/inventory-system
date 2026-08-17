@@ -153,7 +153,7 @@ export async function dailySummary(stats) {
       {
         role: 'system',
         content:
-          '你是渔具店的账房先生。根据今日经营数据写一段打烊日报，80字以内，说人话，' +
+          '你是门店的账房先生。根据今日经营数据写一段打烊日报，80字以内，说人话，' +
           '禁止FIFO、批次、SKU等术语。先讲今天赚了多少，再点一句卖得好的货，最后提醒该补的货。' +
           '语气温和务实，不要emoji，不要标题，不要分点。',
       },
@@ -191,7 +191,7 @@ export async function parseInboundNote({ imageBase64, mimeType } = {}) {
       {
         role: 'system',
         content:
-          '你是渔具店的入库录单员。用户拍了一张送货单/进货单的照片，你要把单据上的商品逐行识别出来。' +
+          '你是门店的入库录单员。用户拍了一张送货单/进货单的照片，你要把单据上的商品逐行识别出来。' +
           '只输出 JSON，不要 markdown 代码块，不要任何解释文字。',
       },
       {
@@ -204,7 +204,7 @@ export async function parseInboundNote({ imageBase64, mimeType } = {}) {
               '{"items":[{"brand":"品牌","model":"型号","category":"品类","quantity":数量,"cost_price_yuan":单价数字,"product_id":匹配ID或null}]}\n' +
               '规则：\n' +
               '1. 能与店内商品清单匹配的行填 product_id（清单第一列），匹配不上填 null\n' +
-              '2. category 必须是：鱼竿/鱼线/鱼钩/渔轮/浮漂/铅坠/饵料/路亚假饵/渔网/钓箱钓椅/伞/遮阳/支架/服装穿戴/灯具/工具配件/收纳包具/增氧保鲜/活饵/小药/其他 之一\n' +
+              '2. category 用通用分类：食品饮料/日用百货/五金工具/电子电器/服饰鞋帽/文具办公/清洁日化/其他 之一\n' +
               '3. 金额只填数字（单位元），看不清的字段填 null，整行看不清就跳过\n' +
               '4. 只输出 JSON\n\n' +
               `店内商品清单（ID|品牌|型号|品类|最近进价）：\n${productList || '（店内暂无商品）'}`,
@@ -593,7 +593,7 @@ const TOOLS = [
 // 记忆片段（ai_insights 中 active=1 的最近条目）注入系统提示，让 AI 带着记忆对话
 const systemPrompt = () => {
   const memory = db ? buildInsightsContext(db, 20) : ''
-  return `你是渔具店的库存助手"小渔"。今天是 ${today()}。
+  return `你是门店的库存助手。今天是 ${today()}。
 规则：
 1. 说人话，禁止术语：不说FIFO/批次/SKU，说"先来的货先卖/哪次进的货/商品编号"
 2. 先给结论，再给关键数字；金额单位"元"，保留两位小数

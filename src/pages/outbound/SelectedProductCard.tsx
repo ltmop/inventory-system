@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import type { FifoPlan } from '@/lib/fifo'
 import { formatDate, formatPrice, productName } from '@/lib/formatters'
+import { unitOf } from '@/lib/quantity'
 import { cn } from '@/lib/utils'
 import { PRICE_LEVEL_LABELS, type InventoryBatch, type PriceLevel, type Product } from '@/types'
 
@@ -57,7 +58,7 @@ export function SelectedProductCard({
           {productName(selected)}
           <Badge variant="secondary">{selected.category}</Badge>
           <span className="text-sm font-normal text-muted-foreground">
-            当前总库存：<span className="font-semibold text-brand-600">{totalStock} 件</span>
+            当前总库存：<span className="font-semibold text-brand-600">{totalStock} {unitOf(selected)}</span>
           </span>
         </CardTitle>
       </CardHeader>
@@ -98,17 +99,18 @@ export function SelectedProductCard({
         </div>
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
           <div className="space-y-1">
-            <Label>出库数量 *</Label>
+            <Label>出库数量 *（{unitOf(selected)}）</Label>
             <Input
               type="number"
-              min={1}
+              min={unitOf(selected) === '米' ? 0.1 : 1}
+              step={unitOf(selected) === '米' ? 0.1 : 1}
               value={quantity}
               onChange={(e) => onQuantityChange(e.target.value)}
               className={cn(overStock && 'border-red-500 focus-visible:ring-red-500')}
             />
             {overStock && (
               <div className="text-xs text-red-600">
-                出库数量超过当前库存（还差 {plan!.shortage} 个）
+                出库数量超过当前库存（还差 {plan!.shortage} {unitOf(selected)}）
               </div>
             )}
           </div>

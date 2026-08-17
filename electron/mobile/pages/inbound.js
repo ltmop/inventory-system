@@ -36,13 +36,16 @@ page('inbound', function (app) {
     const form = document.createElement('div'); form.className = 'form-card'; form.id = 'inbound-form'
     form.innerHTML =
       '<div class="ft"><b>新商品建档</b><span class="aitag" id="ai-tag">AI 已预填</span></div>' +
-      '<div class="fld"><label>商品名称</label><input id="f-name" placeholder="例：伊势尼 8号钩"></div>' +
+      '<div class="fld"><label>商品名称</label><input id="f-name" placeholder="例：原味苏打饼干 400g"></div>' +
       '<div class="fldrow">' +
-        '<div class="fld"><label>分类</label><select id="f-cat"><option>鱼钩</option><option>鱼线</option><option>饵料</option><option>鱼竿</option><option>浮漂</option><option>渔轮</option><option>路亚假饵</option><option>铅坠</option><option>渔网</option><option>钓箱钓椅</option><option>伞/遮阳</option><option>支架</option><option>服装穿戴</option><option>灯具</option><option>工具配件</option><option>收纳包具</option><option>增氧保鲜</option><option>活饵</option><option>小药</option><option>其他</option></select></div>' +
+        '<div class="fld"><label>分类</label><select id="f-cat"><option>食品饮料</option><option>日用百货</option><option>五金工具</option><option>电子电器</option><option>服饰鞋帽</option><option>文具办公</option><option>清洁日化</option><option>其他</option></select></div>' +
         '<div class="fld"><label>进价（元）</label><input id="f-cost" type="number" step="0.01" placeholder="0.00"></div>' +
       '</div>' +
-      '<div class="fld"><label>数量</label><input id="f-qty" type="number" placeholder="大概多少个？"><div class="tip">大概还有多少个？不准没关系，以后盘点会校正</div></div>' +
-      '<div class="fld"><label>到期日（可选，饵料/小药/活饵填）</label><input id="f-expiry" type="date" placeholder="2026-12-31"></div>' +
+      '<div class="fldrow">' +
+        '<div class="fld"><label>计量单位</label><select id="f-unit"><option value="件">件</option><option value="米">米</option></select></div>' +
+        '<div class="fld"><label>数量</label><input id="f-qty" type="number" step="0.1" placeholder="多少个 / 多少米？"></div>' +
+      '</div>' +
+      '<div class="fld"><label id="f-expiry-label">到期日（可选）</label><input id="f-expiry" type="date" placeholder="2026-12-31"></div>' +
       '<button class="okbtn" id="f-ok">完成入库</button>'
     app.appendChild(form)
 
@@ -68,6 +71,35 @@ page('inbound', function (app) {
     }
   }
 
+  // 通用版：到期日全部可选（填了该批次走保质期管理，不填当普通商品）
+  const EXPIRY_REQUIRED_CATEGORIES = []
+
+  // 日历点选到期日（替代手输，防输错）；required=true 时无"不要到期日"按钮（保质期商品）
+  function promptDate(title, cb, required) {
+    const overlay = document.createElement('div')
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(10,22,40,.95);z-index:300;display:flex;flex-direction:column;justify-content:center;padding:24px;color:#e6edf5'
+    const skipBtn = required
+      ? ''
+      : '<button id="date-skip" style="flex:1;height:50px;border-radius:12px;border:none;background:rgba(255,255,255,.12);color:#e6edf5;font-size:16px">不要到期日</button>'
+    overlay.innerHTML =
+      '<div style="font-size:18px;font-weight:700;margin-bottom:12px">' + title + (required ? '（必填）' : '') + '</div>' +
+      '<input type="date" id="date-input" style="height:50px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:12px;color:#fff;font-size:18px;padding:0 12px;margin-bottom:14px;width:100%">' +
+      '<div style="display:flex;gap:10px">' +
+        '<button id="date-ok" style="flex:1;height:50px;border-radius:12px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:16px;font-weight:800">确定</button>' +
+        skipBtn +
+      '</div>'
+    document.body.appendChild(overlay)
+    if (!required) {
+      document.getElementById('date-skip').onclick = () => { overlay.remove(); cb(null) }
+    }
+    document.getElementById('date-ok').onclick = () => {
+      const v = document.getElementById('date-input').value
+      overlay.remove()
+      if (required && !v) { toast('必须选择到期日'); return }
+      cb(v || null)
+    }
+  }
+
   async function onScan(code) {
     if (!code) return
     try {
@@ -75,21 +107,38 @@ page('inbound', function (app) {
       if (!rows || rows.length === 0) { showCreateForm(code, null); return }
       const p = rows[0]
       const name = prodName(p)
-      const qty = parseInt(prompt('「' + name + '」\n库存 ' + (p.total_stock || 0) + '，入多少个？', '1')) || 1
-      if (qty <= 0) return
+      // 米商品（鱼线）按米入库，允许小数；件商品按个，整数
+      const isMeter = p.unit === '米'
+      const qtyStr = prompt('「' + name + '」\n库存 ' + (p.total_stock || 0) + '，入多少' + (isMeter ? '米' : '个') + '？', '1')
+      const qty = isMeter ? Math.round((parseFloat(qtyStr) || 0) * 10) / 10 : (parseInt(qtyStr, 10) || 0)
+      if (!(qty > 0)) return
       const cost = prompt('进价多少元？', String((p.cost_price || 0) / 100))
-      // 到期日（可选，饵料/小药/活饵填）：格式 YYYY-MM-DD，如 2026-08-31
-      const expiry = prompt('到期日（可选，饵料/小药/活饵填）\n格式：2026-12-31\n不填回车跳过', '')
-      const payload = {
-        product_id: p.id, quantity: qty,
-        cost_price: cost ? Math.round(parseFloat(cost) * 100) : p.cost_price,
-        location: p.location || '', operator: '手机',
-      }
-      if (expiry && /^\d{4}-\d{2}-\d{2}$/.test(expiry.trim())) payload.expiryDate = expiry.trim()
-      await api('inbound:create', payload)
-      showStamp('已入库', name + ' × ' + qty, true)
-      loadRecents()
+      // 到期日（可选）：填了该批次走保质期管理，不填当普通商品
+      const needExpiry = false
+      promptDate('到期日（有保质期的商品填，可选）', async (expiry) => {
+        const payload = {
+          productId: p.id, quantity: qty,
+          costPrice: cost ? Math.round(parseFloat(cost) * 100) : p.cost_price,
+          location: p.location || '', operator: '手机',
+        }
+        if (expiry) payload.expiryDate = expiry
+        try {
+          await api('inbound:create', payload)
+          showStamp('已入库', name + ' × ' + qty, true)
+          loadRecents()
+        } catch (e) { toast('入库失败: ' + e.message) }
+      }, needExpiry)
     } catch (e) { toast('入库失败: ' + e.message) }
+  }
+
+  // 到期日标签联动：选中保质期品类时显示"必填"并变红，否则"可选"
+  function updateExpiryLabel() {
+    const cat = document.getElementById('f-cat').value
+    const label = document.getElementById('f-expiry-label')
+    if (!label) return
+    const need = EXPIRY_REQUIRED_CATEGORIES.includes(cat)
+    label.textContent = need ? '到期日（必填）' : '到期日（可选）'
+    label.style.color = need ? '#ff6b6b' : ''
   }
 
   function showCreateForm(code, aiResult) {
@@ -99,12 +148,20 @@ page('inbound', function (app) {
     document.getElementById('f-cat').value = aiResult ? aiResult.category || '其他' : '其他'
     document.getElementById('f-cost').value = aiResult ? (aiResult.cost_price_yuan || '') : ''
     document.getElementById('f-qty').value = ''
+    // 到期日字段重置：清空上次的值
+    const expiryEl = document.getElementById('f-expiry')
+    if (expiryEl) expiryEl.value = ''
     if (aiResult) { aiTag.classList.add('show') } else { aiTag.classList.remove('show') }
     form.classList.add('show')
     // 存 code 到临时属性
     form.setAttribute('data-code', code)
+    updateExpiryLabel()
     document.getElementById('f-qty').focus()
   }
+
+  // 品类下拉切换时联动到期日标签
+  const catSelect = document.getElementById('f-cat')
+  if (catSelect) catSelect.addEventListener('change', updateExpiryLabel)
 
   async function photoFlow() {
     // 拍照 → 调 ai:photoDraft → 预填表单
@@ -144,20 +201,24 @@ page('inbound', function (app) {
     const name = document.getElementById('f-name').value.trim()
     const cat = document.getElementById('f-cat').value
     const costStr = document.getElementById('f-cost').value
-    const qty = parseInt(document.getElementById('f-qty').value) || 0
+    const unitEl = document.getElementById('f-unit')
+    const unit = unitEl ? unitEl.value : '件'
+    const qtyStr = document.getElementById('f-qty').value
+    const qty = unit === '米' ? Math.round((parseFloat(qtyStr) || 0) * 10) / 10 : (parseInt(qtyStr, 10) || 0)
     if (!name) { toast('填个商品名就能入库了'); return }
-    if (qty <= 0) { toast('填个数量'); return }
+    if (!(qty > 0)) { toast('填个数量'); return }
     const cost = costStr ? Math.round(parseFloat(costStr) * 100) : 0
     const code = form.getAttribute('data-code') || ''
+    // 到期日（可选）：填了该批次走保质期管理，不填当普通商品
     const expiryEl = document.getElementById('f-expiry')
     const expiry = expiryEl && expiryEl.value ? expiryEl.value : undefined
     try {
       const r = await api('product:create', {
         sku_code: code, barcode: code, category: cat, brand: '', model: name,
-        cost_price: cost, suggest_price: 0, status: '待盘点',
+        cost_price: cost, suggest_price: 0, status: '待盘点', unit: unit,
       })
-      await api('inbound:create', { product_id: r.id, quantity: qty, cost_price: cost, location: '', operator: '手机', expiryDate: expiry })
-      showStamp('已入库', name + ' × ' + qty, true)
+      await api('inbound:create', { productId: r.id, quantity: qty, costPrice: cost, location: '', operator: '手机', expiryDate: expiry })
+      showStamp('已入库', name + ' × ' + qty + (unit === '米' ? '米' : ''), true)
       form.classList.remove('show')
       document.getElementById('ai-tag').classList.remove('show')
       ;['f-name', 'f-cost', 'f-qty'].forEach(id => document.getElementById(id).value = '')

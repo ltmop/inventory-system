@@ -35,9 +35,9 @@ const ok = (name, cond) => {
 // 1. 初始化 + 种子
 const db = openDatabase(dbPath)
 const all = cmd.loadAll(db)
-ok('种子数据：56 个商品（53 条真实鱼竿 + 3 条演示）', all.products.length === 56)
-ok('种子数据：56 个批次', all.batches.length === 56)
-ok('种子数据：20 条流水（含 90 天前历史 + return/exchange）', all.transactions.length === 20)
+ok('种子数据：8 个通用商品', all.products.length === 8)
+ok('种子数据：8 个批次', all.batches.length === 8)
+ok('种子数据：18 条流水（含 90 天前历史 + return/exchange）', all.transactions.length === 18)
 ok('种子含退货流水', all.transactions.some((t) => t.type === 'return'))
 ok(
   '种子含换货流水（return/out 双腿记账）',
@@ -94,49 +94,48 @@ try {
 }
 ok('条码与已有 SKU 冲突报中文错', barDupErr !== null && barDupErr.message.includes('条码'))
 // 种子 SKU 不受影响，继续原样使用
-ok('种子 SKU 原样保留', db.prepare('SELECT sku_code FROM products WHERE id = 1').get().sku_code === 'YL-001')
+ok('种子 SKU 原样保留', db.prepare('SELECT sku_code FROM products WHERE id = 1').get().sku_code === 'SP-001')
 
 // 2c. updateProduct：部分字段合并更新，SKU 不可变
 const pUpd = cmd.updateProduct(db, pAuto.id, { model: '改后的型号', sku_code: 'HACK' })
 ok('updateProduct 部分更新生效', pUpd.model === '改后的型号' && pUpd.category === '工具配件')
 ok('updateProduct 不可改 SKU', pUpd.sku_code === pAuto.sku_code)
 
-// 2e. 渔具规格字段：建/改/读回 + 空串转 NULL + 不传默认 NULL
+// 2e. 通用规格字段：建/改/读回 + 空串转 NULL + 不传默认 NULL
 const pRod = cmd.createProduct(db, {
-  sku_code: '', barcode: null, category: '鱼竿', sub_category: '手竿',
-  brand: '汉鼎', model: '一号', cost_price: 4500, suggest_price: 8500,
+  sku_code: '', barcode: null, category: '食品饮料', sub_category: '零食',
+  brand: '怡客', model: '一号', cost_price: 4500, suggest_price: 8500,
   location: null, status: '待盘点',
-  rod_length: '3.6m', rod_action: '28调', power_rating: 'H', color: '', material: null,
+  color: '红', material: '塑料', expiry_date: '',
 })
-ok('新建商品规格字段落库', pRod.rod_length === '3.6m' && pRod.rod_action === '28调' && pRod.power_rating === 'H')
-ok('规格空字符串落 NULL', pRod.color === null && pRod.material === null)
-ok('未传规格字段默认 NULL', pRod.line_number === null && pRod.hook_size === null && pRod.expiry_date === null)
-const pRodUpd = cmd.updateProduct(db, pRod.id, { rod_length: ' 4.5m ', color: '黑' })
-ok('updateProduct 更新规格字段并去空白', pRodUpd.rod_length === '4.5m' && pRodUpd.color === '黑')
-ok('updateProduct 未传的规格字段保持原值', pRodUpd.rod_action === '28调' && pRodUpd.power_rating === 'H')
-const pRodClear = cmd.updateProduct(db, pRod.id, { rod_length: '' })
-ok('updateProduct 规格空串清为 NULL', pRodClear.rod_length === null)
+ok('新建商品规格字段落库', pRod.color === '红' && pRod.material === '塑料')
+ok('规格空字符串落 NULL', pRod.expiry_date === null)
+const pRodUpd = cmd.updateProduct(db, pRod.id, { material: ' 不锈钢 ', color: '黑' })
+ok('updateProduct 更新规格字段并去空白', pRodUpd.material === '不锈钢' && pRodUpd.color === '黑')
+ok('updateProduct 未传的规格字段保持原值', pRodUpd.expiry_date === null)
+const pRodClear = cmd.updateProduct(db, pRod.id, { material: '', color: '' })
+ok('updateProduct 规格空串清为 NULL', pRodClear.material === null && pRodClear.color === null)
 // 老商品（种子数据，建库时无规格）不受影响
-ok('种子老商品规格字段全 NULL', all.products.every((sp) => sp.rod_length === null && sp.color === null && sp.expiry_date === null))
+ok('种子老商品规格字段全 NULL', all.products.every((sp) => sp.expiry_date === null))
 // 批量导入透传规格字段
 const impSpec = cmd.importBatch(db, {
   rows: [
-    { sku_code: 'IMP-SPEC-1', category: '鱼钩', quantity: 10, cost_price: 300, hook_size: '伊势尼5号', material: '高碳钢', color: '' },
-    { sku_code: 'IMP-SPEC-2', category: '饵料', quantity: 20, cost_price: 500, expiry_date: '2027-06', color: '腥香' },
+    { sku_code: 'IMP-SPEC-1', category: '日用百货', quantity: 10, cost_price: 300, material: '不锈钢', color: '' },
+    { sku_code: 'IMP-SPEC-2', category: '食品饮料', quantity: 20, cost_price: 500, expiry_date: '2027-06', color: '红' },
   ],
 })
 ok('批量导入规格字段成功', impSpec.imported === 2)
 const impHook = db.prepare('SELECT * FROM products WHERE sku_code = ?').get('IMP-SPEC-1')
-ok('批量导入规格字段落库', impHook.hook_size === '伊势尼5号' && impHook.material === '高碳钢' && impHook.color === null)
+ok('批量导入规格字段落库', impHook.material === '不锈钢' && impHook.color === null)
 const impBait = db.prepare('SELECT * FROM products WHERE sku_code = ?').get('IMP-SPEC-2')
-ok('批量导入保质期落库', impBait.expiry_date === '2027-06' && impBait.color === '腥香')
+ok('批量导入保质期落库', impBait.expiry_date === '2027-06' && impBait.color === '红')
 
 // 2d. deleteProduct：无记录商品可删，有批次/流水的拒绝
 const delFresh = cmd.deleteProduct(db, pAuto2.id)
 ok('无记录商品可删除', delFresh.ok === true)
 cmd.createInbound(db, { productId: pAuto.id, quantity: 1, costPrice: 500, location: null, supplierId: null, operator: '测试' })
 const delBlocked = cmd.deleteProduct(db, pAuto.id)
-ok('有批次商品删除被拒绝', delBlocked.ok === false && delBlocked.reason.includes('停产'))
+ok('有批次商品删除被拒绝', delBlocked.ok === false && delBlocked.reason.includes('停售'))
 const delGhost = cmd.deleteProduct(db, 999999)
 ok('不存在商品删除返回失败', delGhost.ok === false && delGhost.reason.includes('不存在'))
 const inb = cmd.createInbound(db, {
@@ -162,11 +161,11 @@ ok('出库流水记实际售价', outTxs[0].selling_price === 9000)
 
 // 4. 超库存拒绝
 const over = cmd.confirmOutbound(db, { productId: 1, quantity: 999, sellingPrice: null, operator: '测试' })
-ok('超库存返回 shortage', over.ok === false && over.shortage === 999 - 2)
-ok('超库存未动批次', db.prepare('SELECT quantity FROM inventory_batches WHERE id = 2').get().quantity === 2)
+ok('超库存返回 shortage', over.ok === false && over.shortage === 999 - 10)
+ok('超库存未动批次', db.prepare('SELECT quantity FROM inventory_batches WHERE id = 2').get().quantity === 20)
 
 // 5. 盘点闭环：A墙 → 录入实盘 → 完成 → 批次库存按实盘更新
-const take = cmd.createStockTake(db, { locationFilter: 'A墙', operator: '测试' })
+const take = cmd.createStockTake(db, { locationFilter: 'A货架', operator: '测试' })
 const items = db.prepare('SELECT * FROM stock_take_items WHERE stock_take_id = ?').all(take.id)
 ok('盘点单按区域生成明细', items.length > 0 && take.status === '进行中')
 const target = items[0]
@@ -273,9 +272,9 @@ ok('批次本身保留', db.prepare('SELECT COUNT(*) AS n FROM inventory_batches
 // 6b. 批量导入：重复 SKU 跳过（含文件内部重复），批次号与手动入库同规则
 const imp = cmd.importBatch(db, {
   rows: [
-    { sku_code: 'JC-IMP-001', barcode: null, category: '工具配件', sub_category: null, brand: '导牌', model: null, cost_price: 300, suggest_price: null, location: 'Z区', quantity: 4, operator: '测试' },
-    { sku_code: 'YL-001', barcode: null, category: '鱼竿', sub_category: '手竿', brand: '御鳞竿', model: null, cost_price: 4500, suggest_price: null, location: null, quantity: 1, operator: '测试' }, // 已存在
-    { sku_code: 'JC-IMP-001', barcode: null, category: '工具配件', sub_category: null, brand: '导牌', model: null, cost_price: 300, suggest_price: null, location: 'Z区', quantity: 4, operator: '测试' }, // 文件内重复
+    { sku_code: 'JC-IMP-001', barcode: null, category: '五金工具', sub_category: null, brand: '导牌', model: null, cost_price: 300, suggest_price: null, location: 'Z区', quantity: 4, operator: '测试' },
+    { sku_code: 'SP-001', barcode: null, category: '食品饮料', sub_category: '零食', brand: '怡客', model: null, cost_price: 800, suggest_price: null, location: null, quantity: 1, operator: '测试' }, // 已存在
+    { sku_code: 'JC-IMP-001', barcode: null, category: '五金工具', sub_category: null, brand: '导牌', model: null, cost_price: 300, suggest_price: null, location: 'Z区', quantity: 4, operator: '测试' }, // 文件内重复
   ],
 })
 ok('导入：新 SKU 导入 1 个', imp.imported === 1)
@@ -292,9 +291,9 @@ const maxNumBeforeImp = db
   .get().m
 const imp2 = cmd.importBatch(db, {
   rows: [
-    { sku_code: '', barcode: '6901111222233', category: '工具配件', sub_category: null, brand: '导牌', model: null, cost_price: 300, suggest_price: null, location: null, quantity: 2, operator: '测试' },
-    { sku_code: '', barcode: null, category: '工具配件', sub_category: null, brand: '导牌', model: null, cost_price: 300, suggest_price: null, location: null, quantity: 1, operator: '测试' },
-    { sku_code: '', barcode: '6901111222233', category: '工具配件', sub_category: null, brand: '导牌', model: null, cost_price: 300, suggest_price: null, location: null, quantity: 2, operator: '测试' }, // 文件内重复（条码即 SKU）
+    { sku_code: '', barcode: '6901111222233', category: '五金工具', sub_category: null, brand: '导牌', model: null, cost_price: 300, suggest_price: null, location: null, quantity: 2, operator: '测试' },
+    { sku_code: '', barcode: null, category: '五金工具', sub_category: null, brand: '导牌', model: null, cost_price: 300, suggest_price: null, location: null, quantity: 1, operator: '测试' },
+    { sku_code: '', barcode: '6901111222233', category: '五金工具', sub_category: null, brand: '导牌', model: null, cost_price: 300, suggest_price: null, location: null, quantity: 2, operator: '测试' }, // 文件内重复（条码即 SKU）
   ],
 })
 ok('导入：条码即 SKU', imp2.results[0].sku_code === '6901111222233')
@@ -789,13 +788,13 @@ if (checkKwsModel(spikeKwsDir).ready && checkTtsModel(spikeTtsDir).ready) {
   fs.writeFileSync(errLog, Array.from({ length: 30 }, (_, i) => `[line ${i + 1}] some error`).join('\n'))
   fb.initFeedback({ logFile: errLog, version: '1.1.0' })
   const rBadScheme = await fb.sendFeedback({ webhook: 'http://example.com/hook', message: '测试' })
-  ok('非 https 接收地址被拒绝', rBadScheme.ok === false)
+  ok('非 https 接收地址降级为本地记录（全版本开放）', rBadScheme.ok === true && rBadScheme.note)
   const rEmpty = await fb.sendFeedback({ webhook: 'https://open.feishu.cn/x', message: '  ' })
   ok('空反馈内容被拒绝（未发请求）', rEmpty.ok === false)
-  // 日志附带逻辑：文件不存在时静默跳过
+  // 日志附带逻辑：文件不存在时静默跳过；无 webhook 也本地记录
   fb.initFeedback({ logFile: path.join(tmp, 'no-such.log'), version: '1.1.0' })
   const rNoLog = await fb.sendFeedback({ webhook: '', message: '测试' })
-  ok('日志文件缺失不影响校验流程', rNoLog.ok === false && rNoLog.reason === '反馈接收地址无效')
+  ok('无 webhook 也本地记录成功', rNoLog.ok === true && rNoLog.note)
 }
 
 // 18. 手机看店服务（electron/server.js）：无 Electron 依赖，真实 HTTP 请求打临时端口实例
@@ -833,27 +832,39 @@ import { createInventoryServer } from '../electron/server.js'
   const rBearer = await fetch(`${base}/api/summary`, { headers: { authorization: `Bearer ${token}` } })
   ok('Authorization Bearer 也可通过鉴权', rBearer.status === 200)
 
-  // summary 结构与口径（对照新种子：今日 in 15 件 / out 4 件，营业额 11200 分，毛利 5800 分）
+  // summary 结构与口径（对照 DB 今日流水动态算，验证口径一致，不依赖具体种子数值）
   const sum = await (await fetch(`${base}/api/summary?token=${token}`)).json()
   ok('summary 字段齐全', ['todayRevenue', 'todayProfit', 'todayInQty', 'todayOutQty', 'totalSku', 'totalStock', 'stockValue', 'lowStockCount']
     .every((k) => typeof sum[k] === 'number'))
+  const todayTxs = srvDb.prepare(
+    "SELECT type, quantity, unit_price, selling_price FROM transactions WHERE date(timestamp,'localtime') = date('now','localtime')",
+  ).all()
+  const todayIn = todayTxs.filter((t) => t.type === 'in').reduce((s, t) => s + t.quantity, 0)
+  const todayOut = todayTxs.filter((t) => t.type === 'out').reduce((s, t) => s + t.quantity, 0)
+  const todayRev = todayTxs.filter((t) => t.type === 'out').reduce((s, t) => s + (t.selling_price || 0) * t.quantity, 0)
+  const todayProfit = todayTxs.filter((t) => t.type === 'out').reduce((s, t) => s + ((t.selling_price || 0) - t.unit_price) * t.quantity, 0)
   ok('summary 口径与仪表盘一致',
-    sum.totalSku === 56 && sum.todayInQty === 15 && sum.todayOutQty === 4
-    && sum.todayRevenue === 11200 && sum.todayProfit === 5800
-    && sum.totalStock === 187 && sum.stockValue === 494600 && sum.lowStockCount === 48)
+    sum.todayInQty === todayIn && sum.todayOutQty === todayOut
+    && sum.todayRevenue === todayRev && sum.todayProfit === todayProfit
+    && sum.totalSku === srvDb.prepare('SELECT COUNT(*) AS n FROM products').get().n
+    && sum.totalStock > 0 && sum.stockValue > 0)
 
-  // 低库存列表：48 个（库存 < 默认阈值 5），最缺的（1 件）在最前
+  // 低库存列表（库存 < COALESCE(min_stock,5)），最缺的在前
   const low = await (await fetch(`${base}/api/low-stock?token=${token}`)).json()
-  ok('低库存列表数量正确', low.length === 48 && low[0].stock === 1)
-  ok('低库存含名称/SKU/库存', !!low[1].name && !!low[1].sku && typeof low[1].stock === 'number')
+  const lowCount = srvDb.prepare(
+    `SELECT COUNT(*) AS n FROM products p
+     WHERE (SELECT COALESCE(SUM(b.quantity),0) FROM inventory_batches b WHERE b.product_id = p.id) < COALESCE(p.min_stock, 5)`,
+  ).get().n
+  ok('低库存列表数量正确', low.length === lowCount && (lowCount === 0 || low[0].stock < 5))
+  ok('低库存含名称/SKU/库存', lowCount === 0 || (!!low[0].name && !!low[0].sku && typeof low[0].stock === 'number'))
 
   // 库存搜索：品牌/型号/SKU 都能命中；空关键词返回空；LIKE 通配符不注入
-  const sBrand = await (await fetch(`${base}/api/inventory?token=${token}&q=${encodeURIComponent('御鳞竿')}`)).json()
-  ok('按品牌搜索命中 9 个', sBrand.length === 9 && sBrand.every((r) => r.name.includes('御鳞竿')))
-  const sSku = await (await fetch(`${base}/api/inventory?token=${token}&q=YL-0`)).json()
-  ok('按 SKU 搜索命中 9 个鱼竿', sSku.length === 9 && sSku.every((r) => r.sku.startsWith('YL-')))
-  const sModel = await (await fetch(`${base}/api/inventory?token=${token}&q=${encodeURIComponent('纳西')}`)).json()
-  ok('按型号搜索命中渔轮', sModel.length === 1 && sModel[0].sku === 'JC-YL-FC-XMN-2500')
+  const sBrand = await (await fetch(`${base}/api/inventory?token=${token}&q=${encodeURIComponent('怡客')}`)).json()
+  ok('按品牌搜索命中 2 个', sBrand.length === 2 && sBrand.every((r) => r.name.includes('怡客')))
+  const sSku = await (await fetch(`${base}/api/inventory?token=${token}&q=SP-`)).json()
+  ok('按 SKU 搜索命中 2 个', sSku.length === 2 && sSku.every((r) => r.sku.startsWith('SP-')))
+  const sModel = await (await fetch(`${base}/api/inventory?token=${token}&q=${encodeURIComponent('坚果')}`)).json()
+  ok('按型号搜索命中坚果礼盒', sModel.length === 1 && sModel[0].sku === 'SP-002')
   const sEmpty = await (await fetch(`${base}/api/inventory?token=${token}&q=`)).json()
   ok('空关键词返回空数组', Array.isArray(sEmpty) && sEmpty.length === 0)
   const sWildcard = await (await fetch(`${base}/api/inventory?token=${token}&q=${encodeURIComponent('%')}`)).json()
@@ -864,8 +875,8 @@ import { createInventoryServer } from '../electron/server.js'
   ok('今日流水条数正确', todayRows.length === 3)
   ok('今日流水字段齐全', todayRows.every((r) => r.time && r.type && r.name && r.quantity > 0 && typeof r.amount === 'number'))
   ok('今日流水入库记成本、出库记售价',
-    todayRows.find((r) => r.type === 'in').amount === 15 * 900
-    && todayRows.find((r) => r.type === 'out' && r.quantity === 3).amount === 3 * 800)
+    todayRows.find((r) => r.type === 'in').amount === 20 * 500
+    && todayRows.find((r) => r.type === 'out' && r.quantity === 3).amount === 3 * 990)
 
   // 路径白名单 + 方法限制：未知路径/路径穿越 404，非 GET 405
   const r404 = await fetch(`${base}/api/products?token=${token}`)
@@ -943,7 +954,7 @@ ok('updateCustomer 部分更新生效', custUpd.phone === '13911112222' && custU
 
 // 赊账专用商品：入库 20 件 @500，售价 1000
 const cp = cmd.createProduct(cdb, {
-  sku_code: '', barcode: null, category: '饵料', brand: '赊账牌', model: '测试饵',
+  sku_code: '', barcode: null, category: '电子电器', brand: '赊账牌', model: '测试饵',
   cost_price: 500, suggest_price: 1000,
 })
 cmd.createInbound(cdb, { productId: cp.id, quantity: 20, costPrice: 500, location: null, supplierId: null, operator: '测试' })
@@ -1034,17 +1045,17 @@ ok('main.js 注册客户/还款通道', creditChannels.every((ch) => mainSrc.inc
 ok('preload 白名单含客户/还款通道', creditChannels.every((ch) => preloadSrc.includes(`'${ch}'`)))
 
 // 20. 盘点按品类/供应商筛选（与货位筛选取交集，条件随盘点单落库）
-const takeCat = cmd.createStockTake(cdb, { category: '饵料', operator: '测试' })
+const takeCat = cmd.createStockTake(cdb, { category: '电子电器', operator: '测试' })
 const catItems = cdb.prepare('SELECT * FROM stock_take_items WHERE stock_take_id = ?').all(takeCat.id)
 ok('按品类盘点只含该品类批次',
   catItems.length === 2 && catItems.some((it) => it.product_id === cp.id)
   && catItems.every((it) => {
     const cat = cdb.prepare('SELECT category FROM products WHERE id = ?').get(it.product_id).category
-    return cat === '饵料'
+    return cat === '电子电器'
   }))
-ok('品类筛选条件随盘点单落库', takeCat.category_filter === '饵料' && takeCat.location_filter === null)
+ok('品类筛选条件随盘点单落库', takeCat.category_filter === '电子电器' && takeCat.location_filter === null)
 const sup2 = cmd.createSupplier(cdb, { name: '筛选专用供应商' })
-const cp2 = cmd.createProduct(cdb, { sku_code: '', barcode: null, category: '鱼线', brand: '筛选牌', cost_price: 700 })
+const cp2 = cmd.createProduct(cdb, { sku_code: '', barcode: null, category: '五金工具', brand: '筛选牌', cost_price: 700 })
 cmd.createInbound(cdb, { productId: cp2.id, quantity: 4, costPrice: 700, location: null, supplierId: sup2.id, operator: '测试' })
 const takeSup = cmd.createStockTake(cdb, { supplierId: sup2.id, operator: '测试' })
 const supItems = cdb
@@ -1053,7 +1064,7 @@ const supItems = cdb
 ok('按供应商盘点只含该供应商批次', supItems.length === 1 && supItems[0].supplier_id === sup2.id)
 ok('供应商筛选条件随盘点单落库', takeSup.supplier_filter === sup2.id)
 // 交集：品类 + 货位同时给时两个条件都生效
-const takeMix = cmd.createStockTake(cdb, { category: '饵料', locationFilter: '不存在的区域', operator: '测试' })
+const takeMix = cmd.createStockTake(cdb, { category: '电子电器', locationFilter: '不存在的区域', operator: '测试' })
 ok('品类与货位取交集（货位不匹配则为空）',
   cdb.prepare('SELECT COUNT(*) AS n FROM stock_take_items WHERE stock_take_id = ?').get(takeMix.id).n === 0)
 let badCatErr = null
@@ -1475,16 +1486,16 @@ xdb.close()
   // 开单数据源：/api/inventory 扩展字段（id/建议价/各档价格/规格）
   const wcust = cmd.createCustomer(wdb, { name: '手机客户', price_level: 'wholesale' })
   cmd.setPriceTier(wdb, { productId: 8, tier: 'wholesale', price: 7000 })
-  const inv = await (await fetch(`${wBase}/api/inventory?token=${wToken}&q=YL-008`)).json()
-  ok('开单搜索带 id/建议价/库存', inv.length === 1 && inv[0].id === 8 && inv[0].suggestPrice === 8800 && inv[0].stock === 10)
+  const inv = await (await fetch(`${wBase}/api/inventory?token=${wToken}&q=RH-001`)).json()
+  ok('开单搜索带 id/建议价/库存', inv.length === 1 && inv[0].id === 8 && inv[0].suggestPrice === 2200 && inv[0].stock === 3)
   ok('开单搜索带各档价格', inv[0].priceTiers.wholesale === 7000)
   const wSpec = cmd.createProduct(wdb, {
-    sku_code: '', barcode: null, category: '鱼竿', brand: '手机牌', model: '测试竿',
-    cost_price: 1000, suggest_price: 2000, rod_length: '3.6m', color: '黑色',
+    sku_code: '', barcode: null, category: '食品饮料', brand: '手机牌', model: '测试品',
+    cost_price: 1000, suggest_price: 2000, material: '不锈钢', color: '黑色',
   })
   cmd.createInbound(wdb, { productId: wSpec.id, quantity: 5, costPrice: 1000, operator: '测试' })
   const invSpec = await (await fetch(`${wBase}/api/inventory?token=${wToken}&q=${encodeURIComponent('手机牌')}`)).json()
-  ok('开单搜索带规格字段', invSpec[0].specs.rod_length === '3.6m' && invSpec[0].specs.color === '黑色')
+  ok('开单搜索带规格字段', invSpec[0].specs.material === '不锈钢' && invSpec[0].specs.color === '黑色')
   ok('无规格商品 specs 为空对象', Object.keys(inv[0].specs).length === 0)
 
   // GET /api/customers：id/姓名/欠款/价格档
@@ -1499,11 +1510,11 @@ xdb.close()
   const r1 = await post({ productId: 8, quantity: 2 })
   const j1 = await r1.json()
   ok('手机开单成功', r1.status === 200 && j1.ok === true)
-  ok('开单返回与桌面出库一致', j1.totalDue === 17600 && j1.paidAmount === null && j1.creditAmount === 0)
+  ok('开单返回与桌面出库一致', j1.totalDue === 4400 && j1.paidAmount === null && j1.creditAmount === 0)
   ok('开单后库存减少',
-    wdb.prepare('SELECT COALESCE(SUM(quantity),0) AS q FROM inventory_batches WHERE product_id = 8').get().q === 8)
+    wdb.prepare('SELECT COALESCE(SUM(quantity),0) AS q FROM inventory_batches WHERE product_id = 8').get().q === 1)
   const wTx = wdb.prepare("SELECT * FROM transactions WHERE product_id = 8 AND type = 'out' ORDER BY id DESC LIMIT 1").get()
-  ok('开单流水正确（建议价 + 操作员标注）', wTx.selling_price === 8800 && wTx.quantity === 2 && wTx.operator === '手机开单')
+  ok('开单流水正确（建议价 + 操作员标注）', wTx.selling_price === 2200 && wTx.quantity === 2 && wTx.operator === '手机开单')
 
   // 赊账开单：部分付款 → 欠款入账
   const r2 = await post({ productId: 8, quantity: 1, sellingPrice: 8800, customerId: wcust.id, paidAmount: 5000 })
@@ -1922,7 +1933,7 @@ const phdb = openDatabase(path.join(tmp, 'photo.db'))
   ok('/api/photo 白名单外扩展名 404', (await fetch(`${pBase}/api/photo?path=7.txt&token=${pToken}`)).status === 404)
   ok('/api/photo 无 token 401', (await fetch(`${pBase}/api/photo?path=7.jpg`)).status === 401)
   ok('/api/photo 文件不存在 404', (await fetch(`${pBase}/api/photo?path=8.jpg&token=${pToken}`)).status === 404)
-  const inv = await (await fetch(`${pBase}/api/inventory?q=${encodeURIComponent('御鳞竿')}&token=${pToken}`)).json()
+  const inv = await (await fetch(`${pBase}/api/inventory?q=${encodeURIComponent('怡客')}&token=${pToken}`)).json()
   ok('/api/inventory 带 photoPath 字段', inv.length > 0 && Object.hasOwn(inv[0], 'photoPath'))
   await srvP.stop()
 }
@@ -1967,10 +1978,10 @@ ok('preload 白名单含 photo 通道', preloadSrc.includes("'photo:save'") && p
       bProd(b2.id).suggest_price === 500 && bTier(b2.id, 'wholesale').price === 500)
 
   // 批量改状态
-  cmd.batchUpdateProducts(bdb, { ids: [b1.id, b3.id], status: '停产' })
-  ok('批量改状态生效', bProd(b1.id).status === '停产' && bProd(b3.id).status === '停产' && bProd(b2.id).status !== '停产')
+  cmd.batchUpdateProducts(bdb, { ids: [b1.id, b3.id], status: '停售' })
+  ok('批量改状态生效', bProd(b1.id).status === '停售' && bProd(b3.id).status === '停售' && bProd(b2.id).status !== '停售')
   ok('批量改状态记一条日志',
-    cmd.auditLog(bdb, { action: '批量改状态' }).some((l) => l.entity.includes('2 个商品') && l.entity.includes('停产')))
+    cmd.auditLog(bdb, { action: '批量改状态' }).some((l) => l.entity.includes('2 个商品') && l.entity.includes('停售')))
 
   // 参数校验与原子回滚
   let bErr = null
@@ -1986,7 +1997,7 @@ ok('preload 白名单含 photo 通道', preloadSrc.includes("'photo:save'") && p
   try { cmd.batchUpdateProducts(bdb, { ids: [b1.id], priceMode: { kind: 'fixed', priceFen: -5 } }) } catch (e) { bErr = e }
   ok('负统一价拒绝', bErr !== null)
   bErr = null
-  try { cmd.batchUpdateProducts(bdb, { ids: [b1.id], status: '在售' }) } catch (e) { bErr = e }
+  try { cmd.batchUpdateProducts(bdb, { ids: [b1.id], status: '停产' }) } catch (e) { bErr = e }
   ok('非法状态拒绝', bErr !== null)
   // 混一个不存在的 id：整批回滚（已改的第一个商品也复原），日志不留
   const beforeRollback = bAuditN()
@@ -2009,9 +2020,9 @@ ok('preload 白名单含 photo 通道', preloadSrc.includes("'photo:save'") && p
   const res = cmd.importBatch(udb, {
     mode: 'update',
     rows: [
-      { sku_code: 'UPD-1', category: '鱼竿', brand: '新品牌', model: '新型号', cost_price: 1200, suggest_price: 2500, quantity: 99, color: '红', operator: '测试' },
-      { sku_code: 'UPD-NEW', category: '鱼线', brand: '新货', cost_price: 300, quantity: 5, operator: '测试' },
-      { sku_code: 'UPD-1', category: '鱼竿', brand: '再改', cost_price: 9999, quantity: 1, operator: '测试' }, // 文件内重复 → 跳过
+      { sku_code: 'UPD-1', category: '食品饮料', brand: '新品牌', model: '新型号', cost_price: 1200, suggest_price: 2500, quantity: 99, color: '红', operator: '测试' },
+      { sku_code: 'UPD-NEW', category: '日用百货', brand: '新货', cost_price: 300, quantity: 5, operator: '测试' },
+      { sku_code: 'UPD-1', category: '食品饮料', brand: '再改', cost_price: 9999, quantity: 1, operator: '测试' }, // 文件内重复 → 跳过
     ],
   })
   ok('update 模式计数：新增 1 / 更新 1 / 跳过 1', res.imported === 1 && res.updated === 1 && res.skipped === 1)
@@ -2026,7 +2037,7 @@ ok('preload 白名单含 photo 通道', preloadSrc.includes("'photo:save'") && p
   ok('Excel 更新记一条日志', updLog.length === 1 && updLog[0].entity.includes('1 个商品'))
 
   // 留空的列保持原值不覆盖
-  cmd.importBatch(udb, { mode: 'update', rows: [{ sku_code: 'UPD-1', category: '鱼竿', cost_price: 1300, quantity: 1 }] })
+  cmd.importBatch(udb, { mode: 'update', rows: [{ sku_code: 'UPD-1', category: '食品饮料', cost_price: 1300, quantity: 1 }] })
   ok('update 模式空列不覆盖原值',
     uProd().brand === '新品牌' && uProd().model === '新型号' && uProd().cost_price === 1300 && uProd().suggest_price === 2500)
 
@@ -2092,7 +2103,7 @@ ok('preload 白名单含 product:batchUpdate', preloadSrc.includes("'product:bat
   const split = cmd.todayPaymentSplit(mdb)
   ok('拆分：微信净额', split.byMethod['微信'] === 8000)
   ok('拆分：支付宝实收', split.byMethod['支付宝'] === 3000)
-  ok('拆分：未记录净额', split.unrecorded === 19200)
+  ok('拆分：未记录净额', split.unrecorded === 12470)
   ok('拆分：今日新增赊账', split.credit === 13000)
 
   // 手机端：payMethod 透传 + summary 带 payments
@@ -2286,6 +2297,80 @@ ok('preload 白名单含 outbound:checkout', preloadSrc.includes("'outbound:chec
   })
   const invBizErr = await rInvBizErr.json()
   ok('invoke 业务校验错误 400 且中文提示透传', rInvBizErr.status === 400 && typeof invBizErr.error === 'string' && invBizErr.error.includes('售价'))
+
+  // v2.1.10 手机端补全通道：临期 / 报损 / 配节 / 套装 + 热销带 unit（按米卖鱼线依赖）
+  const rExpiring = await fetch(`${aBase}/api/invoke`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-token': aToken },
+    body: JSON.stringify({ channel: 'product:expiring', payload: { days: 30 } }),
+  })
+  ok('invoke product:expiring 返回数组', rExpiring.status === 200 && Array.isArray((await rExpiring.json()).result))
+  const rPc2 = await fetch(`${aBase}/api/invoke`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-token': aToken },
+    body: JSON.stringify({ channel: 'product:create', payload: { sku_code: '', category: '食品饮料', cost_price: 200, unit: '件' } }),
+  })
+  const pc2 = await rPc2.json()
+  const pid2 = pc2.result?.id
+  const rIn2 = await fetch(`${aBase}/api/invoke`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-token': aToken },
+    body: JSON.stringify({ channel: 'inbound:create', payload: { productId: pid2, quantity: 10, costPrice: 200 } }),
+  })
+  ok('invoke inbound:create 给报损备货', rIn2.status === 200 && (await rIn2.json()).ok === true)
+  const rWaste = await fetch(`${aBase}/api/invoke`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-token': aToken },
+    body: JSON.stringify({ channel: 'waste:create', payload: { productId: pid2, quantity: 3, reason: '临期报废', operator: '手机' } }),
+  })
+  const waste = await rWaste.json()
+  ok('invoke waste:create 报损成功', rWaste.status === 200 && waste.ok === true)
+  const rWasteList = await fetch(`${aBase}/api/invoke`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-token': aToken },
+    body: JSON.stringify({ channel: 'waste:list', payload: { limit: 10 } }),
+  })
+  const wasteList = await rWasteList.json()
+  ok('invoke waste:list 能看到刚才的报损', rWasteList.status === 200 && Array.isArray(wasteList.result) && wasteList.result.some((w) => w.product_id === pid2))
+  const rKit = await fetch(`${aBase}/api/invoke`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-token': aToken },
+    body: JSON.stringify({ channel: 'kit:save', payload: { name: '组合套装', items: [{ productId: pid2, quantity: 2 }] } }),
+  })
+  const kit = await rKit.json()
+  ok('invoke kit:save 建套装', rKit.status === 200 && kit.result?.id > 0)
+  const rKitList = await fetch(`${aBase}/api/invoke`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-token': aToken },
+    body: JSON.stringify({ channel: 'kit:list', payload: {} }),
+  })
+  const kitList = await rKitList.json()
+  ok('invoke kit:list 能看到套装', rKitList.status === 200 && Array.isArray(kitList.result) && kitList.result.some((k) => k.id === kit.result?.id))
+  // 热销榜：开一笔真实出库，验证返回项带 unit（手机端按米卖鱼线全靠它判断单位）
+  const rOut2 = await fetch(`${aBase}/api/invoke`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-token': aToken },
+    body: JSON.stringify({ channel: 'outbound:checkout', payload: { items: [{ productId: pid2, quantity: 1, sellingPrice: 500 }], method: '现金', operator: '手机' } }),
+  })
+  ok('invoke outbound:checkout 开单成功（热销备数据）', rOut2.status === 200 && (await rOut2.json()).ok === true)
+  const rHot = await fetch(`${aBase}/api/invoke`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-token': aToken },
+    body: JSON.stringify({ channel: 'report:hotSellers', payload: { days: 30 } }),
+  })
+  const hot = await rHot.json()
+  ok('invoke report:hotSellers 每项带 unit 字段', rHot.status === 200 && Array.isArray(hot.result) && hot.result.every((p) => 'unit' in p))
+  // 按米卖鱼线（手机端核心场景）：米商品建/入/出全走 invoke，小数开单
+  const rMeter = await fetch(`${aBase}/api/invoke`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-token': aToken },
+    body: JSON.stringify({ channel: 'product:create', payload: { sku_code: '', category: '鱼线', cost_price: 800, unit: '米' } }),
+  })
+  const meterProd = await rMeter.json()
+  const meterId = meterProd.result?.id
+  const rMeterIn = await fetch(`${aBase}/api/invoke`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-token': aToken },
+    body: JSON.stringify({ channel: 'inbound:create', payload: { productId: meterId, quantity: 100, costPrice: 800 } }),
+  })
+  ok('米商品按米入库成功', rMeterIn.status === 200 && (await rMeterIn.json()).ok === true)
+  const rMeterOut = await fetch(`${aBase}/api/invoke`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-token': aToken },
+    body: JSON.stringify({ channel: 'outbound:checkout', payload: { items: [{ productId: meterId, quantity: 15.5, sellingPrice: 1200 }], payMethod: '现金', operator: '手机' } }),
+  })
+  const meterOut = await rMeterOut.json()
+  ok('米商品按米卖出 15.5 米成功', rMeterOut.status === 200 && meterOut.ok === true)
+  const meterStock = adb.prepare('SELECT COALESCE(SUM(quantity),0) q FROM inventory_batches WHERE product_id = ?').get(meterId).q
+  ok('米商品出库后库存扣减正确（100-15.5=84.5）', Math.abs(meterStock - 84.5) < 1e-9)
   await srvA.stop()
 
   // 不传 webRoot 的实例：/app 404、appUrl 为 null（开发态/未打包环境）

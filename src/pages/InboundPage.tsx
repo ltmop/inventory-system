@@ -9,8 +9,9 @@ import { uploadProductPhoto } from '@/lib/photo'
 import { playSound } from '@/lib/sounds'
 import { useOnline } from '@/lib/useOnline'
 import { CATEGORIES, type Category, type Product } from '@/types'
+import { validateQty, unitOf } from '@/lib/quantity'
 import {
-  SPEC_FIELDS, specFieldsFor,
+  SPEC_FIELDS, specFieldsFor, requiresExpiry,
   type SpecField,
 } from '@/lib/productSpecs'
 import { Button } from '@/components/ui/button'
@@ -88,6 +89,7 @@ export function InboundPage() {
     suggestYuan: '',
     location: '',
     minStock: '',
+    unit: '件',
     specs: emptySpecs(),
     photoDataUrl: null,
   })
@@ -146,15 +148,21 @@ export function InboundPage() {
 
   const handleConfirm = async () => {
     if (!matched || submitting) return
-    const qty = Number(quantity)
-    if (!Number.isInteger(qty) || qty < 1) {
-      setError('入库数量必须是 ≥1 的整数')
+    const qty = validateQty(Number(quantity), unitOf(matched))
+    if (qty === null) {
+      setError(unitOf(matched) === '米' ? '入库数量要大于 0，且最多 1 位小数' : '入库数量必须是 ≥1 的整数')
       playSound('error')
       return
     }
     const cost = yuanToCents(costYuan)
     if (cost === null) {
       setError('进价格式不正确')
+      playSound('error')
+      return
+    }
+    // 保质期商品填了该批次到期日才走保质期管理（不填当普通商品）
+    if (requiresExpiry(matched.category) && !expiryDate.trim()) {
+      setError(`${productName(matched)} 是保质期商品，必须填该批次的到期日`)
       playSound('error')
       return
     }
@@ -233,6 +241,7 @@ export function InboundPage() {
         location: npForm.location.trim() || null,
         status: '待盘点',
         min_stock: minStock,
+        unit: npForm.unit,
         // 只提交当前品类展示的规格字段，避免切换品类后残留旧值混进来
         ...Object.fromEntries(
           specFieldsFor(npForm.category).map((f) => [f, npForm.specs[f].trim() || null]),
@@ -291,6 +300,7 @@ export function InboundPage() {
           category: it.category ?? '其他',
           quantity: it.quantity,
           costYuan: it.cost_price_fen ? (it.cost_price_fen / 100).toFixed(2) : '',
+          expiryDate: '',
         })),
       )
     } catch {
@@ -321,6 +331,11 @@ export function InboundPage() {
         fails.push(`${label}：数量无效`)
         continue
       }
+      // 保质期商品填了该批次到期日才走保质期管理
+      if (requiresExpiry(it.category) && !it.expiryDate.trim()) {
+        fails.push(`${label}：保质期商品必须填到期日`)
+        continue
+      }
       try {
         let pid = it.product_id
         if (!pid) {
@@ -345,6 +360,7 @@ export function InboundPage() {
           location: null,
           supplierId: null,
           operator,
+          expiryDate: it.expiryDate.trim() || undefined,
         })
         okCount++
       } catch (err) {
@@ -437,6 +453,7 @@ export function InboundPage() {
           onOperatorChange={setOperator}
           expiryDate={expiryDate}
           onExpiryDateChange={setExpiryDate}
+          expiryRequired={requiresExpiry(matched.category)}
           submitting={submitting}
           onConfirm={handleConfirm}
           onOpenCreate={() => setDialogOpen(true)}

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { formatPrice, productName } from '@/lib/formatters'
+import { unitOf } from '@/lib/quantity'
 import { cn } from '@/lib/utils'
 import type { Product } from '@/types'
 
@@ -45,7 +46,7 @@ export function CartPanel({
         <CardTitle className="flex items-center gap-3 text-lg">
           <ShoppingCart className="size-5 text-emerald-600" />
           购物清单
-          <Badge className="bg-emerald-600">{items.length} 样 / {totalCount} 件</Badge>
+          <Badge className="bg-emerald-600">{items.length} 样 / 共 {totalCount}</Badge>
           <span className="ml-auto text-xl font-bold tabular-nums text-emerald-700">
             合计 {formatPrice(totalCents)}
           </span>
@@ -55,6 +56,8 @@ export function CartPanel({
         {items.map((i) => {
           const stock = totalStockOf(i.product.id)
           const over = i.quantity > stock
+          // 米商品（鱼线）步进 0.5，件商品步进 1
+          const step = unitOf(i.product) === '米' ? 0.5 : 1
           return (
             <div
               key={i.product.id}
@@ -66,7 +69,7 @@ export function CartPanel({
               <div className="min-w-40 flex-1">
                 <div className="font-medium">{productName(i.product)}</div>
                 <div className="text-xs text-muted-foreground">
-                  库存 {stock} 件{over && <span className="ml-1 font-medium text-red-600">超出库存！</span>}
+                  库存 {stock} {unitOf(i.product)}{over && <span className="ml-1 font-medium text-red-600">超出库存！</span>}
                 </div>
               </div>
               {/* 单价（元）：直接改，默认带的是零售档/建议价 */}
@@ -93,8 +96,8 @@ export function CartPanel({
                   size="icon"
                   variant="outline"
                   className="size-8"
-                  disabled={i.quantity <= 1}
-                  onClick={() => onQtyChange(i.product.id, i.quantity - 1)}
+                  disabled={i.quantity <= step}
+                  onClick={() => onQtyChange(i.product.id, Math.round((i.quantity - step) * 10) / 10)}
                 >
                   <Minus className="size-3.5" />
                 </Button>
@@ -106,7 +109,7 @@ export function CartPanel({
                   variant="outline"
                   className="size-8"
                   disabled={i.quantity >= stock}
-                  onClick={() => onQtyChange(i.product.id, i.quantity + 1)}
+                  onClick={() => onQtyChange(i.product.id, Math.round((i.quantity + step) * 10) / 10)}
                 >
                   <Plus className="size-3.5" />
                 </Button>

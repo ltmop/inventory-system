@@ -9,11 +9,12 @@ import { readTtsEnabled, writeTtsEnabled } from '@/lib/tts'
 import { readWakeEnabled, writeWakeEnabled, startWakeListener, stopWakeListener } from '@/lib/wakeWord'
 import { useVoiceModel, useTtsModel, useKwsModel } from '@/lib/useModelDownload'
 import { useOnline } from '@/lib/useOnline'
-import { useLicense, daysText } from '@/lib/license'
+import { useLicense, daysText, LEVEL_NAMES } from '@/lib/license'
 import { useAppStore } from '@/store/appStore'
 import type { BackupStatus } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AiAssistantCard } from './settings/AiAssistantCard'
+import { AiQuotaCard } from './settings/AiQuotaCard'
 import { BackupCard } from './settings/BackupCard'
 import { FeedbackCard } from './settings/FeedbackCard'
 import { CloudCard } from './settings/CloudCard'
@@ -388,6 +389,9 @@ export function SettingsPage() {
         onRegenerateToken={handleRegenerateToken}
       />
 
+      {/* AI 视觉识别额度（v3.0） */}
+      <AiQuotaCard />
+
       {/* AI 助手（BYOK） */}
       <AiAssistantCard
         hasBackend={!!backend}
@@ -493,8 +497,8 @@ export function SettingsPage() {
           </CardTitle>
           <CardDescription>
             {license.activated
-              ? `Pro 已激活 · ${daysText(license.daysLeft)}`
-              : '免费版 · 所有基础功能永久免费'}
+              ? `${LEVEL_NAMES[license.level] ?? '普通版'} 已激活 · ${daysText(license.daysLeft)}`
+              : '普通版 · 免费，语音输入/云备份/收款对账全开放'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -503,7 +507,7 @@ export function SettingsPage() {
               <div className="text-slate-600">
                 状态：
                 <span className={license.activated ? 'font-medium text-green-700' : 'text-slate-500'}>
-                  {license.activated ? `Pro · ${daysText(license.daysLeft)}` : '免费版'}
+                  {license.activated ? `${LEVEL_NAMES[license.level] ?? '普通版'} · ${daysText(license.daysLeft)}` : '普通版'}
                 </span>
               </div>
               <div className="text-xs text-muted-foreground">
@@ -521,7 +525,7 @@ export function SettingsPage() {
                 onClick={() => navigate('/activate')}
                 className="rounded bg-brand-100 px-3 py-1.5 text-xs font-medium text-brand-700 hover:bg-brand-200 cursor-pointer"
               >
-                {license.activated ? '管理授权' : '升级 Pro'}
+                {license.activated ? '管理授权' : '升级进阶版'}
               </button>
             </div>
           </div>
@@ -537,7 +541,7 @@ export function SettingsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-slate-600">
-          <div>渔具库存 AI 管理系统 v{APP_VERSION} · 阿东 © 2026</div>
+          <div>通用进销存系统 v{APP_VERSION} · 阿东 © 2026</div>
           <div className="text-xs text-muted-foreground">
             Electron + React + SQLite（WAL）· 本地单机部署 · 断电不丢数据
           </div>

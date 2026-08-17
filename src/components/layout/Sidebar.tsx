@@ -14,8 +14,9 @@ import {
   ScrollText,
   Settings,
   Wallet,
+  ReceiptText,
   PackageX,
-  Link2,
+  PackageOpen,
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react'
@@ -33,8 +34,9 @@ const ADMIN_ITEMS = [
   { to: '/', label: '仪表盘', icon: LayoutDashboard, end: true },
   { to: '/reports', label: '经营报表', icon: BarChart3 },
   { to: '/expenses', label: '支出记账', icon: Wallet },
+  { to: '/receipt-reconcile', label: '收款对账', icon: ReceiptText },
   { to: '/waste', label: '报损登记', icon: PackageX },
-  { to: '/parts', label: '配节管理', icon: Link2 },
+  { to: '/kits', label: '套装管理', icon: PackageOpen },
   { to: '/purchase', label: '采购订货', icon: ClipboardList },
   { to: '/stock-take', label: '盘点管理', icon: ClipboardCheck },
   { to: '/customers', label: '客户', icon: Users },
@@ -113,7 +115,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         </div>
         {!collapsed && (
           <div className="leading-tight">
-            <div className="text-sm font-bold text-white">渔具库存</div>
+            <div className="text-sm font-bold text-white">通用进销存</div>
             <div className="text-xs text-gold-200/70">AI 智能进销存</div>
           </div>
         )}

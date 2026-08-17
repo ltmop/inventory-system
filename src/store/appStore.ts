@@ -10,6 +10,10 @@ import type {
   Expense,
   ExpenseInput,
   InventoryBatch,
+  Kit,
+  KitDetailItem,
+  KitInput,
+  KitItem,
   Payment,
   PaymentMethod,
   PriceLevel,
@@ -26,6 +30,7 @@ import type {
   SupplierStatement,
   SupplierStatementLine,
   Transaction,
+  Unit,
 } from '@/types'
 import { computeFifoPlan, type FifoAllocation } from '@/lib/fifo'
 import { productName } from '@/lib/formatters'
@@ -65,6 +70,8 @@ export interface NewProductInput {
   expiry_date?: string | null
   /** 最低库存预警线（选填）：不设/清空 = 按默认阈值 5 预警 */
   min_stock?: number | null
+  /** 计量单位（v2.2）：件=整数按个卖（默认）；米=鱼线按长度小数卖 */
+  unit?: Unit | null
   /** 商品图片相对文件名（images 目录内）；仅 updateProduct 用，createProduct 一律 NULL 起步 */
   photo_path?: string | null
 }
@@ -165,6 +172,9 @@ interface AppState {
   expenses: Expense[]
   /** 操作日志（audit:list 口径，时间倒序）；mock 路径写操作时本地顺手记，生产环境一律以后端 audit_log 表为准 */
   auditLogs: AuditLogEntry[]
+  /** 套装（v2.2）：套装列表 + 明细（loadAll 已带） */
+  kits: Kit[]
+  kitItems: KitItem[]
   /** Electron 环境下是否已从 SQLite 加载完数据 */
   loaded: boolean
   /** 数据加载/操作失败的提示，展示在布局顶部错误条 */
@@ -176,8 +186,8 @@ interface AppState {
   setLowStockAlertOpen: (open: boolean) => void
 
   /** 授权状态（license:status IPC）；浏览器 mock 默认免费 */
-  license: { activated: boolean; level: 'free' | 'pro'; expiresAt: string | null; machineId: string; daysLeft: number | null }
-  setLicense: (s: { activated: boolean; level: 'free' | 'pro'; expiresAt: string | null; machineId: string; daysLeft: number | null }) => void
+  license: { activated: boolean; level: 'free' | 'pro' | 'max'; expiresAt: string | null; machineId: string; daysLeft: number | null }
+  setLicense: (s: { activated: boolean; level: 'free' | 'pro' | 'max'; expiresAt: string | null; machineId: string; daysLeft: number | null }) => void
 
   /** 云备份状态（cloud:status IPC） */
   cloud: { paired: boolean; lastSyncAt: string | null; lastBackupAt: string | null; syncing: boolean; error: string | null; viewUrl: string | null }
@@ -274,10 +284,11 @@ interface AppState {
     phone: string | null
     notes: string | null
     price_level?: PriceLevel | null
+    preferences?: string | null
   }) => Promise<Customer>
   updateCustomer: (
     id: number,
-    input: { name: string; phone: string | null; notes: string | null; price_level?: PriceLevel | null },
+    input: { name: string; phone: string | null; notes: string | null; price_level?: PriceLevel | null; preferences?: string | null },
   ) => Promise<void>
   /** 有流水/还款记录的客户后端会拒绝删除，原因经 Error.message 抛出 */
   deleteCustomer: (id: number) => Promise<void>
@@ -310,11 +321,18 @@ interface AppState {
   ) => Promise<StockTake>
   updateStockTakeItem: (itemId: number, actualQty: number, reason: string) => Promise<void>
   completeStockTake: (takeId: number) => Promise<void>
-  /** 盘点原子提交：实盘数写入 + 完成盘点一次完成（替代逐条 update + complete 的两段式） */
+  /** 盘点原子提交：实盘数写入 + 完成盘点一次完成（替代逐条 update + complete 的两段式）。
+   * sku 模式可选带 batchAllocations：把按比例摊好的各批次目标数量一并提交，前端预览即所见 */
   submitStockTake: (
     takeId: number,
-    items: { itemId: number; actualQty: number; reason: string }[],
+    items: { itemId: number; actualQty: number; reason: string; batchAllocations?: { batchId: number; quantity: number }[] }[],
   ) => Promise<void>
+
+  /** 套装（v2.2）：拉取列表/保存（建或改）/删除；保存后 loadAll 刷新全量 */
+  loadKits: () => Promise<void>
+  saveKit: (input: KitInput) => Promise<{ id: number }>
+  deleteKit: (id: number) => Promise<void>
+  kitDetail: (id: number) => Promise<{ kit: Kit; items: KitDetailItem[] }>
 }
 
 // 自增 id 基于当前数据最大值，避免与 mock 数据冲突（仅浏览器 mock 回退路径使用）
@@ -473,6 +491,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   priceTiers: [],
   expenses: [],
   auditLogs: [],
+  kits: [],
+  kitItems: [],
   loaded: false,
   error: null,
   lowStockAlertOpen: false,
@@ -529,16 +549,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       sku_code: input.sku_code?.trim() || genSkuCode(get().products, input),
       photo_path: null,
       name_vi: null,
-      // 规格字段（v2.0 新增）：表单传了就透传，没传默认空
-      rod_length: input.rod_length ?? null,
-      line_number: input.line_number ?? null,
-      hook_size: input.hook_size ?? null,
+      // 通用规格字段：表单传了就透传，没传默认空
       color: input.color ?? null,
       material: input.material ?? null,
-      rod_action: input.rod_action ?? null,
-      power_rating: input.power_rating ?? null,
       expiry_date: input.expiry_date ?? null,
       min_stock: input.min_stock ?? null,
+      unit: input.unit ?? '件',
       created_at: now,
       updated_at: now,
     }
@@ -570,7 +586,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     const s = get()
     if (s.batches.some((b) => b.product_id === id) || s.transactions.some((t) => t.product_id === id)) {
-      throw new Error('该商品已有入库/出库记录，不能删除；如不再经营请将状态改为「停产」')
+      throw new Error('该商品已有入库/出库记录，不能删除；如不再经营请将状态改为「停售」')
     }
     set((st) => ({ products: st.products.filter((p) => p.id !== id) }))
   },
@@ -1277,9 +1293,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     const updatedItems = state.purchaseOrderItems.map((it) => {
       const qty = receivedByItem.get(it.id)
       if (qty === undefined || it.po_id !== id) return it
-      if (!Number.isInteger(qty) || qty < 1) throw new Error('收货数量必须是 ≥1 的整数')
+      // 计量单位（v2.2）：米商品（鱼线）允许小数收货
+      const p = state.products.find((x) => x.id === it.product_id)
+      const unit = p && p.unit === '米' ? '米' : '件'
+      if (unit === '米') {
+        if (!Number.isFinite(qty) || qty < 1 || Math.round(qty * 10) !== qty * 10) {
+          throw new Error('收货数量要大于 0，且最多 1 位小数')
+        }
+      } else if (!Number.isInteger(qty) || qty < 1) {
+        throw new Error('收货数量必须是 ≥1 的整数')
+      }
       const remaining = it.quantity - it.received_qty
-      if (qty > remaining) throw new Error(`「${it.product_name}」最多还能收 ${remaining} 件`)
+      if (qty > remaining) throw new Error(`「${it.product_name}」最多还能收 ${remaining} ${unit}`)
       const product = state.products.find((p) => p.id === it.product_id)
       const bid = batchId++
       newBatches.push({
@@ -1389,6 +1414,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       phone: input.phone?.trim() || null,
       notes: input.notes?.trim() || null,
       price_level: input.price_level ?? null,
+      preferences: input.preferences?.trim() || null,
     }
     if (!payload.name) throw new Error('客户姓名不能为空')
     if (backend) {
@@ -1417,6 +1443,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       notes: input.notes?.trim() || null,
       // 传 null=清除档位回零售默认（后端 updateCustomer 同口径）
       price_level: input.price_level ?? null,
+      preferences: input.preferences?.trim() || null,
     }
     if (!payload.name) throw new Error('客户姓名不能为空')
     if (backend) {
@@ -1529,19 +1556,58 @@ export const useAppStore = create<AppState>((set, get) => ({
       await get().loadAll()
       return
     }
-    // 浏览器 mock 路径：报损在本地扣批次库存（仅 dev 用）
+    // 浏览器 mock 路径：报损在本地扣批次库存 + 写 waste 流水 + 记日志（与后端 createWaste 同口径）
     const s = get()
-    let left = quantity
     const sorted = s.batches
       .filter((b) => b.product_id === productId && b.quantity > 0)
       .sort((a, b) => (a.expiry_date ?? '9999') < (b.expiry_date ?? '9999') ? -1 : 1)
+    const total = sorted.reduce((sum, b) => sum + b.quantity, 0)
+    if (total < quantity) throw new Error(`库存不足：只有 ${total} 件，报损不了 ${quantity} 件`)
+    const nowIso = new Date().toISOString()
+    const reasonText = reason.trim()
+    let left = quantity
+    const qtyByBatch = new Map<number, number>()
+    const newTx: Transaction[] = []
     for (const b of sorted) {
       if (left <= 0) break
       const deduct = Math.min(b.quantity, left)
-      b.quantity -= deduct
+      qtyByBatch.set(b.id, (qtyByBatch.get(b.id) ?? 0) - deduct)
+      newTx.push({
+        id: nextId(s.transactions),
+        product_id: productId,
+        batch_id: b.id,
+        type: 'waste',
+        quantity: deduct,
+        unit_price: b.cost_price,
+        selling_price: null,
+        timestamp: nowIso,
+        operator: operator ?? null,
+        notes: reasonText,
+        customer_id: null,
+        paid_amount: null,
+        pay_method: null,
+      })
       left -= deduct
     }
-    set({ batches: [...s.batches] })
+    set((st) => ({
+      batches: st.batches.map((b) =>
+        qtyByBatch.has(b.id)
+          ? { ...b, quantity: Math.max(0, b.quantity + (qtyByBatch.get(b.id) ?? 0)) }
+          : b,
+      ),
+      transactions: [...newTx, ...st.transactions],
+      auditLogs: [
+        {
+          id: nextId(st.auditLogs),
+          action: '报损',
+          entity: `${productName(st.products.find((p) => p.id === productId) ?? { brand: null, model: null, sku_code: `#${productId}` })} x${quantity}`,
+          detail: JSON.stringify({ quantity, reason: reasonText }),
+          operator: operator ?? null,
+          created_at: nowIso,
+        },
+        ...st.auditLogs,
+      ],
+    }))
   },
 
   customerStatement: async (customerId) => {
@@ -1756,8 +1822,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       })
       const qtyByBatch = new Map<number, number>()
       for (const it of mergedItems) {
-        if (it.stock_take_id === takeId && it.batch_id !== null && it.actual_qty !== null) {
+        if (it.stock_take_id !== takeId || it.actual_qty === null) continue
+        if (it.batch_id !== null) {
+          // batch 模式：逐行按批次落实
           qtyByBatch.set(it.batch_id, it.actual_qty)
+        } else {
+          // sku 模式：用前端算好的 batchAllocations 落实（与后端 submitStockTake 的兜底分摊一致）
+          const sub = submitted.get(it.id)
+          for (const a of sub?.batchAllocations ?? []) {
+            qtyByBatch.set(a.batchId, a.quantity)
+          }
         }
       }
       return {
@@ -1770,6 +1844,94 @@ export const useAppStore = create<AppState>((set, get) => ({
         ),
       }
     })
+  },
+
+  loadKits: async () => {
+    if (!backend) return
+    try {
+      const data = await backend.invoke('data:loadAll')
+      set({ kits: data.kits, kitItems: data.kitItems })
+    } catch (e) {
+      set({ error: `套装加载失败：${e instanceof Error ? e.message : String(e)}` })
+    }
+  },
+
+  saveKit: async (input) => {
+    if (backend) {
+      const r = await backend.invoke('kit:save', input)
+      await get().loadAll()
+      return r
+    }
+    const s = get()
+    const name = input.name.trim()
+    if (!name) throw new Error('套装名称不能为空')
+    if (input.items.length === 0) throw new Error('套装至少要包含一个商品')
+    if (input.price != null && input.discount_percent != null) {
+      throw new Error('一口价和总折扣只能设一个，别两个都填')
+    }
+    const price = input.price ?? null
+    const discount_percent = input.discount_percent ?? null
+    const now = new Date().toISOString()
+    let kitId: number
+    if (input.id == null) {
+      kitId = nextId(s.kits)
+      set((st) => ({
+        kits: [...st.kits, { id: kitId, name, price, discount_percent, created_at: now, updated_at: now }],
+      }))
+    } else {
+      kitId = input.id
+      set((st) => ({
+        kits: st.kits.map((k) =>
+          k.id === kitId ? { ...k, name, price, discount_percent, updated_at: now } : k,
+        ),
+      }))
+    }
+    set((st) => ({
+      kitItems: [
+        ...st.kitItems.filter((i) => i.kit_id !== kitId),
+        ...input.items.map((it) => ({
+          id: nextId(st.kitItems),
+          kit_id: kitId,
+          product_id: it.productId,
+          quantity: it.quantity,
+        })),
+      ],
+    }))
+    return { id: kitId }
+  },
+
+  deleteKit: async (id) => {
+    if (backend) {
+      await backend.invoke('kit:delete', { id })
+      await get().loadAll()
+      return
+    }
+    set((st) => ({
+      kits: st.kits.filter((k) => k.id !== id),
+      kitItems: st.kitItems.filter((i) => i.kit_id !== id),
+    }))
+  },
+
+  kitDetail: async (id) => {
+    if (backend) return backend.invoke('kit:get', { id })
+    const s = get()
+    const kit = s.kits.find((k) => k.id === id)
+    if (!kit) throw new Error('套装不存在')
+    const items = s.kitItems
+      .filter((i) => i.kit_id === id)
+      .map((i) => {
+        const p = s.products.find((x) => x.id === i.product_id)
+        return {
+          product_id: i.product_id,
+          quantity: i.quantity,
+          sku_code: p?.sku_code ?? '',
+          brand: p?.brand ?? null,
+          model: p?.model ?? null,
+          product_name: p ? productName(p) : `#${i.product_id}`,
+          suggest_price: p?.suggest_price ?? null,
+        }
+      })
+    return { kit, items }
   },
 }))
 

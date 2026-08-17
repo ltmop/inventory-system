@@ -20,7 +20,8 @@ export interface FifoPlan {
  * 库存不足时 ok=false 并返回缺口，不产生任何扣减。
  */
 export function computeFifoPlan(batches: InventoryBatch[], quantity: number): FifoPlan {
-  if (!Number.isInteger(quantity) || quantity <= 0) {
+  // 米商品（鱼线）允许小数出库；件商品仍是整数，但纯函数不区分单位，统一放行正数
+  if (!Number.isFinite(quantity) || quantity <= 0) {
     return { ok: false, shortage: quantity, allocations: [] }
   }
   const sorted = [...batches]

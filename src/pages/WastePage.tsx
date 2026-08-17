@@ -3,6 +3,7 @@ import { PackageX, Plus, Trash2 } from 'lucide-react'
 import { useAppStore } from '@/store/appStore'
 import { backend } from '@/lib/api'
 import { formatPrice, formatDateTime, productName } from '@/lib/formatters'
+import { validateQty, unitOf } from '@/lib/quantity'
 import { PageHeader, ErrorBanner, SuccessBanner } from '@/components/feedback'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -68,9 +69,12 @@ export function WastePage() {
 
   const handleSubmit = async () => {
     if (!selected || submitting) return
-    const qty = Number(quantity)
-    if (!Number.isInteger(qty) || qty < 1) { setError('报损数量必须是 ≥1 的整数'); return }
-    if (!reason.trim()) { setError('填一下报损原因（如：活饵死亡/临期报废/破损）'); return }
+    const qty = validateQty(Number(quantity), unitOf(selected))
+    if (qty === null) {
+      setError(unitOf(selected) === '米' ? '报损数量要大于 0，且最多 1 位小数' : '报损数量必须是 ≥1 的整数')
+      return
+    }
+    if (!reason.trim()) { setError('填一下报损原因（如：临期报废/破损/过期）'); return }
     setSubmitting(true)
     setError('')
     try {
@@ -143,7 +147,7 @@ export function WastePage() {
                     className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-slate-50 cursor-pointer"
                   >
                     <span>{productName(p)}</span>
-                    <span className="text-xs text-slate-400">库存 {totalStockOf(p.id)} · {p.sku_code}</span>
+                    <span className="text-xs text-slate-400">库存 {totalStockOf(p.id)} {unitOf(p)} · {p.sku_code}</span>
                   </button>
                 ))}
               </div>
@@ -155,9 +159,15 @@ export function WastePage() {
           {selected && (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
-                <Label>报损数量 *</Label>
-                <Input type="number" min={1} value={quantity} onChange={(e) => setQuantity(e.target.value)} />
-                <p className="text-xs text-slate-400">当前库存 {totalStockOf(selected.id)} 件</p>
+                <Label>报损数量 *（{unitOf(selected)}）</Label>
+                <Input
+                  type="number"
+                  min={unitOf(selected) === '米' ? 0.1 : 1}
+                  step={unitOf(selected) === '米' ? 0.1 : 1}
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                />
+                <p className="text-xs text-slate-400">当前库存 {totalStockOf(selected.id)} {unitOf(selected)}</p>
               </div>
               <div className="space-y-1">
                 <Label>报损原因 *</Label>

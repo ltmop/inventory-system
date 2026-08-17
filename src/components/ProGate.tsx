@@ -11,12 +11,12 @@ interface ProGateProps {
   featureDesc?: string
 }
 
-/** 付费功能门控：Pro 版显示内容，免费版显示"升级解锁"卡片 */
+/** 付费功能门控：进阶/大师版显示内容，免费版显示"升级解锁"卡片 */
 export function ProGate({ children, fallback, featureDesc }: ProGateProps) {
-  const { isPro } = useLicense()
+  const { isPaid } = useLicense()
   const navigate = useNavigate()
 
-  if (isPro) return <>{children}</>
+  if (isPaid) return <>{children}</>
 
   if (fallback) return <>{fallback}</>
 
@@ -26,13 +26,13 @@ export function ProGate({ children, fallback, featureDesc }: ProGateProps) {
         <Lock className="size-6 text-brand-600" />
       </div>
       <div>
-        <div className="text-sm font-medium text-slate-700">Pro 版专属功能</div>
+        <div className="text-sm font-medium text-slate-700">进阶版专属功能</div>
         {featureDesc && (
           <div className="mt-1 text-xs text-slate-500">{featureDesc}</div>
         )}
       </div>
       <Button onClick={() => navigate('/activate')} size="sm">
-        升级 Pro · ¥365/年
+        升级进阶版 · ¥168/年
       </Button>
     </div>
   )

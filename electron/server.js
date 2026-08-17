@@ -125,8 +125,7 @@ function queryInventory(db, q) {
   return db
     .prepare(
       `SELECT p.id, p.brand, p.model, p.sku_code, p.barcode, p.location, p.cost_price, p.suggest_price,
-              p.rod_length, p.rod_action, p.power_rating, p.line_number,
-              p.hook_size, p.color, p.material, p.expiry_date, p.photo_path,
+              p.color, p.material, p.expiry_date, p.photo_path,
               COALESCE(s.q, 0) AS stock
        FROM products p
        LEFT JOIN (SELECT product_id, SUM(quantity) AS q FROM inventory_batches GROUP BY product_id) s
@@ -147,14 +146,9 @@ function queryInventory(db, q) {
       suggestPrice: r.suggest_price ?? null,
       // 各档价格（retail/regular/VIP/wholesale/promo → 分），开单页按客户价格档自动带价
       priceTiers: Object.fromEntries(tierStmt.all(r.id).map((t) => [t.tier, t.price])),
-      // 渔具规格（只带有值的字段）：长度/调性/硬度/线号/钩号/颜色/材质/保质期
+      // 通用规格（只带有值的字段）：颜色/材质/保质期
       specs: Object.fromEntries(
         [
-          ['rod_length', r.rod_length],
-          ['rod_action', r.rod_action],
-          ['power_rating', r.power_rating],
-          ['line_number', r.line_number],
-          ['hook_size', r.hook_size],
           ['color', r.color],
           ['material', r.material],
           ['expiry_date', r.expiry_date],
@@ -945,6 +939,17 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     'expense:create': (d, p) => cmds.createExpense(d, p),
     'expense:update': (d, p) => cmds.updateExpense(d, p),
     'expense:delete': (d, p) => cmds.deleteExpense(d, p),
+    // ---- 手机端补全（v2.1.10）：报损 / 配节（与桌面端同一套 commands，业务校验一致） ----
+    'waste:create': (d, p) => cmds.createWaste(d, p),
+    'waste:list': (d, p) => cmds.listWastes(d, p ?? {}),
+    'waste:summary': (d, p) => cmds.wasteSummary(d, p ?? {}),
+    'kit:list': (d) => cmds.listKits(d),
+    'kit:get': (d, p) => cmds.getKit(d, p ?? {}),
+    'kit:save': (d, p) => cmds.saveKit(d, p),
+    'receipt:register': (d, p) => cmds.registerReceipt(d, p ?? {}),
+    'receipt:list': (d, p) => cmds.listReceipts(d, p ?? {}),
+    'receipt:reconcile': (d, p) => cmds.reconcileReceipt(d, p ?? {}),
+    'kit:delete': (d, p) => cmds.deleteKit(d, p ?? {}),
     'po:create': (d, p) => cmds.createPurchaseOrder(d, p),
     'po:list': (d, p) => cmds.listPurchaseOrders(d, p),
     'po:detail': (d, p) => cmds.purchaseOrderDetail(d, p),
@@ -1008,7 +1013,7 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     'report:hotSellers': (d, p) => {
       const days = Math.min(Math.max(parseInt(p?.days, 10) || 30, 1), 90)
       return d.prepare(
-        `SELECT p.id, p.brand, p.model, p.sku_code, p.suggest_price, p.photo_path, p.updated_at,
+        `SELECT p.id, p.brand, p.model, p.sku_code, p.suggest_price, p.photo_path, p.updated_at, p.unit,
                 SUM(t.quantity) AS qty,
                 SUM(t.selling_price * t.quantity) AS revenue
          FROM transactions t JOIN products p ON p.id = t.product_id
@@ -1026,8 +1031,12 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     },
     'ai:photoDraft': async (d, p) => {
       if (!aiRef || !p?.imageBase64) return { ok: false, reason: 'no-key-or-image' }
+      // v3.0 每日额度（普通20/进阶100/大师不限）
+      const quota = cmds.checkAiQuota(d, 'vision')
+      if (!quota.allow) return { ok: false, reason: quota.message }
       try {
         const r = await aiRef.parseInboundNote({ imageBase64: p.imageBase64, mimeType: p.mimeType || 'image/jpeg' })
+        if (r?.ok) cmds.recordAiUsage(d, 'vision')
         return r
       } catch (e) { return { ok: false, reason: e.message } }
     },

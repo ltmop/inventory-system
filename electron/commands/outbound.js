@@ -1,6 +1,6 @@
 // 出库（FIFO）、收银开单、退货、换货
 import {
-  assertPositiveInt,
+  assertQuantity,
   assertFen,
   assertPayMethod,
   PRICE_TIERS,
@@ -29,9 +29,11 @@ import {
  * 全额付清记各条流水；部分付款且实收>0 同样记；纯赊账（paidAmount=0）强制记 NULL（没有现金移动）。
  * 老数据/未传的一律 NULL=未记录，日结拆分单独归入"未记录"。
  */
-export function confirmOutbound(db, { productId, quantity, sellingPrice, operator, customerId, paidAmount, tier, payMethod, allowExpired }) {
-  // 入口先校验：数量为 0/负数时直接抛错，不再静默返回 { ok: true, allocations: [] }
-  assertPositiveInt(quantity, '出库数量')
+export function confirmOutbound(db, { productId, quantity: rawQuantity, sellingPrice, operator, customerId, paidAmount, tier, payMethod, allowExpired }) {
+  // 入口先校验：数量为 0/负数时直接抛错；米商品（鱼线）允许小数出库
+  const prod0 = db.prepare('SELECT unit FROM products WHERE id = ?').get(productId)
+  if (!prod0) throw new Error('商品不存在')
+  const quantity = assertQuantity(rawQuantity, '出库数量', prod0.unit === '米' ? '米' : '件')
   if (sellingPrice != null) assertFen(sellingPrice, '出库售价')
   payMethod = assertPayMethod(payMethod)
   if (tier != null) {
@@ -146,11 +148,14 @@ export function confirmCheckout(db, { items, customerId, paidAmount, payMethod, 
   if (items.length > 50) throw new Error(`一单最多 50 种商品，收到：${items.length}`)
   payMethod = assertPayMethod(payMethod)
   const lines = items.map((it, i) => {
-    assertPositiveInt(it.quantity, `第 ${i + 1} 行数量`)
+    // 计量单位：米商品（鱼线）允许小数开单
+    const prod0 = db.prepare('SELECT unit FROM products WHERE id = ?').get(it.productId)
+    if (!prod0) throw new Error(`商品不存在（ID：${it.productId}）`)
+    const quantity = assertQuantity(it.quantity, `第 ${i + 1} 行数量`, prod0.unit === '米' ? '米' : '件')
     if (!Number.isInteger(it.sellingPrice) || it.sellingPrice <= 0) {
       throw new Error(`第 ${i + 1} 行售价必须大于 0（单位：分），收到：${it.sellingPrice}`)
     }
-    return { productId: it.productId, quantity: it.quantity, sellingPrice: it.sellingPrice, due: it.quantity * it.sellingPrice }
+    return { productId: it.productId, quantity, sellingPrice: it.sellingPrice, due: quantity * it.sellingPrice }
   })
   const totalDue = lines.reduce((s, l) => s + l.due, 0)
   if (paidAmount != null) {
@@ -265,8 +270,11 @@ export function confirmCheckout(db, { items, customerId, paidAmount, payMethod, 
  * 退款方式扩展：payMethod 可选（现金/微信/支付宝/其他）。只有真退钱（不传 customerId）才落库；
  * 冲减欠款的退货没有现金移动，pay_method 强制记 NULL。
  */
-export function createReturn(db, { productId, quantity, refundPrice, operator, customerId, payMethod }) {
-  assertPositiveInt(quantity, '退货数量')
+export function createReturn(db, { productId, quantity: rawQuantity, refundPrice, operator, customerId, payMethod }) {
+  // 计量单位：米商品（鱼线）允许小数退货
+  const prod0 = db.prepare('SELECT unit FROM products WHERE id = ?').get(productId)
+  if (!prod0) throw new Error('商品不存在')
+  const quantity = assertQuantity(rawQuantity, '退货数量', prod0.unit === '米' ? '米' : '件')
   if (refundPrice != null) assertFen(refundPrice, '退款金额')
   payMethod = assertPayMethod(payMethod, '退款方式')
   return inTransaction(db, () => {
@@ -307,8 +315,11 @@ export function createReturn(db, { productId, quantity, refundPrice, operator, c
  *   优先冲减该客户欠款（exchange 流水记原 customer_id，欠款口径见 netCreditOf），
  *   否则退现金（customer_id 记 NULL）；返回值 refundHandling 说明实际处理方式。
  */
-export function createExchange(db, { oldProductId, newProductId, quantity, sellingPrice, operator, customerId, diffPaidAmount }) {
-  assertPositiveInt(quantity, '换货数量')
+export function createExchange(db, { oldProductId, newProductId, quantity: rawQuantity, sellingPrice, operator, customerId, diffPaidAmount }) {
+  // 计量单位：按新货（出库那条腿）的单位校验，米商品允许小数
+  const newProd0 = db.prepare('SELECT unit FROM products WHERE id = ?').get(newProductId)
+  if (!newProd0) throw new Error('商品不存在')
+  const quantity = assertQuantity(rawQuantity, '换货数量', newProd0.unit === '米' ? '米' : '件')
   if (sellingPrice != null) assertFen(sellingPrice, '换货售价')
   if (diffPaidAmount != null) assertFen(diffPaidAmount, '差价实收')
   return inTransaction(db, () => {

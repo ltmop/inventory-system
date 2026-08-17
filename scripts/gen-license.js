@@ -19,7 +19,7 @@ function sign(message) {
 /** 生成激活码 */
 function generate(machine, level, expireYYMMDD) {
   const fingerprint = machine.toUpperCase().slice(0, 6)
-  const message = `ADU-FISH-${fingerprint}-${expireYYMMDD}-${level === 'pro' ? 'P' : 'F'}`
+  const message = `ADU-FISH-${fingerprint}-${expireYYMMDD}-${level === 'max' ? 'M' : 'P'}`
   const sig = sign(message)
   return `${message}-${sig}`
 }
@@ -38,12 +38,12 @@ function main() {
 
   // 帮助
   if (!machine || !expire) {
-    console.log('离线发码器 v1.0')
-    console.log('用法：node gen-license.js --machine <机器ID前6位> --level <pro|free> --expire <YYMMDD>')
+    console.log('离线发码器 v3.0')
+    console.log('用法：node gen-license.js --machine <机器ID前6位> --level <pro|max> --expire <YYMMDD>')
     console.log('示例：node gen-license.js --machine A1B2C3 --level pro --expire 261231')
-    console.log('      → 生成年费 Pro 激活码，有效期至 2026-12-31')
-    console.log('      node gen-license.js --machine A1B2C3 --expire 21251231')
-    console.log('      → 生成买断激活码（99 年有效期）')
+    console.log('      → 生成进阶版激活码，有效期至 2026-12-31')
+    console.log('      node gen-license.js --machine A1B2C3 --level max --expire 261231')
+    console.log('      → 生成大师版激活码（无限 SKU/店/人）')
     console.log('')
     console.log('换机流程：')
     console.log('  1. 用户新电脑装软件 → 微信发你新机器 ID')
@@ -67,7 +67,7 @@ function main() {
   const code = generate(machine, level, expire)
   console.log('机器 ID：', machine.toUpperCase())
   console.log('到期日：', `20${expire.slice(0,2)}-${expire.slice(2,4)}-${expire.slice(4,6)}`)
-  console.log('等级：  ', level === 'pro' ? 'Pro 年费 ¥365/年' : '免费版')
+  console.log('等级：  ', level === 'max' ? '大师版 ¥398/年' : level === 'pro' ? '进阶版 ¥168/年' : '免费版')
   console.log('')
   console.log('激活码：')
   console.log(code)

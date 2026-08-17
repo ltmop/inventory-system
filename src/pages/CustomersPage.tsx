@@ -18,6 +18,7 @@ const EMPTY_FORM: CustomerForm = {
   phone: '',
   notes: '',
   price_level: '',
+  preferences: '',
 }
 
 function yuanToCents(v: string): number | null {
@@ -89,7 +90,13 @@ export function CustomersPage() {
 
   const openEdit = (c: CustomerWithStats) => {
     setEditingId(c.id)
-    setForm({ name: c.name, phone: c.phone ?? '', notes: c.notes ?? '', price_level: (c.price_level ?? '') as PriceLevel | '' })
+    setForm({
+      name: c.name,
+      phone: c.phone ?? '',
+      notes: c.notes ?? '',
+      price_level: (c.price_level ?? '') as PriceLevel | '',
+      preferences: c.preferences ?? '',
+    })
     setFormError('')
     setFormOpen(true)
   }
@@ -102,7 +109,7 @@ export function CustomersPage() {
     }
     setSaving(true)
     try {
-      const payload = { name: form.name, phone: form.phone, notes: form.notes, price_level: form.price_level || null }
+      const payload = { name: form.name, phone: form.phone, notes: form.notes, price_level: form.price_level || null, preferences: form.preferences }
       if (editingId === null) await addCustomer(payload)
       else await updateCustomer(editingId, payload)
       setFormOpen(false)

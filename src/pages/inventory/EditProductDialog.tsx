@@ -29,8 +29,8 @@ import {
 } from '@/lib/productSpecs'
 import { useAppStore } from '@/store/appStore'
 import {
-  CATEGORIES, PRICE_LEVELS, PRICE_LEVEL_LABELS,
-  type Category, type PriceLevel, type Product, type ProductStatus,
+  CATEGORIES, PRICE_LEVELS, PRICE_LEVEL_LABELS, UNITS,
+  type Category, type PriceLevel, type Product, type ProductStatus, type Unit,
 } from '@/types'
 import { PRODUCT_STATUSES } from '@/types'
 
@@ -45,6 +45,8 @@ export interface EditProductForm {
   location: string
   status: ProductStatus | ''
   min_stock: string // 安全库存：空串=不单独设，按默认 5 预警
+  /** 计量单位（v2.2）：件=整数按个卖（默认）；米=鱼线按长度小数卖 */
+  unit: Unit | ''
 }
 
 interface EditProductDialogProps {
@@ -221,7 +223,7 @@ export function EditProductDialog({
               onChange={(e) => onFormChange((f) => ({ ...f, location: e.target.value }))}
             />
           </div>
-          {/* 安全库存：饵料/鱼钩这类消耗快的老板可以自己调大；留空按默认 5 */}
+          {/* 安全库存：消耗快的商品老板可以自己调大；留空按默认 5 */}
           <div className="space-y-2">
             <Label>安全库存</Label>
             <Input
@@ -232,6 +234,24 @@ export function EditProductDialog({
               onChange={(e) => onFormChange((f) => ({ ...f, min_stock: e.target.value }))}
               placeholder="低于这个数就提醒你，默认 5"
             />
+          </div>
+          <div className="space-y-2">
+            <Label>计量单位</Label>
+            <Select
+              value={form.unit}
+              onValueChange={(v) => onFormChange((f) => ({ ...f, unit: v as Unit }))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="选择计量单位" />
+              </SelectTrigger>
+              <SelectContent>
+                {UNITS.map((u) => (
+                  <SelectItem key={u} value={u}>
+                    {u === '件' ? '件（按个/包整数卖）' : '米（按长度小数卖，如布匹/线材）'}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-2">
             <Label>状态 *</Label>

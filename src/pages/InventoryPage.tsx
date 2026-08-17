@@ -10,7 +10,7 @@ import { computeExpiring } from '@/lib/expiry'
 import {
   SPEC_FIELDS, collectSpecs, specsToForm, type SpecField,
 } from '@/lib/productSpecs'
-import { PRICE_LEVELS, PRICE_LEVEL_LABELS, PRODUCT_STATUSES, type Category, type PriceLevel, type Product, type ProductStatus } from '@/types'
+import { PRICE_LEVELS, PRICE_LEVEL_LABELS, PRODUCT_STATUSES, type Category, type PriceLevel, type Product, type ProductStatus, type Unit } from '@/types'
 import { Button } from '@/components/ui/button'
 import { ErrorBanner, PageHeader, SuccessBanner } from '@/components/feedback'
 import { DeleteProductDialog } from './inventory/DeleteProductDialog'
@@ -190,6 +190,7 @@ export function InventoryPage() {
     location: '',
     status: '',
     min_stock: '', // 安全库存：空串=不单独设，按默认 5 预警
+    unit: '',
   })
   // 渔具规格表单（按品类出不同字段，全部选填）
   const [specForm, setSpecForm] = useState<Record<SpecField, string>>(
@@ -212,6 +213,7 @@ export function InventoryPage() {
       location: p.location ?? '',
       status: p.status,
       min_stock: p.min_stock !== null ? String(p.min_stock) : '',
+      unit: p.unit ?? '件',
     })
     setSpecForm(specsToForm(p))
     const tiers = emptyTierForm()
@@ -275,6 +277,7 @@ export function InventoryPage() {
         location: form.location.trim() || null,
         status: form.status as ProductStatus,
         min_stock: minStock,
+        unit: form.unit as Unit,
         ...collectSpecs(specForm),
       })
       // 价格档次落库：填了的 set（新增/覆盖），清空了的 delete
@@ -352,7 +355,7 @@ export function InventoryPage() {
   // csvCell 已从 @/lib/formatters 导入（含逗号/引号/换行的字段包引号、引号双写）
 
   const exportCsv = () => {
-    const header = 'SKU,条码,品类,品牌,型号,状态,总库存,货位,最近进价(元),长度,调性,硬度,线号,钩号,颜色,材质,保质期'
+    const header = 'SKU,条码,品类,品牌,型号,状态,总库存,货位,最近进价(元),颜色,材质,保质期'
     const rows = filtered.map((p) =>
       [
         p.sku_code,
@@ -364,11 +367,6 @@ export function InventoryPage() {
         totalStockOf(p.id),
         p.location ?? '',
         (p.cost_price / 100).toFixed(2),
-        p.rod_length ?? '',
-        p.rod_action ?? '',
-        p.power_rating ?? '',
-        p.line_number ?? '',
-        p.hook_size ?? '',
         p.color ?? '',
         p.material ?? '',
         p.expiry_date ?? '',

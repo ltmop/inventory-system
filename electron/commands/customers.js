@@ -21,7 +21,7 @@ import {
 } from './helpers.js'
 
 /** 新建客户：姓名去空白后非空；同名客户拒绝建档（老板容易重复建）；price_level 可空（NULL=零售默认） */
-export function createCustomer(db, { name, phone, notes, price_level }) {
+export function createCustomer(db, { name, phone, notes, price_level, preferences }) {
   const n = name?.trim()
   if (!n) throw new Error('客户姓名不能为空')
   assertPriceLevel(price_level)
@@ -29,8 +29,8 @@ export function createCustomer(db, { name, phone, notes, price_level }) {
     const dup = db.prepare('SELECT id FROM customers WHERE name = ?').get(n)
     if (dup) throw new Error(`已存在同名客户「${n}」，请勿重复建档`)
     const info = db
-      .prepare('INSERT INTO customers (name, phone, notes, price_level, created_at) VALUES (?, ?, ?, ?, ?)')
-      .run(n, phone?.trim() || null, notes?.trim() || null, price_level ?? null, now())
+      .prepare('INSERT INTO customers (name, phone, notes, price_level, preferences, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(n, phone?.trim() || null, notes?.trim() || null, price_level ?? null, preferences?.trim() || null, now())
     const row = db.prepare('SELECT * FROM customers WHERE id = ?').get(info.lastInsertRowid)
     logAudit(db, '新建客户', n, { phone: row.phone, price_level: row.price_level }, null)
     return row
@@ -38,7 +38,7 @@ export function createCustomer(db, { name, phone, notes, price_level }) {
 }
 
 /** 修改客户资料：只传要改的字段；改名时同样做同名查重（排除自己）；price_level 传 null 清除（回零售默认） */
-export function updateCustomer(db, { id, name, phone, notes, price_level }) {
+export function updateCustomer(db, { id, name, phone, notes, price_level, preferences }) {
   assertPriceLevel(price_level)
   return inTransaction(db, () => {
     const cur = db.prepare('SELECT * FROM customers WHERE id = ?').get(id)
@@ -49,11 +49,12 @@ export function updateCustomer(db, { id, name, phone, notes, price_level }) {
       const dup = db.prepare('SELECT id FROM customers WHERE name = ? AND id != ?').get(n, id)
       if (dup) throw new Error(`已存在同名客户「${n}」`)
     }
-    db.prepare('UPDATE customers SET name = ?, phone = ?, notes = ?, price_level = ? WHERE id = ?').run(
+    db.prepare('UPDATE customers SET name = ?, phone = ?, notes = ?, price_level = ?, preferences = ? WHERE id = ?').run(
       n,
       phone !== undefined ? phone?.trim() || null : cur.phone,
       notes !== undefined ? notes?.trim() || null : cur.notes,
       price_level !== undefined ? price_level ?? null : cur.price_level,
+      preferences !== undefined ? preferences?.trim() || null : cur.preferences,
       id,
     )
     return db.prepare('SELECT * FROM customers WHERE id = ?').get(id)

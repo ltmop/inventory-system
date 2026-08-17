@@ -202,7 +202,7 @@ export function DashboardPage() {
       .map(([name, quantity]) => ({ name, quantity }))
     // 库存告急的前 3 个
     const lowStock = products
-      .filter((p) => p.status !== '停产')
+      .filter((p) => p.status !== '停售')
       .map((p) => ({ name: productName(p), total: totalStockOf(p.id), threshold: p.min_stock ?? LOW_STOCK_THRESHOLD }))
       .filter((x) => x.total < x.threshold)
       .sort((a, b) => a.total - b.total)

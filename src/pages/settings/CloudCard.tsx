@@ -3,7 +3,6 @@ import QRCode from 'qrcode'
 import { Cloud, Copy, RefreshCw, Download, Key, CheckCircle, XCircle, AlertTriangle } from 'lucide-react'
 import { backend } from '@/lib/api'
 import { useAppStore } from '@/store/appStore'
-import { useLicense } from '@/lib/license'
 import { ProGate } from '@/components/ProGate'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -12,7 +11,6 @@ import { Input } from '@/components/ui/input'
 export function CloudCard() {
   const cloud = useAppStore((s) => s.cloud)
   const setCloud = useAppStore((s) => s.setCloud)
-  const { isPro } = useLicense()
 
   const [pairCode, setPairCode] = useState('')
   const [pairing, setPairing] = useState(false)
@@ -123,12 +121,12 @@ export function CloudCard() {
           <CardDescription>
             {cloud.paired
               ? `已配对${cloud.lastSyncAt ? ' · 上次同步 ' + new Date(cloud.lastSyncAt).toLocaleTimeString('zh-CN') : ''}`
-              : isPro ? '输入配对码连接云端服务' : 'Pro 版专属功能'}
+              : '输入配对码连接云端服务（云备份/换机恢复全版本开放）'}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* 未配对：输入配对码 */}
-          {!cloud.paired && isPro && (
+          {!cloud.paired && (
             <div className="space-y-3">
               <div>
                 <div className="mb-1 text-xs text-slate-500">配对码（从老板管理页获取）</div>

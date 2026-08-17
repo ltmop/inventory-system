@@ -76,7 +76,7 @@ export function computeRestockAdvice(
     const st = stock.get(p.id) ?? 0
     if (s90 > 0) {
       // 补货判定：停产商品不再补
-      if (p.status === '停产') continue
+      if (p.status === '停售') continue
       const dailyRate = s90 / ADVICE_WINDOW_DAYS
       const daysOfStock = st / dailyRate
       if (daysOfStock < ADVICE_RESTOCK_DAYS_LEFT) {

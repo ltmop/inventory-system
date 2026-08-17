@@ -219,7 +219,7 @@ export function SplashScreen({ onFinish }: { onFinish: () => void }) {
         className="absolute inset-x-0 top-[16%] text-center"
       >
         <div className="text-3xl font-bold tracking-widest text-white drop-shadow-lg">
-          渔具库存 AI 管理系统
+          通用进销存系统
         </div>
         <div className="mt-2 text-sm tracking-wide text-sky-200/80">大鱼上钩 · 开张大吉</div>
       </motion.div>

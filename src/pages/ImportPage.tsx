@@ -81,7 +81,7 @@ export function ImportPage() {
               if (r.model) patch.model = r.model
               if (r.cost_price != null) patch.cost_price = r.cost_price
               if (r.suggest_price != null) patch.suggest_price = r.suggest_price
-              for (const f of ['rod_length', 'rod_action', 'power_rating', 'line_number', 'hook_size', 'color', 'material', 'expiry_date'] as const) {
+              for (const f of ['color', 'material', 'expiry_date'] as const) {
                 if (r[f]) patch[f] = r[f]
               }
               if (Object.keys(patch).length > 0) {
@@ -101,11 +101,6 @@ export function ImportPage() {
               suggest_price: r.suggest_price ?? null,
               location: r.location ?? null,
               status: '待盘点',
-              rod_length: r.rod_length ?? null,
-              rod_action: r.rod_action ?? null,
-              power_rating: r.power_rating ?? null,
-              line_number: r.line_number ?? null,
-              hook_size: r.hook_size ?? null,
               color: r.color ?? null,
               material: r.material ?? null,
               expiry_date: r.expiry_date ?? null,
@@ -141,7 +136,7 @@ export function ImportPage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = '渔具库存导入模板.xlsx'
+      a.download = '通用进销存导入模板.xlsx'
       a.click()
       URL.revokeObjectURL(url)
     } catch {
@@ -201,7 +196,7 @@ export function ImportPage() {
           </div>
           <div className="text-xs text-muted-foreground space-y-1">
             <p>支持 .xlsx / .csv 文件（老版 .xls 请先在 Excel 里另存为 .xlsx）；表头支持中英文（如"sku编码"或"sku_code"）。</p>
-            <p>必要列：sku编码、品类、进价(元)、数量。可选列：条码、子类、品牌、型号、建议售价、货位，以及渔具规格列（长度、调性、硬度、线号、钩号、颜色、材质、保质期，空着也能导入）。</p>
+            <p>必要列：sku编码、品类、进价(元)、数量。可选列：条码、子类、品牌、型号、建议售价、货位，以及通用规格列（颜色、材质、保质期，空着也能导入）。</p>
             <p><strong>进价和售价单位为元</strong>（如 45.00），系统自动转换为分存储。</p>
             <p>品类须为以下之一：{CATEGORIES.join('、')}</p>
           </div>

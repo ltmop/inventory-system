@@ -13,6 +13,34 @@ export function assertPositiveInt(v, name) {
   }
 }
 
+/** 归一化数量到 1 位小数（件商品整数不变；米商品 3.5 米归一后仍是 3.5） */
+export function roundQty(v) {
+  return Math.round((Number(v) + Number.EPSILON) * 10) / 10
+}
+
+/**
+ * 按商品计量单位校验数量（v2.2）：
+ * - 件（默认）：必须是正整数（与 assertPositiveInt 同口径）
+ * - 米：必须是有限正数，且最多 1 位小数（roundQty 归一后无精度损失）
+ * 非法直接 throw，合法返回归一化数量。
+ */
+export function assertQuantity(v, name, unit) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) throw new Error(`${name}必须是数字，收到：${v}`)
+  if (unit === '米') {
+    if (n <= 0) throw new Error(`${name}必须大于 0，收到：${v}`)
+    const rounded = roundQty(n)
+    if (Math.abs(rounded - n) >= 1e-9) {
+      throw new Error(`${name}最多 1 位小数，收到：${v}`)
+    }
+    return rounded
+  }
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error(`${name}必须是正整数，收到：${v}`)
+  }
+  return n
+}
+
 /** 校验金额（单位：分）必须是非负整数 */
 export function assertFen(v, name) {
   if (!Number.isInteger(v) || v < 0) {
@@ -100,11 +128,8 @@ export function inTransaction(db, fn) {
 // 品类代码速查（与 src/types/index.ts 的 CATEGORY_CODES 保持一致）；SKU 规则简化后
 // 这里只用于品类合法性校验（importBatch / createStockTake），不再参与 SKU 生成
 export const CATEGORY_CODES = {
-  鱼竿: 'FG', 鱼线: 'XL', 鱼钩: 'YG', 渔轮: 'YL',
-  浮漂: 'FP', 铅坠: 'QZ', 饵料: 'ER', 路亚假饵: 'JL',
-  渔网: 'WL', 钓箱钓椅: 'ZX', '伞/遮阳': 'SP', 支架: 'ZJ',
-  服装穿戴: 'FZ', 灯具: 'DJ', 工具配件: 'GJ', 收纳包具: 'BN',
-  增氧保鲜: 'ZY', 活饵: 'HE', 小药: 'XY', 其他: 'QT',
+  '食品饮料': 'SP', '日用百货': 'BH', '五金工具': 'WJ', '电子电器': 'DQ',
+  '服饰鞋帽': 'FS', '文具办公': 'BG', '清洁日化': 'RH', '其他': 'QT',
 }
 
 /**
@@ -126,11 +151,8 @@ export function nextNumericSku(db, reserved) {
   return String(n)
 }
 
-// 渔具规格字段（v2.0 新增，全部可空）：鱼竿长度/调性/硬度/线号/钩号/颜色/材质/保质期
-export const SPEC_FIELDS = [
-  'rod_length', 'rod_action', 'power_rating', 'line_number',
-  'hook_size', 'color', 'material', 'expiry_date',
-]
+// 通用规格字段（全部可空）：颜色/材质/保质期（通用版去掉渔具专属：长度/调性/硬度/线号/钩号）
+export const SPEC_FIELDS = ['color', 'material', 'expiry_date']
 
 /** 规格字段归一：去首尾空白，空串/undefined 一律落 NULL（与 nullable 字段同口径） */
 export function specOrNull(v) {
@@ -140,7 +162,7 @@ export function specOrNull(v) {
 }
 
 // 商品状态枚举（与 schema CHECK 一致）
-export const PRODUCT_STATUSES = ['待盘点', '已盘点', '已上架虾皮', '已售罄', '停产']
+export const PRODUCT_STATUSES = ['待盘点', '已盘点', '在售', '停售', '清仓']
 
 /** 退货/换货共用：把数量加回最近入库的批次；无批次则新建"退货回补"批次。返回 { batchId, unitCost } */
 export function addBackToLatestBatch(db, productId, quantity) {

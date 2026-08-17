@@ -6,24 +6,19 @@ import type { Customer, InventoryBatch, PriceTier, Product, StockTake, StockTake
 
 const baseProduct: Product = {
   id: 1,
-  sku_code: 'JC-FG-SG-GW-001',
+  sku_code: 'JC-SP-BH-001',
   barcode: '6900000000001',
-  category: '鱼竿',
-  sub_category: '手竿',
-  brand: '光威',
-  model: '测试竿 3.6m',
+  category: '食品饮料',
+  sub_category: '零食',
+  brand: '怡客',
+  model: '测试饼干 400g',
   cost_price: 4200,
   suggest_price: 8500,
-  location: 'A区-东墙',
+  location: 'A货架-1',
   photo_path: null,
   name_vi: null,
-  rod_length: null,
-  line_number: null,
-  hook_size: null,
   color: null,
   material: null,
-  rod_action: null,
-  power_rating: null,
   expiry_date: null,
   min_stock: null,
   status: '已盘点',
@@ -117,10 +112,10 @@ describe('addProduct（mock 路径 SKU 自动生成）', () => {
   const input = {
     sku_code: '',
     barcode: null,
-    category: '鱼竿' as const,
-    sub_category: '手竿',
-    brand: '光威',
-    model: '新竿',
+    category: '食品饮料' as const,
+    sub_category: '零食',
+    brand: '怡客',
+    model: '新饼干',
     cost_price: 1000,
     suggest_price: null,
     location: null,
@@ -154,11 +149,11 @@ describe('updateProduct / deleteProduct（mock 路径）', () => {
     await useAppStore.getState().updateProduct(1, { model: '改名竿', sku_code: 'HACK' } as never)
     const p = useAppStore.getState().products[0]
     expect(p.model).toBe('改名竿')
-    expect(p.sku_code).toBe('JC-FG-SG-GW-001')
+    expect(p.sku_code).toBe('JC-SP-BH-001')
   })
 
   it('deleteProduct 无记录商品可删，有批次/流水的拒绝', async () => {
-    await expect(useAppStore.getState().deleteProduct(1)).rejects.toThrow('停产')
+    await expect(useAppStore.getState().deleteProduct(1)).rejects.toThrow('停售')
     seed({ batches: [], transactions: [] })
     await useAppStore.getState().deleteProduct(1)
     expect(useAppStore.getState().products).toHaveLength(0)
@@ -297,7 +292,7 @@ const cartProduct2: Product = {
   id: 2,
   sku_code: 'JC-FG-SG-GW-002',
   brand: '测试',
-  model: '鱼线 0.8号',
+  model: '零食 原味',
   cost_price: 500,
   suggest_price: 900,
 }
@@ -453,10 +448,10 @@ describe('还账 / 赊账退货冲减（mock 路径）', () => {
 
 describe('createStockTake 品类/供应商筛选（mock 路径）', () => {
   it('按品类筛选只生成该品类明细，盘点单记下筛选条件', async () => {
-    const take = await useAppStore.getState().createStockTake(null, '测试员', { category: '鱼线' })
-    expect(take.category_filter).toBe('鱼线')
+    const take = await useAppStore.getState().createStockTake(null, '测试员', { category: '清洁日化' })
+    expect(take.category_filter).toBe('清洁日化')
     const items = useAppStore.getState().stockTakeItems.filter((it) => it.stock_take_id === take.id)
-    expect(items).toHaveLength(0) // fixture 里只有鱼竿
+    expect(items).toHaveLength(0) // fixture 里没有清洁日化商品
   })
 
   it('不筛选时生成全部有库存批次明细', async () => {
@@ -484,7 +479,7 @@ describe('采购订单（mock 路径）', () => {
     expect(order.received_qty).toBe(0)
     const items = s.purchaseOrderItems.filter((it) => it.po_id === po.id)
     expect(items).toHaveLength(1)
-    expect(items[0].product_name).toContain('光威')
+    expect(items[0].product_name).toContain('怡客')
   })
 
   it('分批收货：建批次加库存、推进度，收齐后状态变已完成', async () => {
@@ -809,15 +804,15 @@ describe('batchUpdateProducts（mock 路径）', () => {
 
   it('批量改状态：只动选中商品，记一条批量改状态日志', async () => {
     seedBatch()
-    await useAppStore.getState().batchUpdateProducts({ ids: [1, 3], status: '停产' })
+    await useAppStore.getState().batchUpdateProducts({ ids: [1, 3], status: '停售' })
     const s = useAppStore.getState()
-    expect(s.products.find((p) => p.id === 1)!.status).toBe('停产')
-    expect(s.products.find((p) => p.id === 3)!.status).toBe('停产')
+    expect(s.products.find((p) => p.id === 1)!.status).toBe('停售')
+    expect(s.products.find((p) => p.id === 3)!.status).toBe('停售')
     expect(s.products.find((p) => p.id === 2)!.status).toBe('已盘点')
     const logs = s.auditLogs.filter((l) => l.action === '批量改状态')
     expect(logs).toHaveLength(1)
     expect(logs[0].entity).toContain('2 个商品')
-    expect(logs[0].entity).toContain('停产')
+    expect(logs[0].entity).toContain('停售')
   })
 
   it('非法参数抛错：空列表 / 什么都不传 / 坏折扣 / 负统一价 / 非法状态 / 商品不存在', async () => {
@@ -828,7 +823,7 @@ describe('batchUpdateProducts（mock 路径）', () => {
     await expect(st.batchUpdateProducts({ ids: [1], priceMode: { kind: 'ratio', ratio: 0 } })).rejects.toThrow()
     await expect(st.batchUpdateProducts({ ids: [1], priceMode: { kind: 'fixed', priceFen: -5 } })).rejects.toThrow()
     // @ts-expect-error 故意传非法状态
-    await expect(st.batchUpdateProducts({ ids: [1], status: '在售' })).rejects.toThrow()
+    await expect(st.batchUpdateProducts({ ids: [1], status: '停产' })).rejects.toThrow()
     const before = useAppStore.getState()
     await expect(
       st.batchUpdateProducts({ ids: [1, 999999], priceMode: { kind: 'ratio', ratio: 0.5 } }),

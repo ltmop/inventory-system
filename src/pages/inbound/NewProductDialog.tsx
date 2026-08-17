@@ -24,15 +24,13 @@ import { pickCompressedPhoto } from '@/lib/photo'
 import {
   SPEC_LABELS, SPEC_PLACEHOLDERS, specFieldsFor, type SpecField,
 } from '@/lib/productSpecs'
-import { CATEGORIES, type Category } from '@/types'
+import { CATEGORIES, UNITS, type Category, type Unit } from '@/types'
 
-// 品牌预选列表（常见渔具品牌），"自定义"选项触发自由输入
+// 品牌预选列表（通用消费品品牌），"自定义"选项触发自由输入
 const BRAND_PRESETS = [
-  '__custom__', '光威', '汉鼎', '化氏', '天元', '宝飞龙', '名伦', '开沃',
-  '达亿瓦', '禧玛诺', '伽玛卡兹', '钓鱼王', '佳钓尼', '狼王', '海伯',
-  '阿布加西亚', '美人鱼', '大力马', 'YGK', '东丽', '龙王恨', '老鬼',
-  '西部风', '丸九', '土肥富', '欧娜', '慕斯达', '千秋', 'BKK',
-  'Megabass', '连球', '阿卢', 'Shimano', 'Abu Garcia',
+  '__custom__', '怡客', '洁宁', '力邦', '优创', '得力', '舒肤佳', '维达',
+  '雕牌', '蓝月亮', '海尔', '美的', '小米', '南孚', '晨光',
+  '齐心', '威露士', '立白', '公牛', '奥妙',
 ]
 
 /** 新建商品表单（元字符串；提交时页面统一转分） */
@@ -46,6 +44,8 @@ export interface NewProductForm {
   suggestYuan: string
   location: string
   minStock: string // 安全库存：空串=不单独设，按默认 5 预警
+  /** 计量单位（v2.2）：件=整数按个卖（默认）；米=鱼线按长度小数卖 */
+  unit: Unit
   specs: Record<SpecField, string>
   /** 商品图片预览（压缩后的 dataUrl）：商品还没建档没有 id，先挂表单上，建档成功拿到 id 再落盘 */
   photoDataUrl: string | null
@@ -186,6 +186,21 @@ export function NewProductDialog({
               onChange={(e) => onFormChange({ minStock: e.target.value })}
               placeholder="低于这个数就提醒你，默认 5"
             />
+          </div>
+          <div className="space-y-1">
+            <Label>计量单位</Label>
+            <Select value={form.unit} onValueChange={(v) => onFormChange({ unit: v as Unit })}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {UNITS.map((u) => (
+                  <SelectItem key={u} value={u}>
+                    {u === '件' ? '件（按个/包整数卖）' : '米（按长度小数卖，如布匹/线材）'}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           {/* 渔具规格：按品类出不同字段，全部选填，不填也能入库 */}
           <div className="col-span-2 space-y-2 border-t pt-3">

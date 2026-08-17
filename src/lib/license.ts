@@ -2,9 +2,25 @@ import { useAppStore } from '@/store/appStore'
 import { backend } from '@/lib/api'
 import { useEffect } from 'react'
 
+export type LicenseLevel = 'free' | 'pro' | 'max'
+
+/** 版本名称映射（v3.0） */
+export const LEVEL_NAMES: Record<LicenseLevel, string> = {
+  free: '普通版',
+  pro: '进阶版',
+  max: '大师版',
+}
+
+/** 版本 SKU/店/人 上限展示（与后端 license.js VERSION_PLAN 一致） */
+export const LEVEL_PLANS: Record<LicenseLevel, { label: string; sku: string; stores: string; users: string }> = {
+  free: { label: '普通版', sku: '300', stores: '1 店', users: '2 人' },
+  pro: { label: '进阶版', sku: '1000', stores: '3 店', users: '10 人' },
+  max: { label: '大师版', sku: '无限', stores: '无限', users: '无限' },
+}
+
 export interface LicenseState {
   activated: boolean
-  level: 'free' | 'pro'
+  level: LicenseLevel
   expiresAt: string | null
   machineId: string
   daysLeft: number | null
@@ -13,7 +29,7 @@ export interface LicenseState {
 /** 前端授权 hook：Electron 走 IPC，浏览器 mock 默认免费 */
 export function useLicense(): LicenseState & {
   activate: (code: string) => Promise<{ ok: boolean; error?: string }>
-  isPro: boolean
+  isPaid: boolean
 } {
   const license = useAppStore((s) => s.license)
   const setLicense = useAppStore((s) => s.setLicense)
@@ -42,7 +58,7 @@ export function useLicense(): LicenseState & {
   return {
     ...license,
     activate,
-    isPro: license.activated && license.daysLeft !== null && license.daysLeft > 0,
+    isPaid: license.activated && license.level !== 'free' && license.daysLeft !== null && license.daysLeft > 0,
   }
 }
 

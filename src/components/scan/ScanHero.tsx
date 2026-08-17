@@ -17,6 +17,8 @@ interface ScanHeroProps {
   icon?: 'scan' | 'search'
   /** 追加在输入行内部（如搜索候选下拉） */
   children?: React.ReactNode
+  /** 输入框右侧搜索按钮左边的附加操作（如语音按钮） */
+  action?: React.ReactNode
 }
 
 /**
@@ -34,6 +36,7 @@ export function ScanHero({
   autoFocus,
   icon = 'scan',
   children,
+  action,
 }: ScanHeroProps) {
   const Icon = icon === 'scan' ? ScanBarcode : Search
   return (
@@ -56,13 +59,16 @@ export function ScanHero({
             placeholder={placeholder}
             className="h-14 rounded-xl border-slate-200 bg-white pl-13 pr-14 text-base shadow-inner placeholder:text-slate-400 focus-visible:border-brand-400 focus-visible:ring-brand-500/20"
           />
-          <button
-            onClick={onSubmit}
-            title="搜索"
-            className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer rounded-lg bg-brand-500 p-2 text-white shadow-sm transition-colors hover:bg-brand-600"
-          >
-            <Search className="size-5" />
-          </button>
+          <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1">
+            {action}
+            <button
+              onClick={onSubmit}
+              title="搜索"
+              className="cursor-pointer rounded-lg bg-brand-500 p-2 text-white shadow-sm transition-colors hover:bg-brand-600"
+            >
+              <Search className="size-5" />
+            </button>
+          </div>
         </div>
         {children}
       </div>

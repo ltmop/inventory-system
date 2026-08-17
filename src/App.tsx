@@ -13,7 +13,7 @@ import { SuppliersPage } from '@/pages/SuppliersPage'
 import { CustomersPage } from '@/pages/CustomersPage'
 import { ExpensesPage } from '@/pages/ExpensesPage'
 import { WastePage } from '@/pages/WastePage'
-import { PartsPage } from '@/pages/PartsPage'
+import { KitsPage } from '@/pages/KitsPage'
 import { AuditLogPage } from '@/pages/AuditLogPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { ImportPage } from '@/pages/ImportPage'
@@ -21,6 +21,8 @@ import { NotFoundPage } from '@/pages/NotFoundPage'
 import { ReportsPage } from '@/pages/ReportsPage'
 import { ActivationPage } from '@/pages/ActivationPage'
 import { OnboardingPage } from '@/pages/OnboardingPage'
+import { PocPage } from '@/pages/PocPage'
+import { ReceiptReconcilePage } from '@/pages/ReceiptReconcilePage'
 import { computeCustomerStats, useAppStore } from '@/store/appStore'
 import { backend } from '@/lib/api'
 import {
@@ -95,6 +97,8 @@ function App() {
         priceTiers: mockPriceTiers,
         expenses: mockExpenses,
         auditLogs: mockAuditLogs,
+        kits: [],
+        kitItems: [],
         loaded: true,
       })
     }
@@ -104,7 +108,7 @@ function App() {
   if (!loaded) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-[#e8eef6]">
-        <div className="text-2xl font-bold tracking-wide text-[#16355c]">渔具库存 AI 管理系统</div>
+        <div className="text-2xl font-bold tracking-wide text-[#16355c]">通用进销存系统</div>
         <div className="mt-3 text-sm text-slate-500">正在加载本地数据…</div>
       </div>
     )
@@ -128,10 +132,12 @@ function App() {
             <Route path="customers" element={<CustomersPage />} />
             <Route path="expenses" element={<ExpensesPage />} />
             <Route path="waste" element={<WastePage />} />
-            <Route path="parts" element={<PartsPage />} />
+            <Route path="kits" element={<KitsPage />} />
             <Route path="audit" element={<AuditLogPage />} />
             <Route path="import" element={<ImportPage />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="poc" element={<PocPage />} />
+            <Route path="receipt-reconcile" element={<ReceiptReconcilePage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
           {/* 激活页 + 新手引导：独立全屏，不走 Layout */}

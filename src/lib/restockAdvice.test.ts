@@ -18,7 +18,7 @@ function product(id: number, overrides: Partial<Product> = {}): Product {
     id,
     sku_code: `SKU-${id}`,
     barcode: null,
-    category: '鱼竿',
+    category: '食品饮料',
     sub_category: null,
     brand: '测试',
     model: `型号${id}`,
@@ -27,13 +27,8 @@ function product(id: number, overrides: Partial<Product> = {}): Product {
     location: null,
     photo_path: null,
     name_vi: null,
-    rod_length: null,
-    line_number: null,
-    hook_size: null,
     color: null,
     material: null,
-    rod_action: null,
-    power_rating: null,
     expiry_date: null,
     min_stock: null,
     status: '已盘点',
@@ -118,7 +113,7 @@ describe('computeRestockAdvice · 补货建议', () => {
 
   it('停产商品不再建议补货', () => {
     const txs = Array.from({ length: 9 }, (_, i) => sale(1, 10, i * 10))
-    const r = computeRestockAdvice([product(1, { status: '停产' })], [batch(1, 1, 2)], txs, NOW)
+    const r = computeRestockAdvice([product(1, { status: '停售' })], [batch(1, 1, 2)], txs, NOW)
     expect(r.restock).toHaveLength(0)
   })
 

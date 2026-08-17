@@ -44,7 +44,7 @@ export function BatchStatusDialog({ open, count, busy, onClose, onConfirm }: Bat
           <DialogTitle>批量改状态（{count} 个商品）</DialogTitle>
           <DialogDescription>
             这会把 {count} 个商品的状态都改成「{status}」，改完不能一键撤回。
-            {status === '停产' ? '停产的商品以后不卖了，但历史记录都还在。' : ''}
+            {status === '停售' ? '停产的商品以后不卖了，但历史记录都还在。' : ''}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">

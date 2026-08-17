@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/table'
 import { PageHeader } from '@/components/feedback'
 import { playSound } from '@/lib/sounds'
+import { allocSkuToBatches } from '@/lib/stocktakeAlloc'
 import { CreateStockTakeDialog } from './stocktake/CreateStockTakeDialog'
 import { statusBadge, takeScopeLabel } from './stocktake/shared'
 import { StockTakeExecute, type TakeEdits } from './stocktake/StockTakeExecute'
@@ -124,7 +125,12 @@ export function StockTakePage() {
       const edit = edits[it.id]
       if (!edit || edit.qty.trim() === '') continue
       const actual = Number(edit.qty)
-      if (!Number.isInteger(actual) || actual < 0) continue
+      // 计量单位（v2.2）：米商品允许小数实盘数
+      const isMeter = products.find((x) => x.id === it.product_id)?.unit === '米'
+      const valid = isMeter
+        ? Number.isFinite(actual) && actual >= 0 && Math.round(actual * 10) === actual * 10
+        : Number.isInteger(actual) && actual >= 0
+      if (!valid) continue
       counted++
       const diff = actual - it.system_qty
       if (diff > 0) surplus += diff
@@ -140,13 +146,27 @@ export function StockTakePage() {
     setSubmitting(true)
     setPageError('')
     // 原子提交：实盘数 + 完成盘点一个事务搞定，中途失败整体回滚
+    const isSku = activeTake.mode === 'sku'
     const items = activeItems.flatMap((it) => {
       const edit = edits[it.id]
       if (!edit || edit.qty.trim() === '') return []
       const actual = Number(edit.qty)
-      return Number.isInteger(actual) && actual >= 0
-        ? [{ itemId: it.id, actualQty: actual, reason: edit.reason.trim() }]
-        : []
+      // 计量单位（v2.2）：米商品允许小数实盘数
+      const isMeter = products.find((x) => x.id === it.product_id)?.unit === '米'
+      const valid = isMeter
+        ? Number.isFinite(actual) && actual >= 0 && Math.round(actual * 10) === actual * 10
+        : Number.isInteger(actual) && actual >= 0
+      if (!valid) return []
+      // sku 模式：把摊完的每批次目标数量一起带上，前端预览即所见（后端兜底按比例分摊）
+      let batchAllocations: { batchId: number; quantity: number }[] | undefined
+      if (isSku && it.batch_id === null) {
+        const productBatches = batches
+          .filter((b) => b.product_id === it.product_id)
+          .sort((a, b) => a.id - b.id)
+          .map((b) => ({ id: b.id, quantity: b.quantity }))
+        batchAllocations = allocSkuToBatches(productBatches, actual, it.system_qty)
+      }
+      return [{ itemId: it.id, actualQty: actual, reason: edit.reason.trim(), ...(batchAllocations ? { batchAllocations } : {}) }]
     })
     // 进度呈现：单事务写入很快，这里用匀速计数让老板看到"正在一条条存"
     setProgress({ cur: 1, total: Math.max(items.length, 1) })
@@ -176,6 +196,7 @@ export function StockTakePage() {
         take={activeTake}
         suppliers={suppliers}
         products={products}
+        batches={batches}
         keyword={keyword}
         onKeywordChange={setKeyword}
         items={filteredItems}
