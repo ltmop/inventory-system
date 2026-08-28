@@ -125,15 +125,23 @@ export function confirmOutbound(db, { productId, quantity: rawQuantity, sellingP
     }
     // 无库存强制出库：批次全扣完后还有剩余 → 记 batch_id=null 流水 + 负数量批次（提醒补录入库）
     if (remaining > 0 && allowNoStock) {
-      const unallocated = { batch_id: null, batch_no: null, deduct: remaining, remaining_after: -remaining, cost_price: null }
+      // 成本口径（周掌柜审计修正 2026-08-28）：负库存成本 = 最近一次有成本的出库流水 → 回退商品档案进价 → 都没有记 0 并挂「待补成本」。
+      // 绝不能拿售价当成本（会让这笔毛利虚高、月底对不上账）。
+      const lastCost = db
+        .prepare("SELECT unit_price FROM transactions WHERE product_id = ? AND unit_price IS NOT NULL ORDER BY id DESC LIMIT 1")
+        .get(productId)
+      const fallbackProd = db.prepare('SELECT cost_price FROM products WHERE id = ?').get(productId)
+      const estCost = lastCost?.unit_price ?? (fallbackProd?.cost_price ?? 0)
+      const needBackfill = !(lastCost?.unit_price != null) && !(fallbackProd?.cost_price != null)
+      const costNote = '无库存强制出库' + (needBackfill ? '（待补成本：无历史进价，按0记账，请尽快补录入库单修正成本）' : '')
       db.prepare(
-        "INSERT INTO transactions (product_id, batch_id, type, quantity, unit_price, selling_price, timestamp, operator, notes, customer_id, paid_amount, pay_method) VALUES (?, NULL, 'out', ?, NULL, ?, ?, ?, '无库存强制出库', ?, ?, ?)",
-      ).run(productId, remaining, sellingPrice ?? null, ts, operator ?? null, customerId ?? null, isCredit ? 0 : null, isCredit ? null : methodForTx)
+        "INSERT INTO transactions (product_id, batch_id, type, quantity, unit_price, selling_price, timestamp, operator, notes, customer_id, paid_amount, pay_method) VALUES (?, NULL, 'out', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(productId, remaining, estCost, sellingPrice ?? null, ts, operator ?? null, costNote, customerId ?? null, isCredit ? 0 : null, isCredit ? null : methodForTx)
       allocations.push(unallocated)
-      // 建负数量批次：库存查询能看到「欠 X 件」
+      // 建负数量批次：库存查询能看到「欠 X 件」；成本按同口径记（不拿售价污染成本账）
       db.prepare(
         "INSERT INTO inventory_batches (product_id, batch_no, quantity, cost_price, inbound_date, notes) VALUES (?, ?, ?, ?, ?, ?)",
-      ).run(productId, '负库存-' + now().slice(0, 10), -remaining, sellingPrice ?? 0, now().slice(0, 10), '无库存强制出库，需补录入库')
+      ).run(productId, '负库存-' + now().slice(0, 10), -remaining, estCost, now().slice(0, 10), costNote)
     }
     const outProd = db.prepare('SELECT * FROM products WHERE id = ?').get(productId)
     logAudit(db, '出库', `${outProd ? productLabel(outProd) : `#${productId}`} x${quantity}`,
@@ -249,13 +257,21 @@ export function confirmCheckout(db, { items, customerId, paidAmount, payMethod, 
       }
       // 无库存强制出库：该行批次全扣完还有剩余 → 记负批次 + 无批次流水
       if (remaining > 0 && allowNoStock) {
+        // 成本口径（周掌柜审计修正）：最近一次有成本出库流水 → 商品档案进价 → 0+挂「待补成本」
+        const lastCost = db
+          .prepare("SELECT unit_price FROM transactions WHERE product_id = ? AND unit_price IS NOT NULL ORDER BY id DESC LIMIT 1")
+          .get(l.productId)
+        const fallbackProd = db.prepare('SELECT cost_price FROM products WHERE id = ?').get(l.productId)
+        const estCost = lastCost?.unit_price ?? (fallbackProd?.cost_price ?? 0)
+        const needBackfill = !(lastCost?.unit_price != null) && !(fallbackProd?.cost_price != null)
+        const costNote = '无库存强制出库' + (needBackfill ? '（待补成本：无历史进价，按0记账，请尽快补录入库单修正成本）' : '')
         db.prepare(
-          "INSERT INTO transactions (product_id, batch_id, type, quantity, unit_price, selling_price, timestamp, operator, notes, customer_id, paid_amount, pay_method) VALUES (?, NULL, 'out', ?, NULL, ?, ?, ?, '无库存强制出库', ?, ?, ?)",
-        ).run(l.productId, remaining, l.sellingPrice, ts, operator ?? null, customerId ?? null, isCredit ? 0 : null, isCredit ? null : methodForTx)
+          "INSERT INTO transactions (product_id, batch_id, type, quantity, unit_price, selling_price, timestamp, operator, notes, customer_id, paid_amount, pay_method) VALUES (?, NULL, 'out', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ).run(l.productId, remaining, estCost, l.sellingPrice, ts, operator ?? null, costNote, customerId ?? null, isCredit ? 0 : null, isCredit ? null : methodForTx)
         allocations.push({ batch_id: null, batch_no: null, deduct: remaining, remaining_after: -remaining, cost_price: null })
         db.prepare(
           "INSERT INTO inventory_batches (product_id, batch_no, quantity, cost_price, inbound_date, notes) VALUES (?, ?, ?, ?, ?, ?)",
-        ).run(l.productId, '负库存-' + now().slice(0, 10), -remaining, l.sellingPrice ?? 0, now().slice(0, 10), '无库存强制出库，需补录入库')
+        ).run(l.productId, '负库存-' + now().slice(0, 10), -remaining, estCost, now().slice(0, 10), costNote)
       }
       resultLines.push({ productId: l.productId, quantity: l.quantity, sellingPrice: l.sellingPrice, allocations })
     }

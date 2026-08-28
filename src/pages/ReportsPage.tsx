@@ -274,6 +274,7 @@ export function ReportsPage() {
   const inventoryTotal = inventoryRows.reduce((s, r) => s + r.value, 0)
 
   // ========== 什么卖不动（v0.1）：还有库存但 60 天没卖出，按占用资金排 ==========
+  // 沉睡资金（周掌柜审计升级 2026-08-28）：90天滞销 / 180天死亡 两档，按占用资金倒序
   const slowMoving = useMemo(() => {
     const lastSale = new Map<number, string>()
     for (const t of transactions) {
@@ -281,17 +282,22 @@ export function ReportsPage() {
       const cur = lastSale.get(t.product_id)
       if (!cur || t.timestamp > cur) lastSale.set(t.product_id, t.timestamp)
     }
-    const cutoff = Date.now() - 60 * 86400_000
+    const cutoff90 = Date.now() - 90 * 86400_000
+    const cutoff180 = Date.now() - 180 * 86400_000
     return inventoryRows
       .map((r) => {
         const ls = lastSale.get(r.productId)
-        return { ...r, lastSaleAt: ls ?? null, stale: !ls || new Date(ls).getTime() < cutoff }
+        const lastMs = ls ? new Date(ls).getTime() : null
+        const stale = !lastMs || lastMs < cutoff90
+        const tier: '180天+' | '90天+' = !lastMs || lastMs < cutoff180 ? '180天+' : '90天+'
+        return { ...r, lastSaleAt: ls ?? null, stale, tier }
       })
       .filter((x) => x.stale)
       .sort((a, b) => b.value - a.value)
       .slice(0, 20)
   }, [transactions, inventoryRows])
   const slowValue = slowMoving.reduce((s, r) => s + r.value, 0)
+  const slowValue180 = slowMoving.filter((x) => x.tier === '180天+').reduce((s, r) => s + r.value, 0)
 
   // ========== CSV 导出（与新报表同内容） ==========
   function exportCSV() {
@@ -633,11 +639,12 @@ export function ReportsPage() {
         <CardHeader className="flex-row items-center justify-between space-y-0">
           <CardTitle className="text-base">
             <Package className="mr-2 inline-block size-4 text-amber-600" />
-            什么卖不动（60 天没卖出）
+            沉睡资金榜（90/180 天没卖出）
           </CardTitle>
           {slowMoving.length > 0 && (
             <span className="text-sm text-slate-600">
-              压着 <span className="font-bold tabular-nums">{formatPrice(slowValue)}</span> 的货，考虑清仓或处理
+              压着 <span className="font-bold tabular-nums">{formatPrice(slowValue)}</span>，
+              其中 <span className="font-bold text-red-600 tabular-nums">{formatPrice(slowValue180)}</span> 超 180 天没动
             </span>
           )}
         </CardHeader>
@@ -655,6 +662,7 @@ export function ReportsPage() {
                   <TableHead className="text-right">库存数量</TableHead>
                   <TableHead className="text-right">占用资金</TableHead>
                   <TableHead className="text-right">上次卖出</TableHead>
+                  <TableHead className="text-right">档位</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -675,6 +683,11 @@ export function ReportsPage() {
                       </TableCell>
                       <TableCell className="text-right text-muted-foreground">
                         {x.lastSaleAt ? formatDateTime(x.lastSaleAt) : '从没卖出过'}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span className={'rounded px-1.5 py-0.5 text-xs font-bold ' + (x.tier === '180天+' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700')}>
+                          {x.tier}
+                        </span>
                       </TableCell>
                     </TableRow>
                   )

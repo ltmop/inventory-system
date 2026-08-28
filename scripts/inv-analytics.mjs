@@ -106,6 +106,41 @@ function cmdFirstSale(db) {
   }
 }
 
+// 沉睡资金榜：有库存但 N 天无出库的商品 × 库存数量 × 批次成本，按金额倒序（周掌柜审计 2026-08-28）
+// 子查询先聚合出 stock/占用资金/最后售出时间，外层按天数过滤（SQLite HAVING 不认聚合别名）
+function cmdDormant(db, days90, days180) {
+  const baseSql = `
+    SELECT * FROM (
+      SELECT p.id, p.sku_code, p.brand, p.model, p.category,
+        SUM(b.quantity) AS stock,
+        CAST(SUM(b.quantity * b.cost_price) AS INTEGER) AS tiedCapital,
+        (SELECT MAX(t.timestamp) FROM transactions t WHERE t.product_id = p.id AND t.type = 'out') AS lastSold
+      FROM products p
+      JOIN inventory_batches b ON b.product_id = p.id
+      WHERE p.status != '停产'
+      GROUP BY p.id
+    )
+    WHERE stock > 0 AND (lastSold IS NULL OR substr(lastSold, 1, 10) < date('now', 'localtime', ?))
+    ORDER BY tiedCapital DESC`
+  const rows = db.prepare(baseSql).all('-' + days90 + ' days')
+  const rows180 = db.prepare(baseSql).all('-' + days180 + ' days')
+  const totalSlow = rows.reduce((s, r) => s + (r.tiedCapital || 0), 0)
+  const totalDead = rows180.reduce((s, r) => s + (r.tiedCapital || 0), 0)
+  const dead180 = new Map(rows180.map((r) => [r.id, r]))
+  return {
+    days: { slow: days90, dead: days180 },
+    totalTiedSlow: fmt(totalSlow),
+    totalTiedDead: fmt(totalDead),
+    count: rows.length,
+    items: rows.map((r) => ({
+      sku: r.sku_code, brand: r.brand, model: r.model, category: r.category,
+      stock: r.stock, tiedCapital: fmt(r.tiedCapital),
+      lastSold: r.lastSold ? r.lastSold.slice(0, 10) : '从未售出',
+      tier: dead180.has(r.id) ? '180天+' : '90天+',
+    })),
+  }
+}
+
 function cmdCustomers(db) {
   const rows = db.prepare(
     "SELECT c.id, c.name, c.phone, COALESCE(SUM(p.amount),0) AS paid, (SELECT COALESCE(SUM(t.quantity*t.selling_price),0) FROM transactions t WHERE t.customer_id=c.id AND t.type='out') AS bought, COALESCE((SELECT SUM(t.quantity*t.selling_price) FROM transactions t WHERE t.customer_id=c.id AND t.type='out'),0) - COALESCE(SUM(p.amount),0) AS debt FROM customers c LEFT JOIN payments p ON p.customer_id=c.id GROUP BY c.id HAVING debt > 0 ORDER BY debt DESC LIMIT 20"
@@ -149,6 +184,7 @@ try {
     case 'stock': result = cmdStock(db); break
     case 'first-sale': result = cmdFirstSale(db); break
     case 'customers': result = cmdCustomers(db); break
+    case 'dormant': result = cmdDormant(db, parseInt(flag('slow') || '90', 10), parseInt(flag('dead') || '180', 10)); break
     case 'top': result = cmdTop(db, parseInt(flag('n') || '10', 10)); break
     case 'raw': result = cmdRaw(db, flag('sql')); break
     case 'help':
@@ -161,6 +197,7 @@ try {
   node scripts/inv-analytics.mjs stock              库存概览（低库存/临期/滞销）
   node scripts/inv-analytics.mjs first-sale         首单状态（判断任务完成依据）
   node scripts/inv-analytics.mjs customers          客户欠款排行
+  node scripts/inv-analytics.mjs dormant            沉睡资金榜（90/180天无出库 × 占用资金，倒序）
   node scripts/inv-analytics.mjs top --n 10         畅销品 Top N
   node scripts/inv-analytics.mjs raw --sql "SELECT ..."  原始只读查询
   --pretty    人类可读输出（默认 JSON）
