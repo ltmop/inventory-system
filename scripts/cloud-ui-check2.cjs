@@ -1,0 +1,20 @@
+const { _electron: electron } = require('playwright')
+;(async () => {
+  const app = await electron.launch({ args: ['.'] })
+  const win = await app.firstWindow()
+  await win.waitForLoadState('load')
+  await win.waitForTimeout(4000)
+  await win.evaluate(() => { window.location.hash = '#/settings' })
+  await win.waitForTimeout(1500)
+  const html = await win.evaluate(() => document.querySelector('main')?.innerHTML || '')
+  console.log('含 云备份:', html.includes('云备份'))
+  console.log('含 登录账户按钮:', html.includes('>登录账户<'))
+  console.log('含 注册账户按钮:', html.includes('>注册账户<'))
+  console.log('含 配对码:', html.includes('配对码'))
+  // 控制台错误
+  const errors = []
+  win.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()) })
+  await win.waitForTimeout(500)
+  console.log('控制台错误:', errors.length ? errors.slice(0, 3).join(' | ') : '无')
+  await app.close()
+})().catch((e) => { console.error('FAIL:', e.message); process.exit(1) })

@@ -1,0 +1,11 @@
+const { chromium } = require('playwright')
+;(async () => {
+  const browser = await chromium.launch({ channel: 'msedge' })
+  const page = await browser.newPage()
+  page.on('console', (m) => console.log('[console]', m.type(), m.text()))
+  page.on('pageerror', (e) => console.log('[pageerror]', e.message))
+  await page.goto('http://localhost:5173/', { waitUntil: 'load' })
+  await page.waitForTimeout(3000)
+  console.log('[root-html]', await page.evaluate(() => document.getElementById('root')?.innerHTML.slice(0, 300)))
+  await browser.close()
+})().catch((e) => { console.error(e.message); process.exit(1) })

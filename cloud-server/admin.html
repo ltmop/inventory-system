@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>云备份 · 管理</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #f0f2f5; padding: 20px; color: #333; }
+  .container { max-width: 800px; margin: 0 auto; }
+  h1 { font-size: 20px; margin-bottom: 16px; }
+  .card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .card h2 { font-size: 15px; margin-bottom: 12px; color: #555; }
+  label { display: block; font-size: 13px; color: #666; margin-bottom: 4px; }
+  input, button { font-size: 14px; padding: 8px 12px; border-radius: 6px; border: 1px solid #d9d9d9; }
+  input { width: 100%; margin-bottom: 10px; }
+  button { background: #1677ff; color: #fff; border: none; cursor: pointer; font-weight: 500; }
+  button:hover { background: #4096ff; }
+  button.danger { background: #ff4d4f; }
+  button.danger:hover { background: #ff7875; }
+  button.small { font-size: 12px; padding: 4px 8px; }
+  .pair-code { font-size: 32px; font-weight: bold; letter-spacing: 4px; color: #1677ff; background: #f0f5ff; padding: 12px; border-radius: 8px; text-align: center; margin: 10px 0; font-family: monospace; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #f0f0f0; }
+  th { color: #999; font-weight: 500; }
+  .msg { font-size: 13px; margin-top: 8px; padding: 8px; border-radius: 4px; }
+  .msg-ok { background: #f6ffed; color: #52c41a; }
+  .msg-err { background: #fff2f0; color: #ff4d4f; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>云备份 · 远程看店 管理</h1>
+
+  <!-- 生成配对码 -->
+  <div class="card">
+    <h2>生成配对码</h2>
+    <label>备注（可选，如"海口老王"）</label>
+    <input id="pairNote" placeholder="备注" />
+    <button onclick="genPair()">生成</button>
+    <div id="pairResult"></div>
+  </div>
+
+  <!-- 用户列表 -->
+  <div class="card">
+    <h2>用户列表 <button class="small" onclick="loadUsers()" style="float:right">刷新</button></h2>
+    <table>
+      <thead><tr><th>备注</th><th>ID</th><th>配对时间</th><th>最近同步</th><th>备份数</th><th>操作</th></tr></thead>
+      <tbody id="userTable"></tbody>
+    </table>
+    <div id="userMsg"></div>
+  </div>
+</div>
+
+<script>
+const KEY = new URL(location.href).searchParams.get('key') || ''
+async function api(path, method = 'GET', body = null) {
+  const opts = { method, headers: {} }
+  if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body) }
+  const r = await fetch(path + '?key=' + KEY, opts)
+  return r.json()
+}
+
+async function genPair() {
+  const note = document.getElementById('pairNote').value.trim()
+  const r = await api('/admin/pair', 'POST', { note })
+  const el = document.getElementById('pairResult')
+  if (r.ok) {
+    el.innerHTML = `<div class="msg msg-ok">配对码已生成，30 分钟内有效</div><div class="pair-code">${r.pairCode}</div><div style="font-size:12px;color:#999">用户ID：${r.userId}</div>`
+  } else {
+    el.innerHTML = `<div class="msg msg-err">${r.error}</div>`
+  }
+}
+
+async function loadUsers() {
+  const r = await api('/admin/users')
+  const tbody = document.getElementById('userTable')
+  if (r.ok && r.users.length > 0) {
+    tbody.innerHTML = r.users.map(u => `
+      <tr>
+        <td>${u.note || '-'}</td>
+        <td style="font-family:monospace;font-size:11px">${u.userId.slice(0,12)}...</td>
+        <td>${u.createdAt ? new Date(u.createdAt).toLocaleDateString('zh-CN') : '-'}</td>
+        <td>${u.lastSync ? new Date(u.lastSync).toLocaleString('zh-CN') : '从未'}</td>
+        <td>${u.backupCount}</td>
+        <td>
+          <button class="small" onclick="regenToken('${u.userId}')">吊销链接</button>
+          <button class="small danger" onclick="delUser('${u.userId}')">删除</button>
+        </td>
+      </tr>`).join('')
+  } else {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999">暂无用户</td></tr>'
+  }
+}
+
+async function regenToken(userId) {
+  if (!confirm('吊销后旧手机链接立即失效，确认？')) return
+  const r = await api('/admin/regen', 'POST', { userId })
+  const el = document.getElementById('userMsg')
+  el.innerHTML = r.ok
+    ? `<div class="msg msg-ok">新链接已生成，用户需重新获取</div>`
+    : `<div class="msg msg-err">${r.error}</div>`
+  loadUsers()
+}
+
+async function delUser(userId) {
+  if (!confirm('删除后该用户所有数据将被清除，不可恢复！')) return
+  const r = await api('/admin/delete', 'POST', { userId })
+  const el = document.getElementById('userMsg')
+  el.innerHTML = r.ok
+    ? `<div class="msg msg-ok">已删除</div>`
+    : `<div class="msg msg-err">${r.error}</div>`
+  loadUsers()
+}
+
+loadUsers()
+</script>
+</body>
+</html>

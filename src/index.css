@@ -1,0 +1,261 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+/* 通用版配色：白（背景/卡片）+ 蓝（主色/品牌）+ 青（辅助高亮），灰色细边框 */
+@theme {
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-500: #2563eb;
+  --color-brand-600: #1d4ed8;
+  --color-brand-700: #1e40af;
+  --color-brand-800: #1e3a8a;
+  --color-brand-900: #172554;
+
+  /* 青色系（辅助高亮：正常/在库/成功） */
+  --color-lake-50: #ecfeff;
+  --color-lake-100: #cffafe;
+  --color-lake-400: #22d3ee;
+  --color-lake-500: #06b6d4;
+  --color-lake-600: #0891b2;
+  /* 金色系保留变量名（历史组件兼容），实际映射为蓝色强调 */
+  --color-sand-50: #eff6ff;
+  --color-sand-100: #dbeafe;
+  --color-sand-400: #60a5fa;
+  --color-sand-500: #3b82f6;
+  --color-sand-600: #2563eb;
+  /* 石墨灰（文字/边框） */
+  --color-reef-100: #f1f5f9;
+  --color-reef-500: #64748b;
+  --color-reef-700: #334155;
+  --color-reef-900: #0f172a;
+  /* 金色变量名兼容（历史组件），统一为蓝色 */
+  --color-gold-100: #dbeafe;
+  --color-gold-200: #bfdbfe;
+  --color-gold-400: #60a5fa;
+  --color-gold-500: #3b82f6;
+  --color-gold-600: #2563eb;
+
+  /* 三级阴影纵深系统：投影承担前后景分层，不靠描边 */
+  /* L1 默认卡：柔和大半径，让卡片浮出 #e8eef6 蓝灰底 */
+  --shadow-card:
+    0 1px 2px rgb(15 23 42 / 0.05),
+    0 8px 24px -6px rgb(15 23 42 / 0.12);
+  /* L2 悬浮卡：hover 上浮时加深拉长 */
+  --shadow-card-hover:
+    0 2px 4px rgb(15 23 42 / 0.06),
+    0 16px 40px -8px rgb(15 23 42 / 0.18);
+  /* L3 焦点卡：扫码/搜索等 C 位交互激活态，品牌色光晕 */
+  --shadow-focus:
+    0 0 0 4px rgb(37 99 235 / 0.14),
+    0 12px 32px -8px rgb(37 99 235 / 0.28);
+}
+
+/* 暗色模式（通用版）：深蓝黑底 + 蓝青点缀 */
+:root.dark {
+  --background: #0b1220;
+  --foreground: #e6edf5;
+  --card: #121c2e;
+  --card-foreground: #e6edf5;
+  --popover: #121c2e;
+  --popover-foreground: #e6edf5;
+  --primary: #3b82f6;
+  --primary-foreground: #ffffff;
+  --secondary: #182438;
+  --secondary-foreground: #d8e2ee;
+  --muted: #162138;
+  --muted-foreground: #8fa3c0;
+  --accent: #182438;
+  --accent-foreground: #e6edf5;
+  --destructive: #ef4444;
+  --border: #1e2c45;
+  --input: #1e2c45;
+  --ring: #3b82f6;
+}
+
+/* 浅色模式（可选）：挂 html.light 类时用清爽浅色，适合白天强光环境 */
+:root.light {
+  --background: #f2f6f9;
+  --foreground: #1c2b3a;
+  --card: #ffffff;
+  --card-foreground: #1c2b3a;
+  --popover: #ffffff;
+  --popover-foreground: #1c2b3a;
+  --primary: #1d4ed8;
+  --primary-foreground: #ffffff;
+  --secondary: #e8eef5;
+  --secondary-foreground: #1c2b3a;
+  --muted: #e8eef5;
+  --muted-foreground: #64748b;
+  --accent: #e8eef5;
+  --accent-foreground: #1c2b3a;
+  --border: #d7e0ea;
+  --input: #d7e0ea;
+  --ring: #1d4ed8;
+}
+
+/* ===== 深色全局覆盖层：让散落在页面里的硬编码浅色类，在 .dark 下自动变暗。
+   覆盖 35 个文件里几百处 bg-white/slate-* / text-slate-* / border-slate-*，
+   省去逐个加 dark: 变体的体力活，让整个界面在深色高端风下立即统一。===== */
+:root.dark .bg-white { background-color: #122038; }
+:root.dark .bg-slate-50 { background-color: #15263c; }
+:root.dark .bg-slate-100 { background-color: #1a2c48; }
+:root.dark .bg-slate-200 { background-color: #243755; }
+:root.dark .bg-slate-300 { background-color: #2d4263; }
+:root.dark .bg-gray-50 { background-color: #15263c; }
+:root.dark .bg-gray-100 { background-color: #1a2c48; }
+:root.dark .text-slate-400 { color: #8fa3c0; }
+:root.dark .text-slate-500 { color: #93a7c4; }
+:root.dark .text-slate-600 { color: #a9bad0; }
+:root.dark .text-slate-700 { color: #c3d1e2; }
+:root.dark .text-slate-800 { color: #dbe4ef; }
+:root.dark .text-slate-900 { color: #e6edf5; }
+:root.dark .text-gray-400 { color: #8fa3c0; }
+:root.dark .text-gray-500 { color: #93a7c4; }
+:root.dark .text-gray-600 { color: #a9bad0; }
+:root.dark .text-gray-700 { color: #c3d1e2; }
+:root.dark .border-slate-100 { border-color: #1e3049; }
+:root.dark .border-slate-200 { border-color: #243755; }
+:root.dark .border-slate-300 { border-color: #2d4263; }
+:root.dark .border-gray-100 { border-color: #1e3049; }
+:root.dark .border-gray-200 { border-color: #243755; }
+:root.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-color: #243755; }
+
+/* 状态徽章：红=预警，青=正常，蓝=强调 */
+@utility seal-red {
+  @apply inline-flex items-center gap-1 rounded-full border-2 border-red-600 px-2 py-0.5 text-xs font-bold text-red-600;
+  background: rgb(254 226 226 / 0.6);
+  box-shadow: inset 0 0 0 1px rgb(220 38 38 / 0.2);
+}
+@utility seal-green {
+  @apply inline-flex items-center gap-1 rounded border-2 border-lake-600 px-2 py-0.5 text-xs font-bold text-lake-600;
+  background: rgb(236 253 245 / 0.7);
+  box-shadow: inset 0 0 0 1px rgb(5 150 105 / 0.2);
+}
+@utility seal-sand {
+  @apply inline-flex items-center gap-1 rounded border-2 border-sand-500 px-2 py-0.5 text-xs font-bold text-sand-600;
+  background: rgb(219 234 254 / 0.6);
+  box-shadow: inset 0 0 0 1px rgb(37 99 235 / 0.2);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    /* Horizon UI 的 Plus Jakarta Sans 作西文主字体；中文回退系统字体（该字体不含中文） */
+    font-family: "Plus Jakarta Sans", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+  }
+  /* 大字模式：根字号 16px → 18px，全站 rem 字号（含 Tailwind 工具类）整体放大 */
+  html.text-large {
+    font-size: 18px;
+  }
+  /* 桌面端最小宽度 1024px */
+  #root {
+    min-width: 1024px;
+  }
+  /* 排版精调：文字渲染清晰 + 中文数字对齐 + 统一滚动条 */
+  body {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-variant-numeric: tabular-nums;
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(100 116 139 / 0.3);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(100 116 139 / 0.5);
+  }
+  /* 表格基准：紧凑行高 + 垂直居中，长内容省略号 */
+  table {
+    border-collapse: collapse;
+  }
+  table td,
+  table th {
+    white-space: nowrap;
+  }
+}
+
+/* ===== 打印：小票 / 价格标签 ===== */
+/* .print-area 是 portal 到 body 的打印副本，屏幕上不显示；
+   body 挂上 print-receipt / print-labels 后，@media print 下藏掉 body 下其他一切
+   （#root 和 Radix Dialog 的 portal 都直接挂在 body 下），只留打印区。
+   打印区尺寸用 mm/px 固定字号，不受大字模式（html.text-large 改根字号）影响。 */
+.print-area {
+  display: none;
+}
+
+/* 不写死纸张尺寸：A4 由打印对话框默认给，以后接 58/80mm 热敏机时纸张大小由驱动决定；
+   只留 5mm 页边距，A4 标签排版（186×279mm）和小票都放得下 */
+@page {
+  margin: 5mm;
+}
+
+@media print {
+  body.print-receipt > *:not(.print-area),
+  body.print-labels > *:not(.print-area) {
+    display: none !important;
+  }
+  body.print-receipt .print-area,
+  body.print-labels .print-area {
+    display: block !important;
+  }
+}

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>远程看店</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 16px; min-height: 100vh; }
+  .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .header h1 { font-size: 18px; font-weight: 600; color: #fff; }
+  .header .time { font-size: 12px; color: #888; }
+  .refresh-btn { background: rgba(255,255,255,0.1); border: none; color: #fff; padding: 6px 14px; border-radius: 20px; font-size: 13px; cursor: pointer; }
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .card { background: #16213e; border-radius: 12px; padding: 16px; }
+  .card.full { grid-column: span 2; }
+  .card .label { font-size: 12px; color: #888; margin-bottom: 4px; }
+  .card .value { font-size: 28px; font-weight: 700; }
+  .card .value.green { color: #4ade80; }
+  .card .value.blue { color: #60a5fa; }
+  .card .value.amber { color: #fbbf24; }
+  .card .sub { font-size: 11px; color: #666; margin-top: 2px; }
+  .section { background: #16213e; border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+  .section h3 { font-size: 14px; color: #fff; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+  .item { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 13px; }
+  .item:last-child { border-bottom: none; }
+  .item .name { color: #ccc; flex: 1; }
+  .item .val { color: #60a5fa; font-weight: 500; text-align: right; }
+  .item .val.red { color: #f87171; }
+  .item .val.green { color: #4ade80; }
+  .pay-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+  .pay-tag { background: rgba(255,255,255,0.06); padding: 4px 10px; border-radius: 20px; font-size: 11px; color: #aaa; }
+  .recent-item { display: flex; justify-content: space-between; padding: 5px 0; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+  .recent-item .ts { color: #555; width: 40px; }
+  .recent-item .nm { color: #ccc; flex: 1; }
+  .recent-item .am { color: #60a5fa; text-align: right; }
+  .error-msg { text-align: center; padding: 40px 20px; color: #f87171; font-size: 13px; }
+  .error-msg .detail { color: #666; margin-top: 8px; }
+  .footer { text-align: center; font-size: 11px; color: #444; margin-top: 20px; padding-bottom: 20px; }
+  .loading { text-align: center; padding: 60px 20px; color: #666; font-size: 14px; }
+</style>
+</head>
+<body>
+<div id="app"><div class="loading">加载中...</div></div>
+
+<script>
+(async function () {
+  const token = location.pathname.split('/v/')[1] || ''
+  const hash = location.hash.slice(1) // key=xxx
+  const params = new URLSearchParams(hash)
+  const keyB64 = params.get('key')
+
+  if (!keyB64) {
+    renderError('链接无效', '缺少密钥参数，请联系老板重新生成链接')
+    return
+  }
+
+  try {
+    // 1. 拿密文
+    const r = await fetch('/api/snapshot/fetch?t=' + encodeURIComponent(token))
+    if (!r.ok) {
+      if (r.status === 401) return renderError('链接已失效', '请联系老板重新生成远程看店链接')
+      if (r.status === 404) return renderError('暂无数据', '门店还没有上传过快照数据，请稍后再试')
+      return renderError('加载失败', '服务器返回 ' + r.status)
+    }
+    const { iv, data } = await r.json()
+    if (!iv || !data) return renderError('暂无数据', '门店还没有上传过快照数据')
+
+    // 2. 解密
+    const keyBytes = Uint8Array.from(atob(keyB64.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))
+    const ivBytes = Uint8Array.from(atob(iv.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))
+    const ciphertext = Uint8Array.from(atob(data.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))
+
+    const cryptoKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['decrypt'])
+    const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: ivBytes }, cryptoKey, ciphertext)
+    const text = new TextDecoder().decode(plainBuf)
+    const snap = JSON.parse(text)
+
+    // 3. 渲染
+    render(snap)
+  } catch (e) {
+    renderError('解密失败', '链接可能已过期或密钥不匹配，请联系老板重新生成')
+    console.error(e)
+  }
+})()
+
+function render(s) {
+  const fmt = (fen) => fen != null ? '¥' + (fen / 100).toFixed(2) : '-'
+  const today = s.today || {}
+  const month = s.month || {}
+  const inv = s.inventory || {}
+  const recv = s.receivable || {}
+  const paySplit = today.paySplit || {}
+
+  const payTags = Object.entries(paySplit).filter(([, v]) => v > 0).map(([k, v]) =>
+    `<span class="pay-tag">${k} ${fmt(v)}</span>`
+  ).join('')
+
+  const lowStockHtml = (inv.lowStock || []).slice(0, 5).map(p =>
+    `<div class="item"><span class="name">⚠ ${p.name}</span><span class="val red">剩 ${p.qty} 件</span></div>`
+  ).join('') || '<div style="font-size:12px;color:#666;padding:4px 0">库存健康</div>'
+
+  const recentHtml = (s.recent || []).slice(0, 15).map(r =>
+    `<div class="recent-item"><span class="ts">${r.time}</span><span class="nm">${r.name}</span><span class="am">${r.type === 'in' ? '+' : ''}${r.qty} ${r.type === 'out' ? fmt(r.amount) : ''}</span></div>`
+  ).join('')
+
+  document.getElementById('app').innerHTML = `
+    <div class="header">
+      <div><h1>${s.storeName || '我的门店'}</h1><div class="time">数据截至 ${(s.at || '').slice(11,16) || '-'}</div></div>
+      <button class="refresh-btn" onclick="location.reload()">刷新</button>
+    </div>
+
+    <div class="cards">
+      <div class="card"><div class="label">今日营业额</div><div class="value blue">${fmt(today.revenue)}</div><div class="sub">${today.orderCount || 0} 单</div></div>
+      <div class="card"><div class="label">今日毛利</div><div class="value green">${fmt(today.grossMargin)}</div><div class="sub">${today.revenue ? (today.grossMargin / today.revenue * 100).toFixed(1) : '-'}%</div></div>
+      <div class="card"><div class="label">本月累计</div><div class="value">${fmt(month.revenue)}</div><div class="sub">毛利 ${fmt(month.grossMargin)}</div></div>
+      <div class="card"><div class="label">库存总值</div><div class="value amber">${fmt(inv.totalCostValue)}</div><div class="sub">${inv.skuCount || 0} SKU · ${inv.totalQty || 0} 件</div></div>
+    </div>
+
+    ${payTags ? `<div class="section"><h3>收款方式</h3><div class="pay-row">${payTags}</div></div>` : ''}
+
+    ${lowStockHtml ? `<div class="section"><h3>⚠ 库存预警</h3>${lowStockHtml}</div>` : ''}
+
+    <div class="section"><h3>📊 库存总览</h3>
+      <div class="item"><span class="name">SKU 总数</span><span class="val">${inv.skuCount || 0}</span></div>
+      <div class="item"><span class="name">总件数</span><span class="val">${inv.totalQty || 0}</span></div>
+      <div class="item"><span class="name">滞销品</span><span class="val red">${inv.stagnantCount || 0} 件</span></div>
+      <div class="item"><span class="name">应收合计</span><span class="val">${fmt(recv.totalOwed)} · ${recv.customerCount || 0} 人</span></div>
+    </div>
+
+    ${recentHtml ? `<div class="section"><h3>📋 最近流水</h3>${recentHtml}</div>` : ''}
+
+    <div class="footer">进销存 · 远程看店</div>
+  `
+}
+
+function renderError(title, detail) {
+  document.getElementById('app').innerHTML = `
+    <div class="error-msg">
+      <div style="font-size:48px;margin-bottom:16px">🔒</div>
+      <div style="font-size:16px;font-weight:600;color:#f87171">${title}</div>
+      <div class="detail">${detail}</div>
+    </div>
+  `
+}
+</script>
+</body>
+</html>
