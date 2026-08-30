@@ -83,7 +83,7 @@
     },
     "publish": {
       "provider": "generic",
-      "url": "http://43.128.20.39/updates/"
+      "url": "https://sync.junchengzn.com/updates/"
     }
   }
 }
