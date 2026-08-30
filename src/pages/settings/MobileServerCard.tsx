@@ -14,6 +14,8 @@ export interface ServerStatus {
   url: string | null
   /** HTTPS 是否可用（语音/摄像头识别必需） */
   httpsEnabled?: boolean
+  /** HTTPS 启动失败原因（openssl 缺失等），设置页展示明确提示 */
+  httpsError?: string | null
   /** 纯 HTTP 地址（HTTPS 不可用时兜底） */
   httpUrl?: string | null
   /** 局域网全功能版地址（桌面应用被打包到 dist 时才有） */
@@ -84,6 +86,17 @@ export function MobileServerCard({
                   <p className="text-amber-700">
                     · 链接用的是 https（语音/摄像头识别需要）。第一次打开手机会提示「连接不是私密连接」→ 点「高级」→「继续访问」，只需这一次。
                   </p>
+                )}
+                {serverStatus?.running && !serverStatus.httpsEnabled && (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2">
+                    <p className="font-medium text-red-700">语音/摄像头功能不可用</p>
+                    <p className="mt-0.5 text-red-600">
+                      {serverStatus.httpsError || 'HTTPS 未启用'}。
+                    </p>
+                    <p className="mt-1 text-red-600">
+                      处理：安装 Git（自带 openssl）后重启本程序，语音识别和摄像头扫码即可恢复；当前手机看店走 http，仍可正常看账。
+                    </p>
+                  </div>
                 )}
                 <p>· 页面每 30 秒自动刷新；可以把页面「添加到主屏幕」，像个小的看店 App。</p>
               </div>

@@ -704,6 +704,8 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
   let httpsServer = null
   let httpsPort = null
   let tlsReady = false
+  // 任务6：HTTPS 启动失败原因（openssl 缺失等），暴露给设置页做明确提示
+  let httpsStartError = null
   let token = null
   let lastError = null
   // 速率限制：ip → 最近一分钟内的请求时间戳
@@ -1402,6 +1404,10 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       } catch (e) {
         httpsServer = null
         httpsPort = null
+        // 任务6：记录失败原因（openssl 缺失等），设置页展示「语音需 HTTPS」的明确指引
+        httpsStartError = /openssl|spawn|ENOENT/i.test(String(e?.message ?? ''))
+          ? '未找到 openssl，语音/摄像头功能不可用。请安装 Git（自带 openssl）后重启应用'
+          : (e?.message ?? 'HTTPS 不可用')
         console.warn('[server] HTTPS 启动失败（语音需 HTTPS，HTTP 看店不受影响）:', e.message)
       }
       lastError = null
@@ -1447,6 +1453,8 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       httpUrl: running ? `http://${ip}:${port}/?token=${token}` : null,
       httpsPort: running ? httpsPort : null,
       httpsEnabled: running && !!httpsPort,
+      // 任务6（审计 2026-08-30）：HTTPS 启动失败原因（openssl 缺失等），前端展示明确提示
+      httpsError: running && !httpsPort ? (httpsStartError || 'HTTPS 不可用') : null,
       // 整机共享：其他电脑/平板浏览器用这个网址开全功能系统
       appUrl: running && webRoot ? (httpsPort ? `https://${ip}:${httpsPort}/app?token=${token}` : `http://${ip}:${port}/app?token=${token}`) : null,
       error: lastError,
