@@ -19,6 +19,7 @@ import path from 'node:path'
 import { openDatabase, finalCheckpoint } from '../electron/db.js'
 import * as cmd from '../electron/commands.js'
 import { backupNow, restoreBackup, backupStatus, saveBackupExtraDir, loadBackupConfig } from '../electron/backup.js'
+import { SEED_PRODUCTS, SEED_BATCHES, SEED_TRANSACTIONS } from '../electron/seedData.js'
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fi-test-'))
 const dbPath = path.join(tmp, 'data.db')
@@ -834,39 +835,62 @@ import { createInventoryServer } from '../electron/server.js'
   const rBearer = await fetch(`${base}/api/summary`, { headers: { authorization: `Bearer ${token}` } })
   ok('Authorization Bearer 也可通过鉴权', rBearer.status === 200)
 
-  // summary 结构与口径（对照新种子：今日 in 15 / out 4，营业额与毛利动态核对）
+  // summary 结构与口径：期望值由种子数据推导（SEED_*），种子改动自动对齐，杜绝断言漂移。
+  // 推导口径与 server.js querySummary 一致：今日=daysBack 0；in 计数量；out 计数量+按售价记营收/毛利；return 非「换货退旧」冲减。
   const sum = await (await fetch(`${base}/api/summary?token=${token}`)).json()
   ok('summary 字段齐全', ['todayRevenue', 'todayProfit', 'todayInQty', 'todayOutQty', 'totalSku', 'totalStock', 'stockValue', 'lowStockCount']
     .every((k) => typeof sum[k] === 'number'))
-  ok('summary 口径与仪表盘一致',
-    sum.totalSku === 56 && sum.todayInQty === 15 && sum.todayOutQty === 4
-    && sum.todayRevenue === 11200 && sum.todayProfit === 5800
-    && sum.totalStock === 187 && sum.stockValue === 494600 && sum.lowStockCount === 48)
+  const exp = { todayInQty: 0, todayOutQty: 0, todayRevenue: 0, todayProfit: 0 }
+  for (const t of SEED_TRANSACTIONS.filter((tx) => tx[6] === 0)) {
+    const [, , type, qty, unit, sell, , , , notes] = t
+    if (type === 'in') exp.todayInQty += qty
+    else if (type === 'out') {
+      exp.todayOutQty += qty
+      if (sell != null) exp.todayRevenue += sell * qty
+      if (sell != null && unit != null) exp.todayProfit += (sell - unit) * qty
+    } else if (type === 'return' && notes !== '换货退旧') {
+      if (sell != null) exp.todayRevenue -= sell * qty
+      if (sell != null && unit != null) exp.todayProfit -= (sell - unit) * qty
+    }
+  }
+  exp.totalSku = SEED_PRODUCTS.length
+  exp.totalStock = SEED_BATCHES.reduce((s, b) => s + b[2], 0)
+  exp.stockValue = SEED_BATCHES.reduce((s, b) => s + b[2] * b[3], 0)
+  ok('summary 口径与仪表盘一致（期望值由种子推导）',
+    sum.totalSku === exp.totalSku && sum.todayInQty === exp.todayInQty && sum.todayOutQty === exp.todayOutQty
+    && sum.todayRevenue === exp.todayRevenue && sum.todayProfit === exp.todayProfit
+    && sum.totalStock === exp.totalStock && sum.stockValue === exp.stockValue
+    && sum.lowStockCount === cmd.lowStockProducts(srvDb).length)
 
-  // 低库存列表：48 个（库存 < 默认阈值 5），最缺的（1 件）在最前
+  // 低库存列表：数量与命令层口径一致（种子商品批次量均 > 默认阈值 5 → 期望 0 个）
   const low = await (await fetch(`${base}/api/low-stock?token=${token}`)).json()
-  ok('低库存列表数量正确', low.length === 48 && low[0].stock === 1)
-  ok('低库存含名称/SKU/库存', !!low[1].name && !!low[1].sku && typeof low[1].stock === 'number')
+  ok('低库存列表数量与命令层一致', low.length === cmd.lowStockProducts(srvDb).length)
+  ok('低库存含名称/SKU/库存', low.every((r) => !!r.name && !!r.sku && typeof r.stock === 'number'))
 
   // 库存搜索：品牌/型号/SKU 都能命中；空关键词返回空；LIKE 通配符不注入
-  const sBrand = await (await fetch(`${base}/api/inventory?token=${token}&q=${encodeURIComponent('御鳞竿')}`)).json()
-  ok('按品牌搜索命中 9 个', sBrand.length === 9 && sBrand.every((r) => r.name.includes('御鳞竿')))
-  const sSku = await (await fetch(`${base}/api/inventory?token=${token}&q=YL-0`)).json()
-  ok('按 SKU 搜索命中 9 个鱼竿', sSku.length === 9 && sSku.every((r) => r.sku.startsWith('YL-')))
-  const sModel = await (await fetch(`${base}/api/inventory?token=${token}&q=${encodeURIComponent('纳西')}`)).json()
-  ok('按型号搜索命中渔轮', sModel.length === 1 && sModel[0].sku === 'JC-YL-FC-XMN-2500')
+  const sBrand = await (await fetch(`${base}/api/inventory?token=${token}&q=${encodeURIComponent('农夫山泉')}`)).json()
+  ok('按品牌搜索命中', sBrand.length === 1 && sBrand.every((r) => r.name.includes('农夫山泉')))
+  const sSku = await (await fetch(`${base}/api/inventory?token=${token}&q=SP-`)).json()
+  ok('按 SKU 前缀搜索命中 4 个 SP 商品', sSku.length === 4 && sSku.every((r) => r.sku.startsWith('SP-')))
+  const sModel = await (await fetch(`${base}/api/inventory?token=${token}&q=${encodeURIComponent('550ml')}`)).json()
+  ok('按型号搜索命中瓶装水', sModel.length === 1 && sModel[0].sku === 'SP-001')
   const sEmpty = await (await fetch(`${base}/api/inventory?token=${token}&q=`)).json()
   ok('空关键词返回空数组', Array.isArray(sEmpty) && sEmpty.length === 0)
   const sWildcard = await (await fetch(`${base}/api/inventory?token=${token}&q=${encodeURIComponent('%')}`)).json()
   ok('LIKE 通配符被转义（% 不命中全表）', sWildcard.length === 0)
 
-  // 今日流水：种子今日 3 条（2 出 1 入），含时间/类型/商品/数量/金额
+  // 今日流水：条数与金额从种子推导（queryToday 口径：in 记 unit_price×qty、out 记 selling_price×qty）
   const todayRows = await (await fetch(`${base}/api/today?token=${token}`)).json()
-  ok('今日流水条数正确', todayRows.length === 3)
+  const todaySeedTxs = SEED_TRANSACTIONS.filter((tx) => tx[6] === 0)
+  const skuOf = (prodIdx) => SEED_PRODUCTS[prodIdx - 1][0]
+  const expTodayAmount = (t) => (t[2] === 'in' ? t[4] * t[3] : t[5] * t[3])
+  ok('今日流水条数等于种子今日笔数', todayRows.length === todaySeedTxs.length)
   ok('今日流水字段齐全', todayRows.every((r) => r.time && r.type && r.name && r.quantity > 0 && typeof r.amount === 'number'))
-  ok('今日流水入库记成本、出库记售价',
-    todayRows.find((r) => r.type === 'in').amount === 15 * 900
-    && todayRows.find((r) => r.type === 'out' && r.quantity === 3).amount === 3 * 800)
+  ok('今日流水逐条金额与种子推导一致（入库记成本、出库记售价）',
+    todaySeedTxs.every((t) => {
+      const row = todayRows.find((r) => r.sku === skuOf(t[0]) && r.type === t[2] && r.quantity === t[3])
+      return row !== undefined && row.amount === expTodayAmount(t)
+    }))
 
   // 路径白名单 + 方法限制：未知路径/路径穿越 404，非 GET 405
   const r404 = await fetch(`${base}/api/products?token=${token}`)
@@ -879,7 +903,7 @@ import { createInventoryServer } from '../electron/server.js'
   // 手机端页面：无需 token，含标题与自动刷新
   const rPage = await fetch(`${base}/`)
   const html = await rPage.text()
-  ok('GET / 返回手机页面（无需 token）', rPage.status === 200 && html.includes('渔具库存 · 手机看店'))
+  ok('GET / 返回手机页面（无需 token）', rPage.status === 200 && html.includes('进销存 · 手机看店'))
   ok('手机页面每 30 秒自动刷新', html.includes('setInterval(loadAll, 30000)'))
   ok('手机页面带 viewport/theme-color', html.includes('name="viewport"') && html.includes('name="theme-color"'))
 
@@ -1037,8 +1061,12 @@ ok('preload 白名单含客户/还款通道', creditChannels.every((ch) => prelo
 // 20. 盘点按品类/供应商筛选（与货位筛选取交集，条件随盘点单落库）
 const takeCat = cmd.createStockTake(cdb, { category: '饵料', operator: '测试' })
 const catItems = cdb.prepare('SELECT * FROM stock_take_items WHERE stock_take_id = ?').all(takeCat.id)
+// 期望 = 该品类下有库存的批次数（createStockTake 只含有库存批次，出库清零的不入单）
+const expCatBatches = cdb
+  .prepare('SELECT COUNT(*) AS n FROM inventory_batches b JOIN products p ON p.id = b.product_id WHERE p.category = ? AND b.quantity > 0')
+  .get('饵料').n
 ok('按品类盘点只含该品类批次',
-  catItems.length === 2 && catItems.some((it) => it.product_id === cp.id)
+  catItems.length === expCatBatches && catItems.some((it) => it.product_id === cp.id)
   && catItems.every((it) => {
     const cat = cdb.prepare('SELECT category FROM products WHERE id = ?').get(it.product_id).category
     return cat === '饵料'
@@ -1473,11 +1501,15 @@ xdb.close()
       body: typeof body === 'string' ? body : JSON.stringify(body),
     })
 
-  // 开单数据源：/api/inventory 扩展字段（id/建议价/各档价格/规格）
+  // 开单数据源：/api/inventory 扩展字段（id/建议价/各档价格/规格），期望值由种子推导（wdb 是全新种子库）
   const wcust = cmd.createCustomer(wdb, { name: '手机客户', price_level: 'wholesale' })
-  cmd.setPriceTier(wdb, { productId: 8, tier: 'wholesale', price: 7000 })
-  const inv = await (await fetch(`${wBase}/api/inventory?token=${wToken}&q=YL-008`)).json()
-  ok('开单搜索带 id/建议价/库存', inv.length === 1 && inv[0].id === 8 && inv[0].suggestPrice === 8800 && inv[0].stock === 10)
+  const spIdx = 7 // 种子第 8 个商品（BG-002 得力 A5 笔记本）
+  const sp = SEED_PRODUCTS[spIdx]
+  const spId = spIdx + 1
+  const spStock = SEED_BATCHES.find((b) => b[0] === spId)[2]
+  cmd.setPriceTier(wdb, { productId: spId, tier: 'wholesale', price: 7000 })
+  const inv = await (await fetch(`${wBase}/api/inventory?token=${wToken}&q=${sp[0]}`)).json()
+  ok('开单搜索带 id/建议价/库存', inv.length === 1 && inv[0].id === spId && inv[0].suggestPrice === sp[7] && inv[0].stock === spStock)
   ok('开单搜索带各档价格', inv[0].priceTiers.wholesale === 7000)
   const wSpec = cmd.createProduct(wdb, {
     sku_code: '', barcode: null, category: '鱼竿', brand: '手机牌', model: '测试竿',
@@ -1496,44 +1528,45 @@ xdb.close()
   const rCustNoToken = await fetch(`${wBase}/api/customers`)
   ok('客户端点无 token 401', rCustNoToken.status === 401)
 
-  // 开单成功：售价省略 → 建议价；库存减少、流水正确
-  const r1 = await post({ productId: 8, quantity: 2 })
+  // 开单成功：售价省略 → 建议价；库存减少、流水正确（期望值由种子推导）
+  const r1 = await post({ productId: spId, quantity: 2 })
   const j1 = await r1.json()
   ok('手机开单成功', r1.status === 200 && j1.ok === true)
-  ok('开单返回与桌面出库一致', j1.totalDue === 17600 && j1.paidAmount === null && j1.creditAmount === 0)
+  ok('开单返回与桌面出库一致', j1.totalDue === sp[7] * 2 && j1.paidAmount === null && j1.creditAmount === 0)
   ok('开单后库存减少',
-    wdb.prepare('SELECT COALESCE(SUM(quantity),0) AS q FROM inventory_batches WHERE product_id = 8').get().q === 8)
-  const wTx = wdb.prepare("SELECT * FROM transactions WHERE product_id = 8 AND type = 'out' ORDER BY id DESC LIMIT 1").get()
-  ok('开单流水正确（建议价 + 操作员标注）', wTx.selling_price === 8800 && wTx.quantity === 2 && wTx.operator === '手机开单')
+    wdb.prepare('SELECT COALESCE(SUM(quantity),0) AS q FROM inventory_batches WHERE product_id = ?').get(spId).q === spStock - 2)
+  const wTx = wdb.prepare("SELECT * FROM transactions WHERE product_id = ? AND type = 'out' ORDER BY id DESC LIMIT 1").get(spId)
+  ok('开单流水正确（建议价 + 操作员标注）', wTx.selling_price === sp[7] && wTx.quantity === 2 && wTx.operator === '手机开单')
 
-  // 赊账开单：部分付款 → 欠款入账
-  const r2 = await post({ productId: 8, quantity: 1, sellingPrice: 8800, customerId: wcust.id, paidAmount: 5000 })
+  // 赊账开单：部分付款 → 欠款入账（应付=sp[7]，付 2/3，欠 1/3，期望由种子推导）
+  const wPaid = Math.floor((sp[7] * 2) / 3)
+  const r2 = await post({ productId: spId, quantity: 1, sellingPrice: sp[7], customerId: wcust.id, paidAmount: wPaid })
   const j2 = await r2.json()
-  ok('手机赊账开单', r2.status === 200 && j2.creditAmount === 3800)
-  ok('手机开单欠款入账', cmd.listCustomers(wdb).find((c) => c.id === wcust.id).outstanding === 3800)
-  const r3 = await post({ productId: 8, quantity: 1, sellingPrice: 8800, paidAmount: 0 })
+  ok('手机赊账开单', r2.status === 200 && j2.creditAmount === sp[7] - wPaid)
+  ok('手机开单欠款入账', cmd.listCustomers(wdb).find((c) => c.id === wcust.id).outstanding === sp[7] - wPaid)
+  const r3 = await post({ productId: spId, quantity: 1, sellingPrice: sp[7], paidAmount: 0 })
   const j3 = await r3.json()
   ok('散客赊账错误信息原样返回', r3.status === 400 && j3.error.includes('赊账必须选客户'))
 
   // 安全加固：无 token / 错误 Content-Type / 超 body / 非法字段 / 未知字段 / 库存不足
   const rNoTok = await fetch(`${wBase}/api/outbound`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ productId: 8, quantity: 1 }),
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ productId: spId, quantity: 1 }),
   })
   ok('写接口无 token 401', rNoTok.status === 401)
   const rBadCt = await fetch(`${wBase}/api/outbound?token=${wToken}`, {
     method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{}',
   })
   ok('写接口错误 Content-Type 415', rBadCt.status === 415)
-  const rBig = await post({ productId: 8, quantity: 1, pad: 'x'.repeat(9000) })
+  const rBig = await post({ productId: spId, quantity: 1, pad: 'x'.repeat(9000) })
   ok('写接口超 8KB 请求体 413', rBig.status === 413)
-  const rBadQty = await post({ productId: 8, quantity: 0 })
+  const rBadQty = await post({ productId: spId, quantity: 0 })
   const jBadQty = await rBadQty.json()
   ok('写接口字段非法 400 且错误原样返回', rBadQty.status === 400 && jBadQty.error.includes('正整数'))
-  const rUnknown = await post({ productId: 8, quantity: 1, foo: 1 })
+  const rUnknown = await post({ productId: spId, quantity: 1, foo: 1 })
   ok('写接口未知字段 400', rUnknown.status === 400 && (await rUnknown.json()).error.includes('未知字段'))
   const rBadJson = await post('{not json')
   ok('写接口非法 JSON 400', rBadJson.status === 400)
-  const rShort = await post({ productId: 8, quantity: 999 })
+  const rShort = await post({ productId: spId, quantity: 999 })
   const jShort = await rShort.json()
   ok('写接口库存不足 409', rShort.status === 409 && jShort.error.includes('库存不足'))
 
@@ -1923,7 +1956,7 @@ const phdb = openDatabase(path.join(tmp, 'photo.db'))
   ok('/api/photo 白名单外扩展名 404', (await fetch(`${pBase}/api/photo?path=7.txt&token=${pToken}`)).status === 404)
   ok('/api/photo 无 token 401', (await fetch(`${pBase}/api/photo?path=7.jpg`)).status === 401)
   ok('/api/photo 文件不存在 404', (await fetch(`${pBase}/api/photo?path=8.jpg&token=${pToken}`)).status === 404)
-  const inv = await (await fetch(`${pBase}/api/inventory?q=${encodeURIComponent('御鳞竿')}&token=${pToken}`)).json()
+  const inv = await (await fetch(`${pBase}/api/inventory?q=${encodeURIComponent('农夫山泉')}&token=${pToken}`)).json()
   ok('/api/inventory 带 photoPath 字段', inv.length > 0 && Object.hasOwn(inv[0], 'photoPath'))
   await srvP.stop()
 }
@@ -1987,7 +2020,7 @@ ok('preload 白名单含 photo 通道', preloadSrc.includes("'photo:save'") && p
   try { cmd.batchUpdateProducts(bdb, { ids: [b1.id], priceMode: { kind: 'fixed', priceFen: -5 } }) } catch (e) { bErr = e }
   ok('负统一价拒绝', bErr !== null)
   bErr = null
-  try { cmd.batchUpdateProducts(bdb, { ids: [b1.id], status: '在售' }) } catch (e) { bErr = e }
+  try { cmd.batchUpdateProducts(bdb, { ids: [b1.id], status: '在架' }) } catch (e) { bErr = e }
   ok('非法状态拒绝', bErr !== null)
   // 混一个不存在的 id：整批回滚（已改的第一个商品也复原），日志不留
   const beforeRollback = bAuditN()
@@ -2089,11 +2122,14 @@ ok('preload 白名单含 product:batchUpdate', preloadSrc.includes("'product:bat
   ok('非法退款方式拒绝', rmErr !== null)
 
   // 日结拆分：微信 2×8000 − 退 1×8000 = 8000；支付宝 3000；赊账 (8000−3000)+8000=13000
-  // 未记录 = 本测试 8000 + 种子今日 2 笔无方式出库（3×800=2400 + 1×8800=11200）= 19200
+  // 未记录 = 本测试 8000 + 种子今日无方式出库额（从 SEED_TRANSACTIONS 推导，出库售价×数量求和）
+  const seedTodayUnrec = SEED_TRANSACTIONS
+    .filter((tx) => tx[6] === 0 && tx[2] === 'out' && tx[5] != null)
+    .reduce((s, t) => s + t[5] * t[3], 0)
   const split = cmd.todayPaymentSplit(mdb)
   ok('拆分：微信净额', split.byMethod['微信'] === 8000)
   ok('拆分：支付宝实收', split.byMethod['支付宝'] === 3000)
-  ok('拆分：未记录净额', split.unrecorded === 19200)
+  ok('拆分：未记录净额', split.unrecorded === 8000 + seedTodayUnrec)
   ok('拆分：今日新增赊账', split.credit === 13000)
 
   // 手机端：payMethod 透传 + summary 带 payments
