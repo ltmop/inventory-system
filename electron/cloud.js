@@ -8,8 +8,9 @@ import crypto from 'node:crypto'
 import { encrypt, encryptBuffer, decryptBuffer, generateKey, deriveKey } from './cloudCrypto.js'
 import { buildSnapshot } from './cloudSnapshot.js'
 
-// 云服务器：默认公网（腾讯云已部署）；开发/自建可用环境变量 CLOUD_SERVER_URL 覆盖
-const CLOUD_URL = process.env.CLOUD_SERVER_URL || 'http://43.128.20.39'
+// 云服务器：默认公网 HTTPS（2026-08-30 任务1 起，密码不再明文走公网）；
+// 开发/自建可用环境变量 CLOUD_SERVER_URL 覆盖。旧客户端仍可用 http://43.128.20.39（80 端口兼容保留）
+const CLOUD_URL = process.env.CLOUD_SERVER_URL || 'https://sync.junchengzn.com'
 
 let db = null
 let dbPath = null
