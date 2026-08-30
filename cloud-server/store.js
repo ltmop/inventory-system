@@ -225,6 +225,60 @@ export function registerAccount(username, password, note = '') {
   return { ok: true, userId, username: uname }
 }
 
+
+// ---------- 防爆破（任务2，审计 2026-08-30） ----------
+// 内存态防护：登录失败计数锁定 / IP 限速 / 注册每日上限。
+// 注：进程重启清零（内存态），足够挡住脚本爆破；不做持久化（简单可靠优先）。
+
+const LOGIN_LOCK_THRESHOLD = 5   // 连续失败 5 次
+const LOGIN_LOCK_MS = 15 * 60 * 1000 // 锁 15 分钟
+const LOGIN_IP_RATE = 10         // 每 IP 每分钟最多 10 次登录尝试
+const REGISTER_IP_DAILY = 20     // 每 IP 每天最多注册 20 个账号（防灌号）
+const loginFailures = new Map()  // `${ip}|${username}` -> { count, lockedUntil }
+const loginIpHits = new Map()    // ip -> [timestamps]
+const registerIpDay = new Map()  // `${ip}|${yyyy-mm-dd}` -> count
+
+/** 登录前检查：IP 限速 + 该用户名是否被锁 */
+export function checkLoginAllowed(ip, username) {
+  const now = Date.now()
+  // IP 限速：每分钟 10 次
+  const cutoff = now - 60_000
+  const ipList = (loginIpHits.get(ip) ?? []).filter((t) => t > cutoff)
+  if (ipList.length >= LOGIN_IP_RATE) return { allowed: false, error: '尝试太频繁，请 1 分钟后再试' }
+  // 用户名锁定检查
+  const key = ip + '|' + String(username || '').trim().toLowerCase()
+  const rec = loginFailures.get(key)
+  if (rec && rec.lockedUntil && now < rec.lockedUntil) {
+    const mins = Math.ceil((rec.lockedUntil - now) / 60000)
+    return { allowed: false, error: `连续失败次数过多，已锁定，请 ${mins} 分钟后再试` }
+  }
+  loginIpHits.set(ip, [...ipList, now])
+  return { allowed: true, key }
+}
+
+/** 登录结果上报：成功清零计数；失败计数，达阈值锁定 */
+export function reportLoginResult(ip, username, success) {
+  const key = ip + '|' + String(username || '').trim().toLowerCase()
+  if (success) { loginFailures.delete(key); return }
+  const rec = loginFailures.get(key) ?? { count: 0, lockedUntil: null }
+  rec.count += 1
+  if (rec.count >= LOGIN_LOCK_THRESHOLD) {
+    rec.lockedUntil = Date.now() + LOGIN_LOCK_MS
+    rec.count = 0
+  }
+  loginFailures.set(key, rec)
+}
+
+/** 注册前检查：每 IP 每天上限（防脚本灌号） */
+export function checkRegisterAllowed(ip) {
+  const day = new Date().toISOString().slice(0, 10)
+  const key = ip + '|' + day
+  const count = registerIpDay.get(key) ?? 0
+  if (count >= REGISTER_IP_DAILY) return { allowed: false, error: '该网络今日注册太多，明天再试' }
+  registerIpDay.set(key, count + 1)
+  return { allowed: true }
+}
+
 /** 登录账户：校验用户名密码 → userId */
 export function loginAccount(username, password) {
   const uname = String(username || '').trim().toLowerCase()

@@ -124,6 +124,10 @@ const server = http.createServer(async (req, res) => {
   try {
     // ======== POST /api/account/register（多设备账户注册） ========
     if (req.method === 'POST' && pathname === '/api/account/register') {
+      // 任务2：每 IP 每天注册上限（防脚本灌号）
+      const ip = req.socket.remoteAddress ?? 'unknown'
+      const regOk = store.checkRegisterAllowed(ip)
+      if (!regOk.allowed) return json(res, 429, { ok: false, error: regOk.error })
       const body = JSON.parse((await readBody(req)).toString())
       const r = store.registerAccount(body.username, body.password, body.note || '')
       if (r.error) return json(res, 400, { ok: false, error: r.error })
@@ -133,8 +137,16 @@ const server = http.createServer(async (req, res) => {
     // ======== POST /api/account/login（多设备账户登录） ========
     if (req.method === 'POST' && pathname === '/api/account/login') {
       const body = JSON.parse((await readBody(req)).toString())
+      // 任务2：IP 限速 + 连续失败 5 次锁 15 分钟（防暴力破解）
+      const ip = req.socket.remoteAddress ?? 'unknown'
+      const allow = store.checkLoginAllowed(ip, body.username)
+      if (!allow.allowed) return json(res, 429, { ok: false, error: allow.error })
       const r = store.loginAccount(body.username, body.password)
-      if (r.error) return json(res, 401, { ok: false, error: r.error })
+      if (r.error) {
+        store.reportLoginResult(ip, body.username, false)
+        return json(res, 401, { ok: false, error: r.error })
+      }
+      store.reportLoginResult(ip, body.username, true)
       const meta = store.loadMeta(r.userId)
       return json(res, 200, { ok: true, userId: r.userId, username: r.username, note: meta.note || '', salt: r.salt })
     }
@@ -142,8 +154,16 @@ const server = http.createServer(async (req, res) => {
     // ======== POST /api/device/bind（多设备绑定：账户登录后追加一台设备） ========
     if (req.method === 'POST' && pathname === '/api/device/bind') {
       const body = JSON.parse((await readBody(req)).toString())
+      // 任务2：登录类接口同样限速 + 失败锁定（防爆破绑定通道）
+      const ip = req.socket.remoteAddress ?? 'unknown'
+      const allow = store.checkLoginAllowed(ip, body.username)
+      if (!allow.allowed) return json(res, 429, { ok: false, error: allow.error })
       const r = store.loginAccount(body.username, body.password)
-      if (r.error) return json(res, 401, { ok: false, error: r.error })
+      if (r.error) {
+        store.reportLoginResult(ip, body.username, false)
+        return json(res, 401, { ok: false, error: r.error })
+      }
+      store.reportLoginResult(ip, body.username, true)
       const dev = store.bindDevice(r.userId, body.deviceName, body.note || '')
       return json(res, 200, { ok: true, userId: r.userId, deviceId: dev.deviceId, uploadToken: dev.uploadToken, viewToken: dev.viewToken, salt: r.salt })
     }
