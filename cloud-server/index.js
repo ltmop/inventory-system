@@ -81,6 +81,7 @@ function requireUploadAuth(req, res) {
 
 // 简洁 fs import
 import fs from 'node:fs'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // ---------- 路由 ----------
@@ -96,13 +97,37 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  // ======== GET /updates/* —— 自动更新源（latest.yml + 安装包静态托管） ========
+  if (req.method === 'GET' && pathname.startsWith('/updates/')) {
+    const __dirname = fileURLToPath(new URL('.', import.meta.url))
+    const rel = pathname.slice('/updates/'.length)
+    const safe = rel.split('/').filter((p) => p && p !== '..' && !p.includes('\\')).join('/')
+    const full = path.join(__dirname, 'updates', safe)
+    try {
+      const st = fs.statSync(full)
+      if (st.isFile()) {
+        const ext = full.split('.').pop().toLowerCase()
+        const types = { yml: 'text/yaml', yaml: 'text/yaml', exe: 'application/octet-stream', blockmap: 'application/octet-stream' }
+        res.writeHead(200, {
+          'Content-Type': types[ext] || 'application/octet-stream',
+          'Content-Length': st.size,
+          'Cache-Control': 'no-cache',
+          'Access-Control-Allow-Origin': '*',
+        })
+        fs.createReadStream(full).pipe(res)
+        return
+      }
+    } catch { /* 404 below */ }
+    return json(res, 404, { ok: false, error: 'update file not found' })
+  }
+
   try {
     // ======== POST /api/account/register（多设备账户注册） ========
     if (req.method === 'POST' && pathname === '/api/account/register') {
       const body = JSON.parse((await readBody(req)).toString())
       const r = store.registerAccount(body.username, body.password, body.note || '')
       if (r.error) return json(res, 400, { ok: false, error: r.error })
-      return json(res, 200, { ok: true, userId: r.userId, username: r.username })
+      return json(res, 200, { ok: true, userId: r.userId, username: r.username, salt: r.salt })
     }
 
     // ======== POST /api/account/login（多设备账户登录） ========
@@ -111,7 +136,7 @@ const server = http.createServer(async (req, res) => {
       const r = store.loginAccount(body.username, body.password)
       if (r.error) return json(res, 401, { ok: false, error: r.error })
       const meta = store.loadMeta(r.userId)
-      return json(res, 200, { ok: true, userId: r.userId, username: r.username, note: meta.note || '' })
+      return json(res, 200, { ok: true, userId: r.userId, username: r.username, note: meta.note || '', salt: r.salt })
     }
 
     // ======== POST /api/device/bind（多设备绑定：账户登录后追加一台设备） ========
@@ -120,7 +145,7 @@ const server = http.createServer(async (req, res) => {
       const r = store.loginAccount(body.username, body.password)
       if (r.error) return json(res, 401, { ok: false, error: r.error })
       const dev = store.bindDevice(r.userId, body.deviceName, body.note || '')
-      return json(res, 200, { ok: true, userId: r.userId, deviceId: dev.deviceId, uploadToken: dev.uploadToken, viewToken: dev.viewToken })
+      return json(res, 200, { ok: true, userId: r.userId, deviceId: dev.deviceId, uploadToken: dev.uploadToken, viewToken: dev.viewToken, salt: r.salt })
     }
 
     // ======== POST /api/pair（原配对码：一次性码换凭证；现支持多设备复用同一账户） ========
