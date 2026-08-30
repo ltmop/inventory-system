@@ -22,6 +22,9 @@ import { createPhotoStore } from './photo.js'
 const DEFAULT_PORT = 17532
 const MAX_PORT_RETRY = 10
 const RATE_LIMIT_PER_MIN = 120
+// 任务7（审计 2026-08-30）：带合法 token 的请求按 token 维度放宽限流——
+// 店内多台设备同出口（NAT 同 IP）高频操作不再被 120/min 误伤；无 token 仍按 IP 限流防爆破
+const TOKEN_RATE_LIMIT_PER_MIN = 600
 // 写接口独立限流（更严）与请求体上限
 const WRITE_RATE_LIMIT_PER_MIN = 30
 const MAX_BODY_BYTES = 8192
@@ -754,16 +757,20 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     return a.length === b.length && crypto.timingSafeEqual(a, b)
   }
 
-  function rateLimited(ip) {
+  function rateLimited(ip, validToken) {
+    // 任务7：合法 token 的请求按 token 维度限流（600/min，多设备同出口不误伤）；
+    // 无 token/无效 token 按 IP 限流（120/min，防爆破）
+    const key = validToken ? 'tok:' + validToken : 'ip:' + ip
+    const limit = validToken ? TOKEN_RATE_LIMIT_PER_MIN : RATE_LIMIT_PER_MIN
     const nowMs = Date.now()
     const cutoff = nowMs - 60_000
-    const list = (hits.get(ip) ?? []).filter((t) => t > cutoff)
-    if (list.length >= RATE_LIMIT_PER_MIN) {
-      hits.set(ip, list)
+    const list = (hits.get(key) ?? []).filter((t) => t > cutoff)
+    if (list.length >= limit) {
+      hits.set(key, list)
       return true
     }
     list.push(nowMs)
-    hits.set(ip, list)
+    hits.set(key, list)
     return false
   }
 
@@ -846,7 +853,12 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
   const OUTBOUND_FIELDS = ['productId', 'quantity', 'sellingPrice', 'customerId', 'paidAmount', 'payMethod']
   async function handleOutbound(req, res, url) {
     if (writeRateLimited(req.socket.remoteAddress ?? 'unknown')) {
-      sendJson(res, 429, { error: 'too many requests' })
+      res.writeHead(429, {
+        ...SECURITY_HEADERS,
+        'Content-Type': 'application/json; charset=utf-8',
+        'Retry-After': '60',
+      })
+      res.end(JSON.stringify({ error: '操作太快，请稍等几秒再试', retryAfter: 60 }))
       return
     }
     if (!tokenOk(tokenOf(req, url))) {
@@ -1241,10 +1253,19 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       sendJson(res, 405, { error: 'method not allowed' })
       return
     }
-    // /api/photo 不计速率限制：一页搜索结果可能带几十张缩略图，计入 120 次/分钟会把看店页刷崩
+    // /api/photo 不计速率限制：一页搜索结果可能带几十张缩略图，计入限流会把看店页刷崩
     // （token 鉴权照常在下面做，timingSafeEqual 防爆破不受影响）
-    if (url.pathname !== '/api/photo' && rateLimited(req.socket.remoteAddress ?? 'unknown')) {
-      sendJson(res, 429, { error: 'too many requests' })
+    // 任务7：先取 token 并校验——有效 token 的请求按 token 维度限流（多设备同出口不误伤）
+    const reqToken = tokenOf(req, url)
+    const reqTokenValid = tokenOk(reqToken)
+    if (url.pathname !== '/api/photo' && rateLimited(req.socket.remoteAddress ?? 'unknown', reqTokenValid ? reqToken : null)) {
+      // 任务7：429 带 Retry-After 与友好中文提示（前端可据此展示，不静默失败）
+      res.writeHead(429, {
+        ...SECURITY_HEADERS,
+        'Content-Type': 'application/json; charset=utf-8',
+        'Retry-After': '60',
+      })
+      res.end(JSON.stringify({ error: '操作太快，请稍等几秒再试', retryAfter: 60 }))
       return
     }
     if (isOutbound) {
