@@ -61,8 +61,23 @@ function loadLocalConfig() {
     if (fs.existsSync(file)) {
       const raw = fs.readFileSync(file, 'utf8')
       const cfg = JSON.parse(raw)
-      if (cfg.userId && cfg.keyK) {
-        cloudState = { ...cloudState, ...cfg, paired: true, viewUrl: buildViewUrl(cfg.viewToken, cfg.keyK) }
+      // 任务4：严格校验凭证四件套（userId/keyK/uploadToken/viewToken 缺一视为未配对），
+      // 杜绝「username 有、凭证空」的半写入中间态（历史 bug：注册中断留下 {username} 引发反复重注册）
+      if (cfg.userId && cfg.keyK && cfg.uploadToken && cfg.viewToken) {
+        cloudState = {
+          ...cloudState,
+          userId: cfg.userId,
+          username: cfg.username ?? null,
+          uploadToken: cfg.uploadToken,
+          viewToken: cfg.viewToken,
+          keyK: cfg.keyK,
+          pairedAt: cfg.pairedAt ?? null,
+          paired: true,
+          viewUrl: buildViewUrl(cfg.viewToken, cfg.keyK),
+        }
+      } else {
+        // 半写入残留：不进入配对态，且立即清掉脏文件（下次配对从干净状态开始）
+        try { fs.unlinkSync(file) } catch { /* 忽略 */ }
       }
     }
   } catch { return }
@@ -70,8 +85,12 @@ function loadLocalConfig() {
 
 function saveLocalConfig() {
   try {
+    // 任务4：凭证不全绝不落盘（配对/登录/注册成功路径天然齐全；半途中断不会留下 {username} 残件）
+    if (!cloudState.userId || !cloudState.keyK || !cloudState.uploadToken || !cloudState.viewToken) return
+    const file = path.join(dataDir, CLOUD_CONFIG)
+    const tmpFile = file + '.tmp'
     fs.writeFileSync(
-      path.join(dataDir, CLOUD_CONFIG),
+      tmpFile,
       JSON.stringify({
         userId: cloudState.userId,
         username: cloudState.username,
@@ -82,6 +101,8 @@ function saveLocalConfig() {
       }),
       'utf8',
     )
+    // 原子替换：先写临时文件再 rename，崩溃/断电不会留下半截 JSON
+    fs.renameSync(tmpFile, file)
     cloudState.paired = true
     cloudState.viewUrl = buildViewUrl(cloudState.viewToken, cloudState.keyK)
   } catch (e) {
