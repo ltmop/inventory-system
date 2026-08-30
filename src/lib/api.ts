@@ -1,6 +1,4 @@
-// 游客只读拦截：跳过登录后写通道拒绝（guest 标记由 CloudLoginGate 写入 localStorage，避免循环依赖）
-import { isGuestWriteChannel } from '@/lib/guestChannels'
-
+// 本地模式（原"游客"）：云账号可选，不登录也全功能使用；guest 标记仅用于界面横幅提示
 const GUEST_KEY = 'fi-cloud-guest'
 /** 当前是否游客模式（跳过登录） */
 export function isGuestMode(): boolean {
@@ -104,21 +102,11 @@ const rawBackend: FiBridge | null =
       ? createHttpBackend(lanToken)
       : null
 
-/** 游客只读包装：跳过登录后拦截写通道，读通道放行；登录/注册云账号始终放行 */
+/**
+ * 本地模式（原"游客"）：云账号是可选项，不登录也能全功能使用，数据只保存在本机。
+ * 登录云账号仅用于多台电脑同步 + 云端备份；未登录时所有读写照常走本地/局域网通道。
+ */
 export const backend: FiBridge | null = rawBackend
-  ? {
-      ...rawBackend,
-      async invoke(channel: string, payload?: unknown) {
-        if (isGuestMode() && isGuestWriteChannel(channel)) {
-          // 游客模式写操作：拒绝并提示去登录
-          const err = new Error('游客只读模式：此操作需要登录云账号（账号页 → 登录）')
-          ;(err as any).guestBlocked = true
-          throw err
-        }
-        return rawBackend!.invoke(channel, payload)
-      },
-    }
-  : null
 
 export const backendKind: BackendKind =
   typeof window !== 'undefined' && window.fi ? 'ipc' : backend ? 'http' : null

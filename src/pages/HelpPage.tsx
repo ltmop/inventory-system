@@ -1,4 +1,4 @@
-import { CircleHelp, Keyboard, MessageCircleQuestion, Smartphone, Truck } from 'lucide-react'
+import { Bot, CircleHelp, Keyboard, MessageCircleQuestion, Smartphone, Terminal, Truck } from 'lucide-react'
 import { PageHeader } from '@/components/feedback'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
@@ -82,6 +82,33 @@ export function HelpPage() {
           <div>· <b>语音</b>：开小杜助手后喊"小杜小杜"说话</div>
           <div>· <b>手机</b>：连店里 WiFi 扫设置页二维码</div>
           <div>· <b>拍照</b>：入库页「AI 拍照建档」拍送货单自动识别</div>
+        </CardContent>
+      </Card>
+
+      {/* 开发者与 AI 接入 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Terminal className="size-5 text-brand-500" />
+            开发者与 AI 接入
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-slate-700">
+          <div>
+            <b>命令行 CLI（多机同步/备份）</b>：在系统目录打开命令行，运行
+            <code className="mx-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs">node scripts/inv.mjs help</code>
+            查看全部命令（config / register / login / status / sync / backup / backups / restore / devices）
+          </div>
+          <div>
+            <b>Agent / 数据分析接入</b>：局域网 HTTP 接口（设置页「手机看店」里的网址 + 自动生成的访问令牌），
+            支持查询今日经营、库存、对账与常用操作。完整接口见 <code className="mx-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs">docs/进销存数据分析接口.md</code> 与 <code className="mx-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs">docs/进销存系统Agent接入指南.md</code>
+          </div>
+          <div className="flex items-start gap-2">
+            <Bot className="mt-0.5 size-4 shrink-0 text-brand-500" />
+            <span><b>开发改造 Skill</b>：系统的开发/改造/打包技能包（inventory-system-dev）与 CLI 工具、接口文档，均可在官网文档站下载：
+              <a href="http://junchengzn.com/docs" target="_blank" rel="noreferrer" className="ml-1 font-bold text-brand-600 underline hover:text-brand-700">junchengzn.com/docs</a>
+            </span>
+          </div>
         </CardContent>
       </Card>
 

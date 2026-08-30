@@ -174,9 +174,9 @@ interface AppState {
   /** 手动打开的登录门（店员随时可登录，不依赖开关） */
   loginGateOpen: boolean
   setLoginGateOpen: (v: boolean) => void
-  /** 云账号登录态：none=未处理 / guest=跳过（只读演示）/ logged=已登录云账号 */
-  cloudAuth: 'none' | 'guest' | 'logged'
-  setCloudAuth: (v: 'none' | 'guest' | 'logged') => void
+  /** 云账号登录态：local=本地模式（默认，全功能，数据在本机）/ none=打开登录门 / guest=从登录门跳过 / logged=已登录云账号 */
+  cloudAuth: 'none' | 'guest' | 'local' | 'logged'
+  setCloudAuth: (v: 'none' | 'guest' | 'local' | 'logged') => void
   stockTakes: StockTake[]
   stockTakeItems: StockTakeItem[]
   /** 客户列表（带欠款统计）；loadAll 不含客户，Electron 环境由 loadCustomers 单独拉取 */
@@ -529,7 +529,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   staffLoginOn: false,
   loginGateOpen: false,
   setLoginGateOpen: (v) => set({ loginGateOpen: v }),
-  cloudAuth: 'none',
+  cloudAuth: 'local',
   setCloudAuth: (v) => set({ cloudAuth: v }),
   stockTakes: [],
   stockTakeItems: [],

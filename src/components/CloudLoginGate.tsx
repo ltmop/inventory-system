@@ -17,8 +17,8 @@ export function CloudLoginGate() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  // 已登录云账号或已跳过：门不开
-  if (cloudAuth === 'logged' || cloudAuth === 'guest') return null
+  // 本地优先：默认不弹门；只有用户主动点「登录」（或登出后）才会打开（cloudAuth === 'none'）
+  if (cloudAuth !== 'none') return null
 
   const submit = async () => {
     if (busy) return
@@ -48,6 +48,7 @@ export function CloudLoginGate() {
   }
 
   const skip = () => {
+    // 本地模式：不登录也能全功能使用（数据在本机）；随时可在「账号」页登录同步
     setGuestMode(true)
     setCloudAuth('guest')
   }
@@ -101,13 +102,13 @@ export function CloudLoginGate() {
             {mode === 'login' ? '登录（绑定本机）' : '注册并登录（绑定本机）'}
           </Button>
 
-          <div className="border-t border-slate-100 pt-3">
-            <Button onClick={skip} variant="ghost" className="w-full text-slate-500">
+          <div className="space-y-3">
+            <Button onClick={skip} variant="outline" className="w-full">
               <Eye className="size-4" />
-              跳过，先看看（只读演示模式）
+              先不登录，直接用（数据在这台电脑上）
             </Button>
-            <p className="mt-2 text-center text-xs text-slate-400">
-              跳过只能查看界面，入库/销售/盘点等操作需要登录账号
+            <p className="text-center text-xs text-slate-400">
+              没账号也能正常开单、入库、盘点；登录账号后多台电脑自动同步、云端备份，随时可在「账号」页登录
             </p>
           </div>
         </div>

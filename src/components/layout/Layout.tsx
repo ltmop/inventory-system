@@ -25,9 +25,9 @@ export function Layout() {
     }).catch(() => {})
   }, [])
 
-  // 已配对云账号的用户重启：自动视为已登录，不再弹登录门
+  // 已配对云账号的用户重启：自动视为已登录（覆盖本地模式/local），不再弹登录门
   useEffect(() => {
-    if (cloudPaired && cloudAuth === 'none') setCloudAuth('logged')
+    if (cloudPaired && cloudAuth !== 'logged') setCloudAuth('logged')
   }, [cloudPaired, cloudAuth, setCloudAuth])
 
   return (
@@ -72,17 +72,17 @@ export function Layout() {
   )
 }
 
-/** 游客只读模式横幅：跳过登录后显示在内容区顶部 */
+/** 本地模式提示横幅：从登录门跳过（guest）后显示在内容区顶部，提醒数据在本机、可登录同步 */
 function GuestBanner() {
   const cloudAuth = useAppStore((s) => s.cloudAuth)
   if (cloudAuth !== 'guest') return null
   return (
-    <div className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+    <div className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm text-sky-800">
       <span>
-        <span className="font-bold">只读演示模式：</span>可以随便看界面，但入库/销售/盘点等操作需要登录账号
+        <span className="font-bold">本地模式：</span>所有操作照常可用，数据保存在这台电脑；登录账号后多台电脑自动同步
       </span>
       <button
-        className="shrink-0 font-medium text-amber-700 hover:text-amber-900 cursor-pointer"
+        className="shrink-0 font-medium text-sky-700 hover:text-sky-900 cursor-pointer"
         onClick={() => {
           setGuestMode(false)
           useAppStore.setState({ cloudAuth: 'none' })

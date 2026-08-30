@@ -145,8 +145,8 @@ export function CloudCard() {
     try {
       await backend.invoke('cloud:logout')
       setGuestMode(false)
-      // 退出登录后回到可登录状态（CloudCard 显示登录表单）
-      useAppStore.setState({ cloudAuth: 'none' })
+      // 退出登录后回到本地模式（CloudCard 显示登录表单，不弹全屏门）
+      useAppStore.setState({ cloudAuth: 'local' })
       setCloud({
         paired: false, username: null, lastSyncAt: null, lastBackupAt: null,
         syncing: false, error: null, viewUrl: null,
