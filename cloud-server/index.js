@@ -325,6 +325,14 @@ const server = http.createServer(async (req, res) => {
       if (pathname === '/admin/users' && req.method === 'GET') {
         return json(res, 200, { ok: true, users: store.listUsers() })
       }
+
+      // 任务3：重置密码（按用户名；重置后旧密码失效，需重新绑定设备）
+      if (pathname === '/admin/reset-password' && req.method === 'POST') {
+        const body = JSON.parse((await readBody(req)).toString())
+        const r = store.resetPassword(body.username, body.newPassword)
+        if (r.error) return json(res, 400, { ok: false, error: r.error })
+        return json(res, 200, { ok: true, username: r.username, detail: '密码已重置，请用新密码重新登录并绑定设备' })
+      }
     }
 
     // ======== 404 ========

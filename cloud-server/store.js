@@ -163,6 +163,10 @@ export function saveMeta(userId, meta) {
 
 export function listUsers() {
   ensureDir(USERS_DIR)
+  // 任务3（审计 2026-08-30）：admin 列表补 username——按 userId 从 accounts.json 反查，
+  // 让运维能定位账号（此前只有 userId，分不清谁是谁）
+  const accounts = loadAccounts()
+  const userToName = new Map(Object.entries(accounts).map(([name, a]) => [a.userId, name]))
   try {
     return fs.readdirSync(USERS_DIR).map(id => {
       const meta = loadMeta(id)
@@ -170,6 +174,7 @@ export function listUsers() {
       const backups = listBackups(id)
       return {
         userId: id,
+        username: userToName.get(id) ?? null, // 任务3：补 username
         createdAt: meta.createdAt,
         note: meta.note || '',
         lastSync: (() => { try { return fs.statSync(snap).mtime.toISOString() } catch { return null } })(),
@@ -180,6 +185,21 @@ export function listUsers() {
   } catch {
     return []
   }
+}
+
+/** 任务3：按用户名重置密码（新盐 + 新 hash）。账号不存在返回 { error } */
+export function resetPassword(username, newPassword) {
+  const uname = String(username || '').trim().toLowerCase()
+  if (!uname) return { error: '用户名不能为空' }
+  if (!newPassword || String(newPassword).length < 6) return { error: '新密码至少 6 位' }
+  const accounts = loadAccounts()
+  const acc = accounts[uname]
+  if (!acc) return { error: '账户不存在' }
+  const salt = crypto.randomBytes(16).toString('hex')
+  acc.salt = salt
+  acc.passwordHash = hashPassword(String(newPassword), salt)
+  saveAccounts(accounts)
+  return { ok: true, username: uname }
 }
 
 // ========== 多设备账户体系（v2）：一个账户多台电脑 ==========
