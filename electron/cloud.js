@@ -25,6 +25,8 @@ let cloudState = {
   viewToken: null,
   keyK: null,
   lastSyncAt: null,
+  lastServerAt: null, // 任务9：服务端快照最后修改时间（乐观锁）
+  conflictAt: null,   // 任务9：最近一次检测到的云端更新时间
   lastBackupAt: null,
   syncing: false,
   error: null,
@@ -72,6 +74,7 @@ function loadLocalConfig() {
           viewToken: cfg.viewToken,
           keyK: cfg.keyK,
           pairedAt: cfg.pairedAt ?? null,
+          lastServerAt: cfg.lastServerAt ?? null,
           paired: true,
           viewUrl: buildViewUrl(cfg.viewToken, cfg.keyK),
         }
@@ -98,6 +101,7 @@ function saveLocalConfig() {
         viewToken: cloudState.viewToken,
         keyK: cloudState.keyK,
         pairedAt: cloudState.pairedAt,
+        lastServerAt: cloudState.lastServerAt,
       }),
       'utf8',
     )
@@ -228,12 +232,25 @@ export async function syncSnapshot(storeName) {
         'Content-Type': 'application/json',
         'x-user-id': cloudState.userId,
         'x-token': cloudState.uploadToken,
+        // 任务9：乐观锁——带上上次同步拿到的服务端快照时间戳，冲突时服务端拒绝覆盖
+        'x-last-sync': cloudState.lastServerAt || '',
       },
       body: JSON.stringify(enc),
     })
+    const resp = await r.json().catch(() => null)
     if (r.ok) {
-      cloudState.lastSyncAt = new Date().toISOString()
-      cloudState.error = null
+      if (resp?.conflict) {
+        // 另一台电脑改过并上传了：不覆盖，明确提示先拉取（任务9：last-write-wins 不再静默）
+        cloudState.error = '同步冲突：另一台电脑有新数据，本次未覆盖。请先拉取云端数据再继续'
+        cloudState.conflictAt = resp.at || null
+      } else {
+        cloudState.lastSyncAt = new Date().toISOString()
+        cloudState.lastServerAt = resp?.at || null
+        cloudState.error = null
+        cloudState.conflictAt = null
+      }
+    } else {
+      cloudState.error = `快照同步失败: HTTP ${r.status}`
     }
   } catch (e) {
     cloudState.error = `快照同步失败: ${e.message}`

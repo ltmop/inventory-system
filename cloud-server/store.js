@@ -69,6 +69,9 @@ export function saveSnapshot(userId, iv, data) {
   const dir = userDir(userId)
   ensureDir(dir)
   atomicWrite(path.join(dir, 'snapshot.enc'), JSON.stringify({ iv, data }))
+  // 任务9（审计 2026-08-30）：返回快照最后修改时间，客户端用它做多机并发冲突检测
+  const stat = fs.statSync(path.join(dir, 'snapshot.enc'))
+  return { at: stat.mtime.toISOString() }
 }
 
 export function loadSnapshot(userId) {
@@ -76,6 +79,17 @@ export function loadSnapshot(userId) {
   if (!fs.existsSync(file)) return null
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+/** 快照最后修改时间（ISO 字符串）；无快照返回 null。任务9 冲突检测用 */
+export function snapshotMtime(userId) {
+  const file = path.join(userDir(userId), 'snapshot.enc')
+  try {
+    if (!fs.existsSync(file)) return null
+    return fs.statSync(file).mtime.toISOString()
   } catch {
     return null
   }

@@ -141,8 +141,15 @@ const server = http.createServer(async (req, res) => {
       if (!userId) return
       const body = JSON.parse((await readBody(req)).toString())
       if (!body.iv || !body.data) return json(res, 400, { ok: false, error: '缺少 iv/data' })
-      store.saveSnapshot(userId, body.iv, body.data)
-      return json(res, 200, { ok: true, at: new Date().toISOString() })
+      // 任务9（审计 2026-08-30）：多机并发冲突检测——客户端带上上次拿到的快照时间戳，
+      // 若云端已被其他设备更新过（快照 mtime 比客户端认知的新），拒绝覆盖并提示先拉取
+      const serverAt = store.snapshotMtime(userId)
+      const clientLastSync = req.headers['x-last-sync']
+      if (clientLastSync && serverAt && clientLastSync < serverAt) {
+        return json(res, 200, { ok: true, conflict: true, at: serverAt, detail: '另一台电脑有新数据，请先拉取再修改' })
+      }
+      const saved = store.saveSnapshot(userId, body.iv, body.data)
+      return json(res, 200, { ok: true, at: saved.at })
     }
 
     // ======== POST /api/backup ========
