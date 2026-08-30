@@ -109,6 +109,32 @@ function cmdFirstSale(db) {
 // 沉睡资金榜：有库存但 N 天无出库的商品 × 库存数量 × 批次成本，按金额倒序（周掌柜审计 2026-08-28）
 // 子查询先聚合出 stock/占用资金/最后售出时间，外层按天数过滤（SQLite HAVING 不认聚合别名）
 function cmdDormant(db, days90, days180) {
+  // 任务8（审计 2026-08-30）：数据窗口检测——系统启用以来没有任何销售流水时，
+  // 沉睡榜 100% 命中是"库存占用快照"而非真实滞销警报，必须显式提示而非假装发现问题。
+  const anySale = db
+    .prepare("SELECT COUNT(*) AS n FROM transactions WHERE type = 'out'")
+    .get().n
+  const firstIn = db
+    .prepare("SELECT MIN(timestamp) AS t FROM transactions WHERE type = 'in'")
+    .get().t
+  if (anySale === 0) {
+    return {
+      days: { slow: days90, dead: days180 },
+      dataWindow: {
+        hasSales: false,
+        note: '系统启用以来无销售流水（暂无出库记录），以下为库存占用快照，非滞销判定；启用销售后榜单自动转为真实滞销分析',
+        firstInboundAt: firstIn ? firstIn.slice(0, 10) : null,
+        totalTiedCapital: fmt(
+          db.prepare('SELECT COALESCE(SUM(b.quantity * b.cost_price), 0) AS v FROM inventory_batches b JOIN products p ON p.id = b.product_id WHERE p.status != ?')
+            .get('停产').v,
+        ),
+      },
+      totalTiedSlow: '—',
+      totalTiedDead: '—',
+      count: 0,
+      items: [],
+    }
+  }
   const baseSql = `
     SELECT * FROM (
       SELECT p.id, p.sku_code, p.brand, p.model, p.category,
@@ -129,6 +155,7 @@ function cmdDormant(db, days90, days180) {
   const dead180 = new Map(rows180.map((r) => [r.id, r]))
   return {
     days: { slow: days90, dead: days180 },
+    dataWindow: { hasSales: true },
     totalTiedSlow: fmt(totalSlow),
     totalTiedDead: fmt(totalDead),
     count: rows.length,
