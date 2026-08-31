@@ -906,7 +906,7 @@ export function OutboundPage() {
                 const r = await backend.invoke('ai:smartSearch', { text: keyword.trim() })
                 if (r?.ok && r.matched) {
                   const hit = products.find((p) =>
-                    [p.brand, p.model, p.sku_code].filter(Boolean).some((f) => f === r.corrected || f.includes(r.corrected) || r.corrected.includes(f)),
+                    [p.brand, p.model, p.sku_code].filter((v): v is string => Boolean(v)).some((f) => f === r.corrected || f.includes(r.corrected) || r.corrected.includes(f)),
                   )
                   if (hit) {
                     playSound('scan')

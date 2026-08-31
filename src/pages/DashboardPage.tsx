@@ -333,6 +333,9 @@ export function DashboardPage() {
         </div>
       </div>
 
+      {/* AI 助手卡：M2-1 前置——一打开就看见 AI 能帮他补货（AI 是能力不是页面） */}
+      <AiPanel />
+
       {/* 通用版 7 大导航快捷入口 */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
         {[
@@ -405,9 +408,6 @@ export function DashboardPage() {
 
       {/* 今日经营小结：打烊前看一眼，今天赚了多少 */}
       <TodaySalesCard summary={todaySales} paySplit={paySplit} aiLoading={aiLoading} aiText={aiText} />
-
-      {/* AI 问答面板：仅已激活时渲染（组件自检） */}
-      <AiPanel />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>

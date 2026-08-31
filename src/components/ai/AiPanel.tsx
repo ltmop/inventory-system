@@ -1,8 +1,8 @@
 // AI 问答面板：老板直接用大白话问店里的事
 // 只在 Electron 且已配置 Key 时渲染；问答数字全部来自本地 SQLite 工具查询
 // 入库/出库由 AI 生成草稿卡，人点确认后才走既有 store action 落库
-import { useEffect, useRef, useState } from 'react'
-import { Loader2, Mic, PackagePlus, PackageMinus, Send, Sparkles, Volume2, VolumeX } from 'lucide-react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { Camera, Loader2, Mic, PackagePlus, PackageMinus, Send, Sparkles, Volume2, VolumeX } from 'lucide-react'
 import { motion } from 'motion/react'
 import { backend } from '@/lib/api'
 import { blobToBase64, blobToPcm16k } from '@/lib/audio'
@@ -79,6 +79,10 @@ export function AiPanel() {
   const cardRef = useRef<HTMLDivElement>(null)
   // 唤醒词触发的自动录音：5 秒自动停止的定时器（手动停录时清掉）
   const wakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 拍照识别进货单：隐藏 file input + 识别状态（拍一张，AI 读出商品/数量/进价 填进输入框）
+  const photoRef = useRef<HTMLInputElement>(null)
+  const [photoBusy, setPhotoBusy] = useState(false)
+  const [photoUsed, setPhotoUsed] = useState(false)
   // 语音模型：就绪走本地离线识别（voice:transcribe），未下载回退云端（ai:transcribe）
   const {
     ready: voiceReady,
@@ -275,6 +279,34 @@ export function AiPanel() {
     }
   }
 
+  // 拍照识别：拍一张进货单/商品照，AI 读出商品/数量/进价，填进输入框让老板确认后再发
+  const onPhotoPick = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // 允许再次选同一张
+    if (!file || !backend) return
+    setPhotoBusy(true)
+    setVoiceError(null)
+    try {
+      const imageBase64 = await blobToBase64(file)
+      const r = await backend.invoke('ai:analyzePhoto', {
+        imageBase64,
+        mimeType: file.type || 'image/jpeg',
+        prompt: '这是一张进货单或商品照片。请识别出商品名称、品牌型号、数量和进价，用中文简洁列出。',
+      })
+      if (r?.ok && r.content) {
+        setPhotoUsed(true)
+        setInput(String(r.content))
+      } else {
+        const reason = typeof r?.reason === 'string' && /[一-龥]/.test(r.reason) ? r.reason : '拍照识别失败，请重试或手动录入'
+        setVoiceError(reason)
+      }
+    } catch {
+      setVoiceError('拍照识别失败，请重试或手动录入')
+    } finally {
+      setPhotoBusy(false)
+    }
+  }
+
   const toggleTts = () => {
     const next = !ttsOn
     setTtsOn(next)
@@ -400,6 +432,24 @@ export function AiPanel() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        {/* 主 CTA：AI 是能力不是页面——一打开就看见 AI 能帮他补货（M2-1） */}
+        <div className="flex items-center gap-3 rounded-xl border border-brand-200/60 bg-gradient-to-r from-brand-600 to-brand-400 p-4 text-white shadow-sm">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-white/15">
+            <Sparkles className="size-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-base font-bold leading-tight">问 AI 今天该补什么货</div>
+            <div className="mt-0.5 text-xs text-white/80">说一句话 / 拍张照片，AI 帮你补货、清滞销</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => send('今天该补什么货？')}
+            className="shrink-0 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-brand-700 transition-colors hover:bg-white/90"
+          >
+            问我
+          </button>
+        </div>
+
         {/* 消息区 */}
         {messages.length === 0 && !thinking ? (
           <div className="flex flex-wrap gap-2">
@@ -511,6 +561,9 @@ export function AiPanel() {
         {voiceError && !transcribing && (
           <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{voiceError}</div>
         )}
+        {photoBusy && (
+          <div className="rounded-lg bg-brand-50 px-4 py-3 text-sm text-brand-700">正在识别照片里的商品信息…</div>
+        )}
 
         {/* 语音模型未下载：提示下载（约78MB），下载后离线也能识别；下载中显示进度条 */}
         {voiceReady === false && (
@@ -543,6 +596,20 @@ export function AiPanel() {
             placeholder="问点什么，比如：YGK 还剩几卷 / 这周赚了多少钱"
             disabled={thinking}
           />
+          {/* 拍照识别进货单：拍一张，AI 读出商品/数量/进价 填进输入框 */}
+          <motion.button
+            type="button"
+            onClick={() => photoRef.current?.click()}
+            disabled={!backend || thinking || transcribing || photoBusy}
+            animate={photoBusy ? { scale: [1, 1.12, 1] } : { scale: 1 }}
+            transition={photoBusy ? { duration: 0.8, repeat: Infinity } : { duration: 0.15 }}
+            title={!backend ? '拍照识别需要桌面版或电脑摄像头' : '拍照识别进货单（商品名/数量/进价）'}
+            className={`flex size-10 shrink-0 items-center justify-center rounded-md transition-colors disabled:pointer-events-none disabled:opacity-50 ${
+              photoBusy ? 'bg-brand-500 text-white' : 'border border-input bg-background text-slate-600 hover:bg-accent'
+            }`}
+          >
+            <Camera className="size-4" />
+          </motion.button>
           {/* 按住说话：按下开录（红色脉冲），松开发送；无麦克风/浏览器 dev 模式置灰 */}
           <motion.button
             type="button"
@@ -579,6 +646,11 @@ export function AiPanel() {
         {!voiceUsed && (
           <p className="text-xs text-muted-foreground">按住麦克风说话，松开发送</p>
         )}
+        {photoUsed && !photoBusy && (
+          <p className="text-xs text-muted-foreground">已识别照片里的商品，确认无误后按「发送」让 AI 入账</p>
+        )}
+        {/* 拍照识别隐藏文件选择器 */}
+        <input ref={photoRef} type="file" accept="image/*" className="hidden" onChange={onPhotoPick} />
       </CardContent>
     </Card>
     </div>
