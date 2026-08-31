@@ -17,6 +17,18 @@ import { StaffCard } from './settings/StaffCard'
 import { IndustryTemplateCard } from './settings/IndustryTemplateCard'
 import { PreferenceRow } from './settings/PreferenceRow'
 
+// 设置页分类（2026-09-01 重构：10 个区块按 4 组归类，顶部导航条点击定位）
+const SETTINGS_SECTIONS = [
+  { id: 'appearance', label: '外观与操作', icon: '🎨', desc: '提示音、字号、深色模式、行业模板' },
+  { id: 'data', label: '数据与备份', icon: '💾', desc: '自动备份、第二位置、数据位置' },
+  { id: 'connect', label: '连接与共享', icon: '📱', desc: '手机看店、收款码、员工账号' },
+  { id: 'account', label: '账户与支持', icon: '👤', desc: '激活授权、意见反馈、关于' },
+] as const
+
+function scrollToSection(id: string) {
+  document.getElementById('set-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
 interface AppInfo {
   dataDir: string
   dbPath: string
@@ -260,6 +272,47 @@ export function SettingsPage() {
     <div className="space-y-6">
       <PageHeader title="设置" subtitle="数据备份、存储位置与系统信息" />
 
+      {/* 分类导航条：点击平滑滚动到对应分组 */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 p-2">
+        {SETTINGS_SECTIONS.map((s) => (
+          <button
+            key={s.id}
+            onClick={() => scrollToSection(s.id)}
+            className="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-brand-50 hover:text-brand-700 cursor-pointer"
+            title={s.desc}
+          >
+            {s.icon} {s.label}
+          </button>
+        ))}
+        <span className="flex-1" />
+        {/* 更新入口（2026-09-01：从「关于」底部提到顶部，进设置一眼可见） */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={checkUpdate}
+            disabled={updateChecking}
+            className="rounded bg-brand-100 px-3 py-1.5 text-xs font-medium text-brand-700 hover:bg-brand-200 disabled:opacity-50 cursor-pointer"
+          >
+            {updateChecking ? '检查中...' : '检查更新'}
+          </button>
+          {newVersion && !updateDownloaded && (
+            <button
+              onClick={downloadUpdate}
+              disabled={downloadingUpdate}
+              className="rounded bg-brand-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-800 disabled:opacity-50 cursor-pointer"
+            >
+              {downloadingUpdate ? '下载中...' : '下载更新 v' + newVersion}
+            </button>
+          )}
+          {lastCheckAt && updateMsg && (
+            <span className="text-xs text-slate-500">{updateMsg}</span>
+          )}
+        </div>
+      </div>
+
+      {/* ===== 外观与操作 ===== */}
+      <section id="set-appearance" className="scroll-mt-4">
+        <h2 className="mb-2 text-sm font-semibold text-slate-700">🎨 外观与操作</h2>
+        <div className="space-y-6">
       {/* 使用偏好：提示音 + 大字模式，本机保存 */}
       <Card>
         <CardHeader>
@@ -296,7 +349,13 @@ export function SettingsPage() {
 
       {/* 行业模板（通用版）：一键切换行业 */}
       <IndustryTemplateCard />
+        </div>
+      </section>
 
+      {/* ===== 数据与备份 ===== */}
+      <section id="set-data" className="scroll-mt-4">
+        <h2 className="mb-2 text-sm font-semibold text-slate-700">💾 数据与备份</h2>
+        <div className="space-y-6">
       {/* 数据备份 */}
       <BackupCard
         hasBackend={!!backend}
@@ -312,39 +371,6 @@ export function SettingsPage() {
         onRestore={handleRestore}
         onSetExtraDir={handleSetExtraDir}
         onClearExtraDir={handleClearExtraDir}
-      />
-
-      {/* 手机看店：局域网只读服务，微信扫码看账 */}
-      <MobileServerCard
-        serverStatus={serverStatus}
-        qrDataUrl={qrDataUrl}
-        posQrDataUrl={posQrDataUrl}
-        serverBusy={serverBusy}
-        onToggle={() => void handleServerToggle()}
-        onRegenerateToken={handleRegenerateToken}
-      />
-
-      {/* 收款码：手机端开单选微信/支付宝时展示给顾客扫 */}
-      <PaymentQrCard />
-
-      {/* 员工账号（v0.1）：多用户登录 + 老板/店员角色 */}
-      <StaffCard />
-
-      {/* 意见反馈 */}
-      <FeedbackCard
-        hasBackend={!!backend}
-        message={fbMessage}
-        onMessageChange={setFbMessage}
-        contact={fbContact}
-        onContactChange={setFbContact}
-        webhook={fbWebhook}
-        onWebhookChange={(v) => {
-          setFbWebhook(v)
-          localStorage.setItem('fi-feedback-webhook', v)
-        }}
-        busy={fbBusy}
-        result={fbResult}
-        onSend={handleSendFeedback}
       />
 
       {/* 数据位置 */}
@@ -375,6 +401,56 @@ export function SettingsPage() {
           )}
         </CardContent>
       </Card>
+        </div>
+      </section>
+
+      {/* ===== 连接与共享 ===== */}
+      <section id="set-connect" className="scroll-mt-4">
+        <h2 className="mb-2 text-sm font-semibold text-slate-700">📱 连接与共享</h2>
+        <div className="space-y-6">
+
+      {/* 手机看店：局域网只读服务，微信扫码看账 */}
+      <MobileServerCard
+        serverStatus={serverStatus}
+        qrDataUrl={qrDataUrl}
+        posQrDataUrl={posQrDataUrl}
+        serverBusy={serverBusy}
+        onToggle={() => void handleServerToggle()}
+        onRegenerateToken={handleRegenerateToken}
+      />
+
+      {/* 收款码：手机端开单选微信/支付宝时展示给顾客扫 */}
+      <PaymentQrCard />
+
+
+
+        </div>
+      </section>
+
+      {/* ===== 账户与支持 ===== */}
+      <section id="set-account" className="scroll-mt-4">
+        <h2 className="mb-2 text-sm font-semibold text-slate-700">👤 账户与支持</h2>
+        <div className="space-y-6">
+
+      {/* 员工账号（v0.1）：多用户登录 + 老板/店员角色 */}
+      <StaffCard />
+
+      {/* 意见反馈 */}
+      <FeedbackCard
+        hasBackend={!!backend}
+        message={fbMessage}
+        onMessageChange={setFbMessage}
+        contact={fbContact}
+        onContactChange={setFbContact}
+        webhook={fbWebhook}
+        onWebhookChange={(v) => {
+          setFbWebhook(v)
+          localStorage.setItem('fi-feedback-webhook', v)
+        }}
+        busy={fbBusy}
+        result={fbResult}
+        onSend={handleSendFeedback}
+      />
 
       {/* 激活与授权 */}
       <Card>
@@ -433,31 +509,11 @@ export function SettingsPage() {
           <div className="text-xs text-muted-foreground">
             Electron + React + SQLite（WAL）· 本地单机部署 · 断电不丢数据
           </div>
-          <div className="flex items-center gap-3 pt-1">
-            <button
-              onClick={checkUpdate}
-              disabled={updateChecking}
-              className="rounded bg-brand-100 px-3 py-1.5 text-xs font-medium text-brand-700 hover:bg-brand-200 disabled:opacity-50 cursor-pointer"
-            >
-              {updateChecking ? '检查中...' : '检查更新'}
-            </button>
-            {newVersion && !updateDownloaded && (
-              <button
-                onClick={downloadUpdate}
-                disabled={downloadingUpdate}
-                className="rounded bg-brand-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-800 disabled:opacity-50 cursor-pointer"
-              >
-                {downloadingUpdate ? '下载中...' : '下载更新 v' + newVersion}
-              </button>
-            )}
-            {lastCheckAt && (
-              <span className="text-xs text-muted-foreground">
-                上次检查 {lastCheckAt}，{updateMsg}
-              </span>
-            )}
-          </div>
+          {/* 更新入口已移至页面顶部导航条 */}
         </CardContent>
       </Card>
+        </div>
+      </section>
     </div>
   )
 }
