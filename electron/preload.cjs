@@ -169,4 +169,22 @@ contextBridge.exposeInMainWorld('fi', {
     ipcRenderer.on('kws:progress', listener)
     return () => ipcRenderer.removeListener('kws:progress', listener)
   },
+  // 自动更新事件订阅（update:available 等由 updater.js 主进程发出）
+  // 修复 2026-08-31：此前缺这三个订阅，UpdateBanner 因 api.onUpdateAvailable 不存在静默返回，
+  // 导致「检测到新版本但下载/安装面板不弹出」
+  onUpdateAvailable(callback) {
+    const listener = (_e, data) => callback(data)
+    ipcRenderer.on('update:available', listener)
+    return () => ipcRenderer.removeListener('update:available', listener)
+  },
+  onUpdateNotAvailable(callback) {
+    const listener = (_e, data) => callback(data)
+    ipcRenderer.on('update:not-available', listener)
+    return () => ipcRenderer.removeListener('update:not-available', listener)
+  },
+  onUpdateProgress(callback) {
+    const listener = (_e, data) => callback(data)
+    ipcRenderer.on('update:progress', listener)
+    return () => ipcRenderer.removeListener('update:progress', listener)
+  },
 })
