@@ -56,7 +56,7 @@ export function ActivationPage() {
             <ArrowLeft className="size-4" />
             返回
           </button>
-          <div className="text-sm text-slate-400">通用进销存系统</div>
+          <div className="text-sm text-slate-400">AI 智能进销存系统</div>
         </div>
 
         {/* 已激活状态 */}

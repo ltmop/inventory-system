@@ -505,7 +505,7 @@ export function SettingsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-slate-600">
-          <div>通用进销存系统 v{APP_VERSION}</div>
+          <div>AI 智能进销存系统 v{APP_VERSION}</div>
           <div className="text-xs text-muted-foreground">
             Electron + React + SQLite（WAL）· 本地单机部署 · 断电不丢数据
           </div>

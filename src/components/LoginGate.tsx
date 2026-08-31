@@ -12,6 +12,22 @@ export function LoginGate() {
   const staffLogin = useAppStore((s) => s.staffLogin)
   const loginGateOpen = useAppStore((s) => s.loginGateOpen)
   const setLoginGateOpen = useAppStore((s) => s.setLoginGateOpen)
+  const setStaffLogin = useAppStore((s) => s.setStaffLogin)
+  const loadAll = useAppStore((s) => s.loadAll)
+
+  // 老板模式逃生通道（2026-09-01）：忘了账号密码/误开员工登录时，
+  // 老板一键关闭员工登录门直接进入——单机系统老板永远进得来，不会被困在门外
+  const enterAsBoss = async () => {
+    try {
+      await setStaffLogin(false)
+      setLoginGateOpen(false)
+      // 清掉当前用户状态，老板以未登录身份使用（与 v0.3.4 本地优先一致）
+      await loadAll()
+    } catch {
+      // 关闭失败也强行进——本地单机不应锁死老板
+      setLoginGateOpen(false)
+    }
+  }
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -47,7 +63,7 @@ export function LoginGate() {
           <div className="mx-auto mb-3 flex size-14 items-center justify-center rounded-2xl bg-brand-600 text-white">
             <KeyRound className="size-7" />
           </div>
-          <h1 className="text-xl font-bold text-slate-800">通用进销存系统</h1>
+          <h1 className="text-xl font-bold text-slate-800">AI 智能进销存系统</h1>
           <p className="mt-1 text-sm text-slate-500">选人登录，每一笔账都知道是谁记的</p>
         </div>
         <div className="space-y-3">
@@ -73,6 +89,17 @@ export function LoginGate() {
           <p className="text-center text-xs text-slate-400">
             忘了账号密码？找老板在设置页的「员工账号」里处理
           </p>
+          <div className="border-t pt-3 text-center">
+            <button
+              onClick={enterAsBoss}
+              className="text-xs font-medium text-brand-600 underline hover:text-brand-700 cursor-pointer"
+            >
+              老板模式直接进入（关闭员工登录门）
+            </button>
+            <p className="mt-1 text-[11px] text-slate-400">
+              本机单机版，老板随时可以关掉员工登录，不会被困在登录页
+            </p>
+          </div>
         </div>
       </div>
     </div>

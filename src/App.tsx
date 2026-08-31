@@ -125,7 +125,7 @@ function App() {
   if (!loaded) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-[#e8eef6]">
-        <div className="text-2xl font-bold tracking-wide text-[#16355c]">通用进销存系统</div>
+        <div className="text-2xl font-bold tracking-wide text-[#16355c]">AI 智能进销存系统</div>
         <div className="mt-3 text-sm text-slate-500">正在加载本地数据…</div>
       </div>
     )

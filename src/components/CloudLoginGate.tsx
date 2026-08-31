@@ -60,7 +60,7 @@ export function CloudLoginGate() {
           <div className="mx-auto mb-3 flex size-14 items-center justify-center rounded-2xl bg-blue-600 text-white">
             <KeyRound className="size-7" />
           </div>
-          <h1 className="text-xl font-bold text-slate-800">通用进销存系统</h1>
+          <h1 className="text-xl font-bold text-slate-800">AI 智能进销存系统</h1>
           <p className="mt-1 text-sm text-slate-500">
             {mode === 'login' ? '登录云账号，多台电脑数据自动同步' : '注册一个账号，所有电脑登录后数据互通'}
           </p>

@@ -1,4 +1,5 @@
-import { Bot, CircleHelp, Keyboard, MessageCircleQuestion, Smartphone, Terminal, Truck } from 'lucide-react'
+import { useState } from 'react'
+import { Bot, CircleHelp, Copy, ExternalLink, Keyboard, MessageCircleQuestion, Smartphone, Terminal, Truck } from 'lucide-react'
 import { PageHeader } from '@/components/feedback'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
@@ -41,6 +42,19 @@ const FAQ: { q: string; a: string }[] = [
 
 /** 帮助中心：核心操作步骤 + 常见问题（40岁+老板自助用） */
 export function HelpPage() {
+  // CLI 命令一键复制 + 官网一键打开（2026-09-01：从纯文字说明变成可操作入口）
+  const [copied, setCopied] = useState(false)
+  const copyCli = async () => {
+    try {
+      await navigator.clipboard.writeText('node scripts/inv.mjs help')
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch { /* 剪贴板不可用忽略 */ }
+  }
+  const openSite = (url: string) => {
+    const w = window.open(url, '_blank')
+    if (!w) window.location.href = url
+  }
   return (
     <div className="space-y-4">
       <PageHeader title="帮助中心" subtitle="第一次用？从这里开始；卡住了先看常见问题" />
@@ -98,6 +112,13 @@ export function HelpPage() {
             <b>命令行 CLI（多机同步/备份）</b>：在系统目录打开命令行，运行
             <code className="mx-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs">node scripts/inv.mjs help</code>
             查看全部命令（config / register / login / status / sync / backup / backups / restore / devices）
+            <button
+              onClick={copyCli}
+              className="ml-2 inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-brand-700 hover:bg-slate-200 cursor-pointer"
+            >
+              <Copy className="size-3" />
+              {copied ? '已复制' : '复制命令'}
+            </button>
           </div>
           <div>
             <b>Agent / 数据分析接入</b>：局域网 HTTP 接口（设置页「手机看店」里的网址 + 自动生成的访问令牌），
@@ -106,7 +127,12 @@ export function HelpPage() {
           <div className="flex items-start gap-2">
             <Bot className="mt-0.5 size-4 shrink-0 text-brand-500" />
             <span><b>开发改造 Skill</b>：系统的开发/改造/打包技能包（inventory-system-dev）与 CLI 工具、接口文档，均可在官网文档站下载：
-              <a href="https://junchengzn.com/docs" target="_blank" rel="noreferrer" className="ml-1 font-bold text-brand-600 underline hover:text-brand-700">junchengzn.com/docs</a>
+              <button
+                onClick={() => openSite('https://junchengzn.com/docs')}
+                className="ml-1 inline-flex items-center gap-1 font-bold text-brand-600 underline hover:text-brand-700 cursor-pointer"
+              >
+                打开官网文档站 <ExternalLink className="size-3.5" />
+              </button>
             </span>
           </div>
         </CardContent>

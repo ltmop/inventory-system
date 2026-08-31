@@ -70,7 +70,7 @@ export function PriceLabel({ label }: { label: LabelData }) {
       <div className="truncate text-[10px] font-bold leading-tight">{label.name}</div>
       <div className="flex items-baseline justify-between">
         <span className="text-[18px] font-bold leading-none">{formatPrice(label.price)}</span>
-        <span className="text-[8px] text-slate-500">通用进销存系统</span>
+        <span className="text-[8px] text-slate-500">AI 智能进销存系统</span>
       </div>
       <div className="mt-auto flex flex-col items-center">
         <Barcode code={label.code} />
