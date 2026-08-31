@@ -27,6 +27,8 @@ const RATE_LIMIT_PER_MIN = 120
 const TOKEN_RATE_LIMIT_PER_MIN = 600
 // 写接口独立限流（更严）与请求体上限
 const WRITE_RATE_LIMIT_PER_MIN = 30
+// 任务7+：带合法 token 的写请求按 token 维度放宽（多设备同出口高峰开单不误伤）
+const TOKEN_WRITE_RATE_LIMIT_PER_MIN = 60
 const MAX_BODY_BYTES = 8192
 // 通用调用接口（/api/invoke）请求体上限：批量导入/商品图片 base64 会到几百 KB
 const MAX_INVOKE_BODY = 2 * 1024 * 1024
@@ -776,17 +778,20 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     return false
   }
 
-  /** 写接口限流：每 IP 每分钟 30 次（未授权的写尝试也计数，防爆破） */
-  function writeRateLimited(ip) {
+  /** 写接口限流：每 IP 每分钟 30 次（未授权的写尝试也计数，防爆破）；
+   *  任务7+：带合法 token 的写请求按 token 维度放宽到 60/min（多设备同出口高峰开单不误伤） */
+  function writeRateLimited(ip, validToken) {
+    const key = validToken ? 'wtok:' + validToken : 'wip:' + ip
+    const limit = validToken ? TOKEN_WRITE_RATE_LIMIT_PER_MIN : WRITE_RATE_LIMIT_PER_MIN
     const nowMs = Date.now()
     const cutoff = nowMs - 60_000
-    const list = (writeHits.get(ip) ?? []).filter((t) => t > cutoff)
-    if (list.length >= WRITE_RATE_LIMIT_PER_MIN) {
-      writeHits.set(ip, list)
+    const list = (writeHits.get(key) ?? []).filter((t) => t > cutoff)
+    if (list.length >= limit) {
+      writeHits.set(key, list)
       return true
     }
     list.push(nowMs)
-    writeHits.set(ip, list)
+    writeHits.set(key, list)
     return false
   }
 
@@ -854,7 +859,8 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
    */
   const OUTBOUND_FIELDS = ['productId', 'quantity', 'sellingPrice', 'customerId', 'paidAmount', 'payMethod']
   async function handleOutbound(req, res, url) {
-    if (writeRateLimited(req.socket.remoteAddress ?? 'unknown')) {
+    const outboundToken = tokenOf(req, url)
+    if (writeRateLimited(req.socket.remoteAddress ?? 'unknown', tokenOk(outboundToken) ? outboundToken : null)) {
       res.writeHead(429, {
         ...SECURITY_HEADERS,
         'Content-Type': 'application/json; charset=utf-8',
