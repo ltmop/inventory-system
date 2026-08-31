@@ -8,6 +8,8 @@ import { openDatabase, finalCheckpoint, listInsights, saveInsight, updateInsight
 import * as commands from './commands.js'
 import * as ai from './ai.js'
 import * as doubao from './doubao.js'
+// ai-orchestrator（1.0）：统一 AI 出口，本地兜底优先，前端不再散调
+import * as orchestrator from './ai-orchestrator.js'
 import * as voice from './voice.js'
 import * as tts from './tts.js'
 import * as kws from './kws.js'
@@ -357,6 +359,10 @@ function registerIpc() {
   })
   handle('ai:quota', () => commands.aiQuotaStatus(db, 'vision'))
   handle('ai:transcribe', (d, p) => ai.transcribeAudio(p))
+  // ---- 1.0 orchestrator 统一出口：本地兜底优先，断网/无 KEY 不哑 ----
+  handle('ai:smartSearch', (d, p) => orchestrator.smartSearch(p?.text, p))
+  handle('ai:orchestratorStatus', () => orchestrator.orchestratorStatus())
+  handle('ai:analyzePhoto', (d, p) => orchestrator.analyzePhoto(p))
   // 豆包视觉模型 2.1：分析店面照片 → 区位布局 / 货架品类识别
   handle('doubao:status', () => doubao.doubaoStatus())
   handle('doubao:setKey', (d, p) => doubao.setDoubaoKey(p.key))
@@ -626,6 +632,8 @@ app.whenReady().then(() => {
     return
   }
   ai.bindDb(db)
+  // 1.0：orchestrator 统一 AI 出口（本地兜底优先）——初始化 db 引用
+  orchestrator.initOrchestrator(db, dataDir)
   registerIpc()
   // 手机看店服务：db 就绪后随备份调度一起启动；失败只告警不阻断桌面端
   inventoryServer = createInventoryServer({ db, dataDir, webRoot: path.join(__dirname, '../dist'), ai, voice, doubao })
