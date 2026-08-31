@@ -23,7 +23,8 @@ const TMP_OUT = path.join(os.tmpdir(), 'fi-release')
 const SERVER = 'ubuntu@43.128.20.39'
 const UPDATES_DIR = '/opt/inventory-cloud/updates'
 const DOWNLOAD_DIR = '/var/www/junchengzn/download'
-const SSH_KEY = path.join(os.homedir(), '.ssh', 'adjczn')
+// 服务器授权密钥（2026-08-31 起 adjczn 被拒，skey-junchengzn.pem 有效）
+const SSH_KEY = path.join(os.homedir(), '.ssh', 'skey-junchengzn.pem')
 const SSH_BASE = ['-i', SSH_KEY, '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=15']
 
 function sh(cmd, opts = {}) {
