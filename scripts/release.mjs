@@ -147,6 +147,8 @@ function deploy(a) {
     let html = r.stdout
     html = html.replace(/(general-inventory-setup-)[0-9.]+(\.exe)/g, '$1' + version + '$2')
     html = html.replace(/(桌面 v)[0-9.]+/g, '$1' + version)
+    // Setup (v0.3.x) 文案同步
+    html = html.replace(/(Setup \(v)[0-9.]+/g, '$1' + version)
     // docs/index.html 需先建 docs 子目录（writeFileSync 不自动建父目录）
     const localFile = path.join(tmpDir, f)
     fs.mkdirSync(path.dirname(localFile), { recursive: true })
@@ -155,8 +157,8 @@ function deploy(a) {
     const up = ssh('sudo mv /tmp/' + path.basename(f) + ' /var/www/junchengzn/' + f)
     if (up.status !== 0) throw new Error('上传官网文件失败: ' + f)
   }
-  const chk = ssh("grep -c '" + version + "' /var/www/junchengzn/index.html /var/www/junchengzn/docs/index.html")
-  if (chk.status !== 0 || !chk.stdout.includes(version)) throw new Error('官网版本号更新后未找到 ' + version)
+  const chk = ssh("grep -o '" + version + "' /var/www/junchengzn/index.html /var/www/junchengzn/docs/index.html")
+  if (!chk.stdout.includes(version)) throw new Error('官网版本号更新后未找到 ' + version)
   console.log('  官网 index/docs 版本号更新 OK')
 }
 
