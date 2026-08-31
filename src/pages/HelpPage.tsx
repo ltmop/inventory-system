@@ -106,7 +106,7 @@ export function HelpPage() {
           <div className="flex items-start gap-2">
             <Bot className="mt-0.5 size-4 shrink-0 text-brand-500" />
             <span><b>开发改造 Skill</b>：系统的开发/改造/打包技能包（inventory-system-dev）与 CLI 工具、接口文档，均可在官网文档站下载：
-              <a href="http://junchengzn.com/docs" target="_blank" rel="noreferrer" className="ml-1 font-bold text-brand-600 underline hover:text-brand-700">junchengzn.com/docs</a>
+              <a href="https://junchengzn.com/docs" target="_blank" rel="noreferrer" className="ml-1 font-bold text-brand-600 underline hover:text-brand-700">junchengzn.com/docs</a>
             </span>
           </div>
         </CardContent>
