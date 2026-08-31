@@ -169,7 +169,7 @@ function verify() {
   console.log('  验证1: latest.yml 版本 ' + version + ' OK')
   const s = ssh('sha512sum ' + UPDATES_DIR + '/' + ASCII_EXE)
   const serverHex = (s.stdout.match(/[0-9a-f]{128}/) || [])[0]
-  const localHex = Buffer.from(sha512Base64(fs.readFileSync(path.join(os.tmpdir(), 'fi-release-' + version, ASCII_EXE))), 'base64').toString('hex')
+  const localHex = Buffer.from(sha512Base64(path.join(os.tmpdir(), 'fi-release-' + version, ASCII_EXE)), 'base64').toString('hex')
   if (!serverHex || serverHex.toLowerCase() !== localHex.toLowerCase()) throw new Error('验证2失败：sha512 不匹配')
   console.log('  验证2: sha512 匹配 OK')
   const dl = sh('curl -sL -o NUL -w %{http_code} ' + PUB_URL + ASCII_EXE).stdout.trim()
