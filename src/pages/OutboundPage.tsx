@@ -6,6 +6,8 @@ import { ReceiptDialog, makeReceiptNo, type ReceiptData } from '@/components/Rec
 import { ScanHero } from '@/components/scan/ScanHero'
 import { VoiceSearchButton } from '@/components/voice/VoiceSearchButton'
 import { useAppStore, priceForCustomer } from '@/store/appStore'
+// 1.0：AI 兜底（本地优先）——扫码 miss 时自动纠错找商品
+import { backend } from '@/lib/api'
 import { previewFifo } from '@/lib/fifo'
 import { validateQty, unitOf, isDecimalUnit } from '@/lib/quantity'
 import { playSound } from '@/lib/sounds'
@@ -896,7 +898,24 @@ export function OutboundPage() {
             playSound('scan')
             selectProduct(candidates[0])
           } else if (keyword.trim()) {
+            // 1.0：扫码/搜索 miss → AI 本地兜底纠错（断网/无 KEY 也能用，仅增强不改变口径）
             playSound('error')
+            void (async () => {
+              try {
+                if (!backend) return
+                const r = await backend.invoke('ai:smartSearch', { text: keyword.trim() })
+                if (r?.ok && r.matched) {
+                  const hit = products.find((p) =>
+                    [p.brand, p.model, p.sku_code].filter(Boolean).some((f) => f === r.corrected || f.includes(r.corrected) || r.corrected.includes(f)),
+                  )
+                  if (hit) {
+                    playSound('scan')
+                    setKeyword('')
+                    selectProduct(hit)
+                  }
+                }
+              } catch { /* 兜底失败静默——不影响主流程 */ }
+            })()
           }
         }}
         placeholder="扫码或输入 SKU/品牌/型号搜索商品，按下 Enter 选中..."
