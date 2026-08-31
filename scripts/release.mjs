@@ -147,9 +147,12 @@ function deploy(a) {
     let html = r.stdout
     html = html.replace(/(general-inventory-setup-)[0-9.]+(\.exe)/g, '$1' + version + '$2')
     html = html.replace(/(桌面 v)[0-9.]+/g, '$1' + version)
-    fs.writeFileSync(path.join(tmpDir, f), html, 'utf8')
-    scpTo(path.join(tmpDir, f), '/tmp/' + f)
-    const up = ssh('sudo mv /tmp/' + f + ' /var/www/junchengzn/' + f)
+    // docs/index.html 需先建 docs 子目录（writeFileSync 不自动建父目录）
+    const localFile = path.join(tmpDir, f)
+    fs.mkdirSync(path.dirname(localFile), { recursive: true })
+    fs.writeFileSync(localFile, html, 'utf8')
+    scpTo(localFile, '/tmp/' + path.basename(f))
+    const up = ssh('sudo mv /tmp/' + path.basename(f) + ' /var/www/junchengzn/' + f)
     if (up.status !== 0) throw new Error('上传官网文件失败: ' + f)
   }
   const chk = ssh("grep -c '" + version + "' /var/www/junchengzn/index.html /var/www/junchengzn/docs/index.html")
