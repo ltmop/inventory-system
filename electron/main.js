@@ -523,7 +523,7 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: '通用进销存系统',
+    title: 'AI 智能进销存系统',
     backgroundColor: '#e8eef6',
     // 窗口图标：electron/icon.png 随 electron/** 打进 asar，开发/打包路径一致
     icon: path.join(__dirname, 'icon.png'),

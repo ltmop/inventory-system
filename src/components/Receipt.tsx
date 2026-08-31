@@ -58,7 +58,7 @@ export function Receipt({ data }: { data: ReceiptData }) {
   const owed = Math.max(total - paid, 0)
   return (
     <div className="w-[58mm] bg-white px-[2mm] py-[3mm] font-mono text-[10px] leading-snug text-black">
-      <div className="text-center text-[13px] font-bold">通用进销存</div>
+      <div className="text-center text-[13px] font-bold">AI 智能进销存</div>
       <Dash />
       <div>单号：{data.receiptNo}</div>
       <div>时间：{fmtReceiptTime(data.time)}</div>

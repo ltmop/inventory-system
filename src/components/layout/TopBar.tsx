@@ -52,7 +52,7 @@ export function TopBar({
     if (exact) return exact
     // 子路径回退到一级
     const first = '/' + location.pathname.split('/')[1]
-    return TITLE_MAP[first] || '通用进销存'
+    return TITLE_MAP[first] || 'AI 智能进销存'
   }, [location.pathname])
 
   return (
@@ -69,7 +69,7 @@ export function TopBar({
       {/* 当前页面标题 */}
       <div className="flex items-baseline gap-2">
         <span className="text-base font-semibold text-slate-800 dark:text-slate-100">{title}</span>
-        <span className="hidden text-xs text-slate-400 dark:text-slate-500 sm:inline">通用进销存 AI 智能管理</span>
+        <span className="hidden text-xs text-slate-400 dark:text-slate-500 sm:inline">AI 智能进销存系统</span>
       </div>
 
       <div className="flex-1" />

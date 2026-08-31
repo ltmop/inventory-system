@@ -51,7 +51,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         </div>
         {!collapsed && (
           <div className="leading-tight">
-            <div className="text-[15px] font-bold text-slate-900">通用进销存</div>
+            <div className="text-[15px] font-bold text-slate-900">AI 智能进销存</div>
             <div className="text-xs text-slate-400">AI 智能管理系统</div>
           </div>
         )}

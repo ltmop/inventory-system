@@ -49,7 +49,7 @@ export function SplashScreen({ onFinish }: { onFinish: () => void }) {
         transition={{ delay: 0.45, duration: 0.45 }}
         className="mt-5 text-center"
       >
-        <div className="text-2xl font-bold tracking-wide text-white">通用进销存</div>
+        <div className="text-2xl font-bold tracking-wide text-white">AI 智能进销存</div>
         <div className="mt-1.5 text-[13px] text-blue-100">AI 智能管理系统</div>
       </motion.div>
 
