@@ -49,21 +49,43 @@ export function SettingsPage() {
   const [updateChecking, setUpdateChecking] = useState(false)
   const [lastCheckAt, setLastCheckAt] = useState('')
   const [updateMsg, setUpdateMsg] = useState('')
+  // 修复 2026-09-01：设置页「发现新版本」后直接给下载入口（此前只有文字提示，用户无从下载）
+  const [newVersion, setNewVersion] = useState<string | null>(null)
+  const [downloadingUpdate, setDownloadingUpdate] = useState(false)
+  const [updateDownloaded, setUpdateDownloaded] = useState(false)
   const checkUpdate = async () => {
     if (updateChecking) return
     setUpdateChecking(true)
     setUpdateMsg('')
+    setNewVersion(null)
+    setUpdateDownloaded(false)
     try {
       const r = backend
         ? await backend.invoke('update:check')
         : { version: null, checkedAt: new Date().toISOString() }
       const t = new Date(r.checkedAt)
       setLastCheckAt(`${t.getMonth() + 1}/${t.getDate()} ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`)
-      setUpdateMsg(r.version && r.version !== APP_VERSION ? `发现新版本 v${r.version}` : '已是最新')
+      const hasNew = r.version && r.version !== APP_VERSION
+      setNewVersion(hasNew ? r.version : null)
+      setUpdateMsg(hasNew ? '发现新版本 v' + r.version : '已是最新')
     } catch {
       setUpdateMsg('检查失败，请稍后再试')
     } finally {
       setUpdateChecking(false)
+    }
+  }
+  // 下载并安装新版本（设置页直接触发，主进程下载完会弹「重启安装」对话框）
+  const downloadUpdate = async () => {
+    if (!backend || downloadingUpdate) return
+    setDownloadingUpdate(true)
+    try {
+      await backend.invoke('update:downloadAndInstall')
+      setUpdateDownloaded(true)
+      setUpdateMsg('新版本已下载完成，重启后安装')
+    } catch {
+      setUpdateMsg('下载失败，请稍后再试')
+    } finally {
+      setDownloadingUpdate(false)
     }
   }
 
@@ -419,6 +441,15 @@ export function SettingsPage() {
             >
               {updateChecking ? '检查中...' : '检查更新'}
             </button>
+            {newVersion && !updateDownloaded && (
+              <button
+                onClick={downloadUpdate}
+                disabled={downloadingUpdate}
+                className="rounded bg-brand-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-800 disabled:opacity-50 cursor-pointer"
+              >
+                {downloadingUpdate ? '下载中...' : '下载更新 v' + newVersion}
+              </button>
+            )}
             {lastCheckAt && (
               <span className="text-xs text-muted-foreground">
                 上次检查 {lastCheckAt}，{updateMsg}
