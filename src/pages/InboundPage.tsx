@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Camera, Loader2, CircleAlert } from 'lucide-react'
 import { PageHeader, SuccessBanner, ErrorBanner } from '@/components/feedback'
 import { GuestBlockCard } from '@/components/GuestBlockCard'
 import { ScanHero } from '@/components/scan/ScanHero'
 import { useAppStore } from '@/store/appStore'
 import { isToday, productName } from '@/lib/formatters'
+import { MetricStrip } from '@/components/layout/MetricStrip'
 import { backend } from '@/lib/api'
 import { uploadProductPhoto } from '@/lib/photo'
 import { playSound } from '@/lib/sounds'
@@ -59,6 +60,13 @@ export function InboundPage() {
   const transactions = useAppStore((s) => s.transactions)
   const batches = useAppStore((s) => s.batches)
   const products = useAppStore((s) => s.products)
+  const inboundMetrics = useMemo(() => {
+    const todayIn = transactions.filter((t) => t.type === 'in' && isToday(t.timestamp))
+    const todayQty = todayIn.reduce((s, t) => s + t.quantity, 0)
+    const pending = products.filter((p) => p.status === '待盘点').length
+    const low = products.filter((p) => totalStockOf(p.id) <= (p.min_stock ?? 5)).length
+    return { todayQty, todayCnt: todayIn.length, pending, low, suppliers: suppliers.length }
+  }, [transactions, products, totalStockOf, suppliers])
 
   const inputRef = useRef<HTMLInputElement>(null)
   const [barcode, setBarcode] = useState('')
@@ -457,6 +465,13 @@ export function InboundPage() {
             : '当前离线：「拍送货单」需要联网，恢复网络后可用'}
         </div>
       )}
+
+      <MetricStrip metrics={[
+        { label: '今日入库', value: `+${inboundMetrics.todayQty} 件`, sub: `${inboundMetrics.todayCnt} 笔`, tone: 'accent' },
+        { label: '待盘点', value: `${inboundMetrics.pending} 个`, sub: '商品待盘', tone: inboundMetrics.pending > 0 ? 'warning' : 'default' },
+        { label: '低库存', value: `${inboundMetrics.low} 个`, sub: '低于预警线', tone: inboundMetrics.low > 0 ? 'danger' : 'default' },
+        { label: '供应商', value: `${inboundMetrics.suppliers} 家`, sub: '供货渠道', tone: 'default' },
+      ]} />
 
       {/* 扫码区：全站使用频率最高的交互点，视觉 C 位 */}
       <ScanHero
