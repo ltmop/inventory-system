@@ -50,23 +50,25 @@
   --color-ring: var(--ring);
 }
 
-/* 通用版配色：白（背景/卡片）+ 蓝（主色/品牌）+ 青（辅助高亮），灰色细边框 */
+/* 海洋系配色（oklch 调和）：深海蓝→湖蓝→湖青，偏青更有辨识度 */
 @theme {
-  --color-brand-50: #eff6ff;
-  --color-brand-100: #dbeafe;
-  --color-brand-200: #bfdbfe;
-  --color-brand-500: #2563eb;
-  --color-brand-600: #1d4ed8;
-  --color-brand-700: #1e40af;
-  --color-brand-800: #1e3a8a;
-  --color-brand-900: #172554;
+  --color-brand-50: oklch(0.975 0.018 228);
+  --color-brand-100: oklch(0.945 0.038 230);
+  --color-brand-200: oklch(0.885 0.062 233);
+  --color-brand-400: oklch(0.73 0.11 238);
+  --color-brand-500: oklch(0.63 0.14 242);
+  --color-brand-600: oklch(0.565 0.14 240);
+  --color-brand-700: oklch(0.50 0.12 238);
+  --color-brand-800: oklch(0.42 0.11 238);
+  --color-brand-900: oklch(0.30 0.08 240);
 
-  /* 青色系（辅助高亮：正常/在库/成功） */
-  --color-lake-50: #ecfeff;
-  --color-lake-100: #cffafe;
-  --color-lake-400: #22d3ee;
-  --color-lake-500: #06b6d4;
-  --color-lake-600: #0891b2;
+  /* 湖青色系（辅助高亮：正常/在库/成功） */
+  --color-lake-50: oklch(0.97 0.02 196);
+  --color-lake-100: oklch(0.93 0.04 196);
+  --color-lake-200: oklch(0.87 0.07 196);
+  --color-lake-400: oklch(0.77 0.11 195);
+  --color-lake-500: oklch(0.69 0.12 195);
+  --color-lake-600: oklch(0.61 0.10 196);
   /* 金色系保留变量名（历史组件兼容），实际映射为蓝色强调 */
   --color-sand-50: #eff6ff;
   --color-sand-100: #dbeafe;
@@ -108,7 +110,7 @@
   --card-foreground: #e6edf5;
   --popover: #121c2e;
   --popover-foreground: #e6edf5;
-  --primary: #3b82f6;
+  --primary: oklch(0.63 0.14 242);
   --primary-foreground: #ffffff;
   --secondary: #182438;
   --secondary-foreground: #d8e2ee;
@@ -119,7 +121,7 @@
   --destructive: #ef4444;
   --border: #1e2c45;
   --input: #1e2c45;
-  --ring: #3b82f6;
+  --ring: oklch(0.63 0.14 242);
 }
 
 /* 浅色模式（可选）：挂 html.light 类时用清爽浅色，适合白天强光环境 */
@@ -130,7 +132,7 @@
   --card-foreground: #1c2b3a;
   --popover: #ffffff;
   --popover-foreground: #1c2b3a;
-  --primary: #1d4ed8;
+  --primary: oklch(0.565 0.14 240);
   --primary-foreground: #ffffff;
   --secondary: #e8eef5;
   --secondary-foreground: #1c2b3a;
@@ -140,7 +142,7 @@
   --accent-foreground: #1c2b3a;
   --border: #d7e0ea;
   --input: #d7e0ea;
-  --ring: #1d4ed8;
+  --ring: oklch(0.565 0.14 240);
 }
 
 /* ===== 深色全局覆盖层：让散落在页面里的硬编码浅色类，在 .dark 下自动变暗。
@@ -223,6 +225,13 @@
   }
   ::-webkit-scrollbar-thumb:hover {
     background: rgb(100 116 139 / 0.5);
+  }
+  /* 统一微交互：按钮按压反馈（触摸/点击手感） */
+  button:not(:disabled) {
+    transition: transform 0.14s ease, box-shadow 0.14s ease, background-color 0.14s ease, border-color 0.14s ease;
+  }
+  button:not(:disabled):active {
+    transform: scale(0.97);
   }
   /* 表格基准：紧凑行高 + 垂直居中，长内容省略号 */
   table {

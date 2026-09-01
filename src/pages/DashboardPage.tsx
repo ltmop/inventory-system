@@ -345,6 +345,32 @@ export function DashboardPage() {
         </div>
       </div>
 
+      {/* 签名看板元素：今日经营语义条（营业额 = 成本 + 毛利），一眼看清今天赚了多少 */}
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-card">
+        <div className="flex items-end justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-xs font-medium text-slate-500">今日经营</div>
+            <div className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-slate-900 dark:text-white">
+              {formatPrice(todaySales.revenue)}
+            </div>
+            <div className="mt-1 text-sm text-slate-500">{todaySales.qty} 件卖出 · 数据来自本地流水</div>
+          </div>
+          <div className="text-right">
+            <div className="text-xs text-slate-500">毛利</div>
+            <div className="mt-1 text-2xl font-bold tabular-nums text-emerald-600">{formatPrice(todaySales.profit)}</div>
+            <div className="mt-1 text-xs text-slate-400">{todaySales.margin !== null ? `毛利率 ${(todaySales.margin * 100).toFixed(1)}%` : '还没有成交'}</div>
+          </div>
+        </div>
+        <div className="mt-4 flex h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+          <div className="bg-[#cbd5e1]" style={{ width: (todaySales.revenue > 0 ? Math.max(0, (todaySales.revenue - todaySales.profit) / todaySales.revenue) : 0) * 100 + '%' }} />
+          <div className="bg-emerald-500" style={{ width: (todaySales.revenue > 0 ? Math.max(0, todaySales.profit / todaySales.revenue) : 0) * 100 + '%' }} />
+        </div>
+        <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
+          <span>成本 {formatPrice(todaySales.revenue - todaySales.profit)}</span>
+          <span className="text-emerald-600">毛利 {formatPrice(todaySales.profit)}</span>
+        </div>
+      </div>
+
       {/* AI 助手卡：M2-1 前置——一打开就看见 AI 能帮他补货（AI 是能力不是页面） */}
       <AiPanel />
 
