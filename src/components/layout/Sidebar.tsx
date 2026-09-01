@@ -9,7 +9,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Store,
-  Sparkles,
   KeyRound,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -22,7 +21,6 @@ const NAV_ITEMS = [
   { to: '/sales-hub', label: '销售', icon: ShoppingCart },
   { to: '/stock-hub', label: '库存', icon: PackageSearch },
   { to: '/mine-hub', label: '我的', icon: User },
-  { to: '/ai-hub', label: 'AI智能', icon: Sparkles },
 ]
 
 // 底部固定区：账号（左下角）+ 设置在账号下方

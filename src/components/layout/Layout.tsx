@@ -4,6 +4,7 @@ import { motion } from 'motion/react'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { CommandPalette } from '@/components/CommandPalette'
+import { AiFloat } from '@/components/ai/AiFloat'
 import { CloudLoginGate } from '@/components/CloudLoginGate'
 import { LowStockAlert } from '@/components/LowStockAlert'
 import { useAppStore } from '@/store/appStore'
@@ -68,6 +69,8 @@ export function Layout() {
       <CommandPalette />
       {/* 云账号登录门：未登录/未跳过时全屏弹出 */}
       <CloudLoginGate />
+      {/* 全局 AI 浮层（M2-2）：任何业务页右下角悬浮球 */}
+      <AiFloat />
     </div>
   )
 }

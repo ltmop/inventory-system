@@ -14,7 +14,6 @@ import {
   User,
   Settings,
   PackageSearch,
-  Sparkles,
   KeyRound,
 } from 'lucide-react'
 import {
@@ -336,15 +335,14 @@ export function DashboardPage() {
       {/* AI 助手卡：M2-1 前置——一打开就看见 AI 能帮他补货（AI 是能力不是页面） */}
       <AiPanel />
 
-      {/* 通用版 7 大导航快捷入口 */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
+      {/* 通用版快捷入口（AI 已并入首页卡 + 全局浮层，不再单列） */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         {[
           { to: '/inbound-hub', label: '入库', desc: '进货/收货/供应商', icon: PackagePlus },
           { to: '/sales-hub', label: '销售', desc: '开单/客户/收款', icon: PackageMinus },
           { to: '/stock-hub', label: '库存', desc: '查询/盘点/报损', icon: PackageSearch },
           { to: '/mine-hub', label: '我的', desc: '报表/备份/云同步', icon: User },
           { to: '/account', label: '账号', desc: '登录/同步/远程看店', icon: KeyRound },
-          { to: '/ai-hub', label: 'AI智能', desc: 'AI助手/语音/拍照', icon: Sparkles },
           { to: '/settings', label: '设置', desc: '行业/主题/系统', icon: Settings },
         ].map((q) => (
           <Link

@@ -174,6 +174,11 @@ interface AppState {
   /** 手动打开的登录门（店员随时可登录，不依赖开关） */
   loginGateOpen: boolean
   setLoginGateOpen: (v: boolean) => void
+  // AI 全局浮层（M2-2）：任何业务页右下角悬浮球；aiContext 记录当前页，让 AI 知道你在哪页
+  aiFloatOpen: boolean
+  setAiFloatOpen: (v: boolean) => void
+  aiContext: string | null
+  setAiContext: (v: string | null) => void
   /** 云账号登录态：local=本地模式（默认，全功能，数据在本机）/ none=打开登录门 / guest=从登录门跳过 / logged=已登录云账号 */
   cloudAuth: 'none' | 'guest' | 'local' | 'logged'
   setCloudAuth: (v: 'none' | 'guest' | 'local' | 'logged') => void
@@ -529,6 +534,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   staffLoginOn: false,
   loginGateOpen: false,
   setLoginGateOpen: (v) => set({ loginGateOpen: v }),
+  aiFloatOpen: false,
+  setAiFloatOpen: (v) => set({ aiFloatOpen: v }),
+  aiContext: null,
+  setAiContext: (v) => set({ aiContext: v }),
   cloudAuth: 'local',
   setCloudAuth: (v) => set({ cloudAuth: v }),
   stockTakes: [],
