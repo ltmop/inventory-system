@@ -35,6 +35,7 @@ import { splitTodayPayments } from '@/lib/paySplit'
 import type { ExpiringProduct } from '@/types'
 import { backend } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import { AiPanel } from '@/components/ai/AiPanel'
 import { StatCard, type CardSpec } from './dashboard/StatCard'
 import { TodaySalesCard } from './dashboard/TodaySalesCard'
@@ -322,13 +323,25 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* 页面横幅：蓝色渐变，一进来就有清爽的通用进销存氛围 */}
-      <div className="relative overflow-hidden rounded-2xl border border-slate-200/60 bg-gradient-to-r from-[#0d1b30] via-[#122038] to-[#0a1628] px-6 py-7 shadow-[0_12px_32px_-12px_rgba(0,0,0,0.3)] dark:border-[#1e3049]">
-        <div className="pointer-events-none absolute -right-16 -top-16 size-52 rounded-full bg-sky-400/15 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-10 left-1/3 size-40 rounded-full bg-blue-400/10 blur-3xl" />
-        <div className="relative">
-          <h1 className="text-2xl font-bold text-white">首页</h1>
-          <p className="mt-1.5 text-[13px] text-slate-300">今日经营概览 · 数据实时来自库存与流水</p>
+      {/* 数据看板头：一个主行动 + 今日关键信息（Direction A：数据先行、去装饰） */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">经营看板</div>
+          <div className="mt-1.5 flex items-baseline gap-3">
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">今日经营</h1>
+            <span className="text-sm font-medium tabular-nums text-slate-500 dark:text-slate-400">
+              {new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })}
+            </span>
+          </div>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">数据来自本地库存与流水 · 实时</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button onClick={() => navigate('/outbound')} className="gap-1.5">
+            <PackageMinus className="size-4" /> 开单
+          </Button>
+          <Button variant="outline" onClick={() => navigate('/inbound')} className="gap-1.5">
+            <PackagePlus className="size-4" /> 入库
+          </Button>
         </div>
       </div>
 
@@ -449,13 +462,13 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={trendData}>
-                <XAxis dataKey="day" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis fontSize={10} allowDecimals={false} tickLine={false} axisLine={false} />
-                <Tooltip cursor={{ fill: 'rgba(37, 99, 235, 0.06)' }} />
-                <Legend />
-                <Bar dataKey="入库" fill="#1d4ed8" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="出库" fill="#10b981" radius={[4, 4, 0, 0]} />
+              <BarChart data={trendData} barCategoryGap={10}>
+                <XAxis dataKey="day" fontSize={11} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} />
+                <YAxis fontSize={10} allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} width={28} />
+                <Tooltip cursor={{ fill: 'rgba(2,6,23,0.03)' }} contentStyle={{ border: 'none', boxShadow: '0 8px 24px -14px rgba(2,6,23,0.35)', borderRadius: 12, fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 12, paddingTop: 4 }} />
+                <Bar dataKey="入库" fill="#06b6d4" radius={[3, 3, 0, 0]} maxBarSize={26} />
+                <Bar dataKey="出库" fill="#10b981" radius={[3, 3, 0, 0]} maxBarSize={26} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
