@@ -20,6 +20,8 @@ import { openDatabase, finalCheckpoint } from '../electron/db.js'
 import * as cmd from '../electron/commands.js'
 import { backupNow, restoreBackup, backupStatus, saveBackupExtraDir, loadBackupConfig } from '../electron/backup.js'
 import { SEED_PRODUCTS, SEED_BATCHES, SEED_TRANSACTIONS } from '../electron/seedData.js'
+import { localFuzzyMatch } from '../electron/localSearch.js'
+import { logAudit } from '../electron/commands/helpers.js'
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fi-test-'))
 const dbPath = path.join(tmp, 'data.db')
@@ -2506,6 +2508,43 @@ ok('preload 白名单含 expense 三通道',
   ok('库存搜索按条码前缀命中且返回 barcode 字段', items.length === 1 && items[0].barcode === '6901234567890')
   await srvQ.stop()
   qdb.close()
+}
+
+// 45. M3 数据加固：AI 兜底口径断言 + AI 动作审计留痕 + 备份三份一致性
+{
+  // ---- 45.1 AI 兜底口径断言：纠错必映射到已存在商品（兜底口径=主路径口径，不凭空造名） ----
+  const names = ['达亿瓦 SP', '喜玛诺 2000', '赤刃 4号']
+  const exact = localFuzzyMatch('达亿瓦 SP', names)
+  ok('本地匹配·精确命中返回原 label', exact && exact.method === 'exact' && exact.name === '达亿瓦 SP')
+  const typo = localFuzzyMatch('达亿瓦 S', names)
+  ok('本地匹配·打错字纠错映射到已存在商品（口径=不凭空造名）', typo && names.includes(typo.name))
+  const nonsense = localFuzzyMatch('zzzqqqxyz', names)
+  ok('本地匹配·完全无关返回无命中（不硬凑）', nonsense === null)
+  const onlyReal = localFuzzyMatch('喜玛', names)
+  ok('本地匹配·候选永远来自传入商品名清单', onlyReal && names.includes(onlyReal.name))
+
+  // ---- 45.2 AI 动作审计留痕：logAudit 写入 audit_log + orchestrator 静态埋点检查 ----
+  const audDb = openDatabase(path.join(tmp, 'audit-ai.db'))
+  logAudit(audDb, 'AI纠错搜索', 'product', { text: '达亿瓦 S', corrected: '达亿瓦 SP', source: 'local:brand-contains' }, 'AI')
+  const audRow = audDb.prepare("SELECT * FROM audit_log WHERE action = 'AI纠错搜索' ORDER BY id DESC LIMIT 1").get()
+  ok('AI 动作审计写入 audit_log（action/entity/operator 齐全）', audRow && audRow.action === 'AI纠错搜索' && audRow.entity === 'product' && audRow.operator === 'AI')
+  const audJson = JSON.parse(audRow.detail)
+  ok('AI 审计 detail 记录纠错前后文案', audJson && audJson.text === '达亿瓦 S' && audJson.corrected === '达亿瓦 SP')
+  audDb.close()
+  const orcSrc = fs.readFileSync(path.resolve('electron/ai-orchestrator.js'), 'utf8')
+  ok('orchestrator 源码含 AI 纠错/识别审计埋点', orcSrc.includes("logAudit(db, 'AI纠错搜索'") && orcSrc.includes("logAudit(db, 'AI拍照识别'"))
+
+  // ---- 45.3 备份三份一致性：主备份 + 第二位置副本一致（三份=本地主/第二位置/云，云走同步链路） ----
+  const b3DbPath = path.join(tmp, 'bak3.db')
+  const b3Db = openDatabase(b3DbPath)
+  cmd.createProduct(b3Db, { sku_code: 'BK3-1', barcode: '6900000000201', category: '工具配件', brand: '备份牌', model: 'X', cost_price: 100, suggest_price: 200, location: 'B区', status: '在售' })
+  const b3Main = path.join(tmp, 'bak3-main')
+  const b3Extra = path.join(tmp, 'bak3-extra')
+  const b3File = backupNow(b3Db, b3DbPath, b3Main, b3Extra)
+  const b3ExtraFile = path.join(b3Extra, path.basename(b3File))
+  ok('主备份 + 第二位置 两份都存在', fs.existsSync(b3File) && fs.existsSync(b3ExtraFile))
+  ok('两份备份字节一致（完整性校验，三份防丢）', fs.readFileSync(b3File).equals(fs.readFileSync(b3ExtraFile)))
+  b3Db.close()
 }
 
 fs.rmSync(tmp, { recursive: true, force: true })
