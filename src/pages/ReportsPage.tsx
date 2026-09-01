@@ -404,15 +404,16 @@ export function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      {/* 标题行 + 导出按钮 */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      {/* 标题行（Direction A 统一）+ 导出动作 */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">经营报表</h1>
-          <p className="mt-1 text-[13px] text-slate-500">赚了多少、什么最赚钱、谁欠我钱、什么压着钱</p>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">经营报表</div>
+          <h1 className="mt-1.5 text-2xl font-bold tracking-tight text-slate-900 dark:text-white">赚了多少</h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">什么最赚钱、谁欠我钱、什么压着钱 · 数据来自库存与流水</p>
         </div>
         <button
           onClick={exportCSV}
-          className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-4 py-2 text-sm font-medium text-brand-700 transition-colors hover:bg-brand-100"
+          className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:border-brand-300 hover:text-brand-700"
         >
           <Download className="size-4" />
           导出 CSV
