@@ -348,7 +348,7 @@ export function DashboardPage() {
           <Link
             key={q.to}
             to={q.to}
-            className="group flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-3.5 transition-all hover:border-blue-400 hover:shadow-sm"
+            className="group flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-400 hover:shadow-md"
           >
             <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600">
               <q.icon className="size-4.5" />

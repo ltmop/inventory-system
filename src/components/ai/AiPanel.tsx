@@ -56,6 +56,24 @@ const SUGGESTIONS = [
   '赤刃还剩几条？',
 ]
 
+// M4 语音波形：录音时的一组跳动声条（按住说话期间）
+function VoiceWaveform() {
+  const bars = [0.9, 0.5, 1, 0.65, 0.85, 0.45, 1, 0.6]
+  return (
+    <div className="flex h-6 items-end gap-0.5">
+      {bars.map((h, i) => (
+        <motion.span
+          key={i}
+          className="w-1 origin-bottom rounded-full bg-red-500"
+          style={{ height: '100%' }}
+          animate={{ scaleY: [h, 0.3, h] }}
+          transition={{ duration: 0.6 + i * 0.06, repeat: Infinity, ease: 'easeInOut' }}
+        />
+      ))}
+    </div>
+  )
+}
+
 export function AiPanel() {
   const addInbound = useAppStore((s) => s.addInbound)
   const confirmOutbound = useAppStore((s) => s.confirmOutbound)
@@ -433,7 +451,7 @@ export function AiPanel() {
       </CardHeader>
       <CardContent className="space-y-3">
         {/* 主 CTA：AI 是能力不是页面——一打开就看见 AI 能帮他补货（M2-1） */}
-        <div className="flex items-center gap-3 rounded-xl border border-brand-200/60 bg-gradient-to-r from-brand-600 to-brand-400 p-4 text-white shadow-sm">
+        <div className="flex items-center gap-3 rounded-xl border border-brand-200/60 bg-gradient-to-r from-brand-600 to-brand-400 p-4 text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
           <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-white/15">
             <Sparkles className="size-5" />
           </div>
@@ -553,6 +571,12 @@ export function AiPanel() {
         )}
 
         {/* 语音识别状态提示：识别中 / 没听清（红条风格与设置页一致） */}
+        {recording && (
+          <div className="flex items-center gap-3 rounded-lg bg-red-50 px-4 py-3">
+            <span className="text-sm text-red-600">正在听你说…</span>
+            <VoiceWaveform />
+          </div>
+        )}
         {transcribing && (
           <div className="rounded-lg bg-brand-50 px-4 py-3 text-sm text-brand-700">
             正在识别你说的话…

@@ -6,6 +6,7 @@ import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { CommandPalette } from '@/components/CommandPalette'
 import { AiFloat } from '@/components/ai/AiFloat'
+import { FirstOrderCelebration } from '@/components/FirstOrderCelebration'
 import { CloudLoginGate } from '@/components/CloudLoginGate'
 import { LowStockAlert } from '@/components/LowStockAlert'
 import { useAppStore } from '@/store/appStore'
@@ -74,6 +75,8 @@ export function Layout() {
       <CloudLoginGate />
       {/* 全局 AI 浮层（M2-2）：任何业务页右下角悬浮球 */}
       <AiFloat />
+      {/* 首单庆祝彩带（M4）：开单成功首次触发 */}
+      <FirstOrderCelebration />
     </div>
   )
 }
