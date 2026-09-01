@@ -22,6 +22,7 @@ import { BatchPriceDialog } from './inventory/BatchPriceDialog'
 import { BatchStatusDialog } from './inventory/BatchStatusDialog'
 import { ProductHistoryDialog } from './inventory/ProductHistoryDialog'
 import type { BatchPriceMode } from '@/store/appStore'
+import { MetricStrip } from '@/components/layout/MetricStrip'
 
 const ALL = '__all__'
 
@@ -54,6 +55,14 @@ export function InventoryPage() {
     () => new Map(computeExpiring(products, totalStockOf, 30).map((e) => [e.id, e])),
     [products, batches, totalStockOf], // eslint-disable-line react-hooks/exhaustive-deps
   )
+
+  // 库存看板指标（Direction A）：总库存 / 低库存 / 临期 / 待盘点
+  const inventoryMetrics = useMemo(() => {
+    const totalStock = batches.reduce((s, b) => s + b.quantity, 0)
+    const lowCount = products.filter((p) => totalStockOf(p.id) <= (p.min_stock ?? LOW_STOCK_THRESHOLD)).length
+    const pending = products.filter((p) => p.status === '待盘点').length
+    return { totalStock, lowCount, expiring: expiringMap.size, pending }
+  }, [products, batches, totalStockOf, expiringMap])
 
   // 仪表盘跳转参数：?filter=low 只看低库存；?filter=expiring 只看临期；?status=待盘点 按状态筛选（仅初始化一次）
   useEffect(() => {
@@ -424,6 +433,13 @@ export function InventoryPage() {
           </div>
         }
       />
+
+      <MetricStrip metrics={[
+        { label: '总库存', value: `${Math.round(inventoryMetrics.totalStock).toLocaleString()} 件`, sub: '全部批次', tone: 'accent' },
+        { label: '低库存', value: `${inventoryMetrics.lowCount} 个`, sub: '低于预警线', tone: inventoryMetrics.lowCount > 0 ? 'danger' : 'default' },
+        { label: '临期商品', value: `${inventoryMetrics.expiring} 个`, sub: '30 天内到期', tone: inventoryMetrics.expiring > 0 ? 'warning' : 'default' },
+        { label: '待盘点', value: `${inventoryMetrics.pending} 个`, sub: '商品待盘', tone: inventoryMetrics.pending > 0 ? 'warning' : 'default' },
+      ]} />
 
       {pageSuccess && <SuccessBanner>{pageSuccess}</SuccessBanner>}
       {pageError && <ErrorBanner>{pageError}</ErrorBanner>}
