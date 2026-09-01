@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Outlet, useLocation } from 'react-router-dom'
+import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'motion/react'
+import { CloudUpload } from 'lucide-react'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { CommandPalette } from '@/components/CommandPalette'
@@ -40,6 +41,8 @@ export function Layout() {
         <main className="min-h-0 flex-1 overflow-auto p-6">
         {/* 游客只读模式横幅：跳过登录后可见 */}
         <GuestBanner />
+        {/* 注册云账号轻提示条：本地模式未登录且未点过「知道了」时显示，不拦路 */}
+        <RegisterBanner />
         {/* 数据层错误条：加载失败等全局问题在这里亮出来，而不是闷死 */}
         {error && (
           <div className="mb-4 flex items-start justify-between gap-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
@@ -93,6 +96,43 @@ function GuestBanner() {
       >
         去登录
       </button>
+    </div>
+  )
+}
+
+/** 注册云账号轻提示条（M2-4）：本地模式未登录且未点过「知道了」时显示，引导注册但绝不拦路 */
+function RegisterBanner() {
+  const cloudAuth = useAppStore((s) => s.cloudAuth)
+  const navigate = useNavigate()
+  const [dismissed, setDismissed] = useState(() => {
+    try { return window.localStorage.getItem('fi-register-banner') === '1' } catch { return false }
+  })
+  // 已登录云账号 / 客人模式(已有 GuestBanner) / 已点过知道了 → 不显示
+  if (cloudAuth === 'logged' || cloudAuth === 'guest' || dismissed) return null
+  const dismiss = () => {
+    try { window.localStorage.setItem('fi-register-banner', '1') } catch {}
+    setDismissed(true)
+  }
+  return (
+    <div className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-brand-200 bg-brand-50 px-4 py-2.5 text-sm text-brand-800">
+      <span className="flex items-center gap-2">
+        <CloudUpload className="size-4 shrink-0 text-brand-600" />
+        <span><span className="font-bold">注册云账号 · 数据互通：</span>多台电脑/手机自动同步、云端备份，换设备不丢数据</span>
+      </span>
+      <div className="flex shrink-0 items-center gap-3">
+        <button
+          className="font-medium text-brand-700 hover:text-brand-900 cursor-pointer"
+          onClick={() => navigate('/account')}
+        >
+          去注册
+        </button>
+        <button
+          className="text-slate-500 hover:text-slate-700 cursor-pointer"
+          onClick={dismiss}
+        >
+          知道了
+        </button>
+      </div>
     </div>
   )
 }
