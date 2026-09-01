@@ -33,8 +33,8 @@ const STEPS: Step[] = [
     sub: '让它跟着你走',
     desc: '登录云账号后，多台电脑/手机自动同步、云端自动备份——换设备、换电脑都不丢货。不注册也能用，数据只在本机。',
     icon: CloudUpload,
-    iconColor: 'text-blue-600',
-    iconBg: 'bg-blue-100',
+    iconColor: 'text-brand-600',
+    iconBg: 'bg-brand-100',
     points: ['多台设备自动同步', '云端随时自动备份', '换电脑不丢数据'],
   },
   {

@@ -40,17 +40,17 @@ export default function AccountPage() {
         </div>
       )}
       {/* 多设备使用说明：员工/老板如何共用一套数据 */}
-      <div className="rounded-xl border border-sky-100 bg-sky-50/70 px-5 py-4">
+      <div className="rounded-xl border border-lake-100 bg-lake-50/70 px-5 py-4">
         <div className="flex items-start gap-3">
-          <KeyRound className="mt-0.5 size-5 shrink-0 text-sky-600" />
+          <KeyRound className="mt-0.5 size-5 shrink-0 text-lake-600" />
           <div className="text-sm leading-relaxed text-slate-700">
-            <div className="font-bold text-sky-800">多台电脑共用一套数据，怎么操作：</div>
+            <div className="font-bold text-lake-800">多台电脑共用一套数据，怎么操作：</div>
             <div className="mt-1 space-y-1 text-slate-600">
               <div>1. 老板在这台电脑「注册账户」（账号 + 密码，密码至少 6 位）</div>
               <div>2. 员工/分店电脑装同一软件 → 打开「账号与云同步」→ 输入同一个账号密码登录</div>
               <div>3. 每台电脑点「立即同步」，数据就互通了（端到端加密，服务器只看得到密文）</div>
               <div>4. 换电脑/重装也不丢数据：新机器登录后点「云端备份 → 选日期恢复」</div>
-              <div className="rounded-lg bg-sky-50 px-2.5 py-2 text-xs text-sky-700">※ 忘了账号密码？<b>数据不会丢</b>——您的库存保存在本机、随时可用（本地优先）；忘密码只影响「多台电脑同步 + 云端备份」的找回，可在登录页点「忘记密码」查看恢复方法，或注册新账号重新同步。</div>
+              <div className="rounded-lg bg-lake-50 px-2.5 py-2 text-xs text-lake-700">※ 忘了账号密码？<b>数据不会丢</b>——您的库存保存在本机、随时可用（本地优先）；忘密码只影响「多台电脑同步 + 云端备份」的找回，可在登录页点「忘记密码」查看恢复方法，或注册新账号重新同步。</div>
             </div>
           </div>
         </div>

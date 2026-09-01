@@ -50,10 +50,10 @@ const ACTION_BADGE_CLASS: Record<string, string> = {
   退货: 'bg-red-100 text-red-700',
   换货: 'bg-purple-100 text-purple-700',
   改价: 'bg-amber-100 text-amber-700',
-  盘点: 'bg-sky-100 text-sky-700',
+  盘点: 'bg-lake-100 text-lake-700',
   还账: 'bg-emerald-100 text-emerald-700',
-  新建商品: 'bg-blue-100 text-blue-700',
-  新建客户: 'bg-blue-100 text-blue-700',
+  新建商品: 'bg-brand-100 text-brand-700',
+  新建客户: 'bg-brand-100 text-brand-700',
   改商品: 'bg-slate-200 text-slate-600',
   删商品: 'bg-red-100 text-red-700',
 }

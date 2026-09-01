@@ -93,7 +93,7 @@ export function StockTakeExecute({
       {/* 搜索过滤：进行中用于快速定位录入，已完成用于翻查历史明细，都可用 */}
       <Card>
         <CardContent className="flex items-center gap-3 pt-6">
-          <Search className="size-5 shrink-0 text-sky-600" />
+          <Search className="size-5 shrink-0 text-lake-600" />
           <Input
             autoFocus
             value={keyword}

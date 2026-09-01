@@ -163,7 +163,7 @@ export function CloudCard() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <Cloud className="size-5 text-sky-500" />
+            <Cloud className="size-5 text-lake-500" />
             云备份 · 远程看店
           </CardTitle>
           <CardDescription>
@@ -177,14 +177,14 @@ export function CloudCard() {
           {(!cloud.paired || guestMode) && (
             <div className="space-y-4">
               {/* 多设备账户：一个账户多台电脑 */}
-              <div className="rounded-lg border border-sky-100 bg-sky-50/60 p-3">
+              <div className="rounded-lg border border-lake-100 bg-lake-50/60 p-3">
                 <div className="mb-2 flex gap-1">
                   <button
-                    className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${acctMode === 'login' ? 'bg-sky-600 text-white' : 'bg-sky-100 text-sky-700'}`}
+                    className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${acctMode === 'login' ? 'bg-lake-600 text-white' : 'bg-lake-100 text-lake-700'}`}
                     onClick={() => setAcctMode('login')}
                   >登录账户</button>
                   <button
-                    className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${acctMode === 'register' ? 'bg-sky-600 text-white' : 'bg-sky-100 text-sky-700'}`}
+                    className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${acctMode === 'register' ? 'bg-lake-600 text-white' : 'bg-lake-100 text-lake-700'}`}
                     onClick={() => setAcctMode('register')}
                   >注册账户</button>
                 </div>
@@ -243,10 +243,10 @@ export function CloudCard() {
           {cloud.paired && !guestMode && (
             <div className="space-y-4">
               {/* 当前登录账号 */}
-              <div className="flex items-center gap-2 rounded-lg border border-sky-100 bg-sky-50/70 px-3 py-2.5">
-                <CheckCircle className="size-4 shrink-0 text-sky-600" />
+              <div className="flex items-center gap-2 rounded-lg border border-lake-100 bg-lake-50/70 px-3 py-2.5">
+                <CheckCircle className="size-4 shrink-0 text-lake-600" />
                 <span className="text-sm text-slate-700">
-                  已登录账号：<span className="font-bold text-sky-700">{cloud.username ?? '（本地已配对）'}</span>
+                  已登录账号：<span className="font-bold text-lake-700">{cloud.username ?? '（本地已配对）'}</span>
                 </span>
                 <span className="ml-auto text-xs text-slate-400">
                   多台电脑用同一账号登录，数据自动互通

@@ -8,10 +8,10 @@ import {
   Settings,
   PanelLeftClose,
   PanelLeftOpen,
-  Store,
   KeyRound,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { BrandLogo } from '@/components/BrandLogo'
 import { APP_VERSION } from '@/lib/version'
 
 // 主导航：业务功能按场景归类
@@ -44,9 +44,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     >
       {/* 品牌区：蓝底白字 LOGO */}
       <div className={cn('flex items-center gap-2.5 px-4 py-5', collapsed && 'justify-center px-0')}>
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-blue-600 shadow-sm">
-          <Store className="size-5 text-white" />
-        </div>
+        <BrandLogo size={40} className="shadow-sm" />
         {!collapsed && (
           <div className="leading-tight">
             <div className="text-[15px] font-bold text-slate-900">AI 智能进销存</div>
@@ -68,7 +66,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 'flex items-center gap-3 rounded-lg text-sm font-medium transition-all duration-150',
                 collapsed ? 'justify-center px-0 py-3' : 'px-3 py-2.5',
                 isActive
-                  ? 'bg-blue-50 text-blue-700'
+                  ? 'bg-brand-50 text-brand-700'
                   : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900',
               )
             }
@@ -93,7 +91,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   'flex items-center gap-3 rounded-lg text-sm font-medium transition-all duration-150',
                   collapsed ? 'justify-center px-0 py-3' : 'px-3 py-2.5',
                   isActive
-                    ? 'bg-blue-50 text-blue-700'
+                    ? 'bg-brand-50 text-brand-700'
                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900',
                 )
               }

@@ -86,12 +86,12 @@ function GuestBanner() {
   const cloudAuth = useAppStore((s) => s.cloudAuth)
   if (cloudAuth !== 'guest') return null
   return (
-    <div className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm text-sky-800">
+    <div className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-lake-200 bg-lake-50 px-4 py-2.5 text-sm text-lake-800">
       <span>
         <span className="font-bold">本地模式：</span>所有操作照常可用，数据保存在这台电脑；登录账号后多台电脑自动同步
       </span>
       <button
-        className="shrink-0 font-medium text-sky-700 hover:text-sky-900 cursor-pointer"
+        className="shrink-0 font-medium text-lake-700 hover:text-lake-900 cursor-pointer"
         onClick={() => {
           setGuestMode(false)
           useAppStore.setState({ cloudAuth: 'none' })

@@ -44,7 +44,7 @@ import { computeRestockAdvice } from '@/lib/restockAdvice'
 import { EmptyState } from '@/components/EmptyState'
 
 // 海洋系配色：深海蓝→湖蓝→湖水青→水草绿→沙滩金，像海面由深到浅的层次
-const PIE_COLORS = ['#1d4ed8', '#0ea5e9', '#10b981', '#34d399', '#38bdf8', '#f59e0b', '#0d9488', '#818cf8', '#94a3b8']
+const PIE_COLORS = ['#1f6bd6', '#22c1d8', '#10b981', '#34d399', '#38bdf8', '#f59e0b', '#0d9488', '#818cf8', '#94a3b8']
 const LOW_STOCK_THRESHOLD = 5
 const SLOW_DAYS = 90
 
@@ -282,19 +282,19 @@ export function DashboardPage() {
   const int = (v: number) => String(Math.round(v))
   const cards: CardSpec[] = [
     { title: '总SKU', value: products.length, format: int, unit: '个商品', icon: Box,
-      cardClass: 'border border-slate-200 bg-white', iconClass: 'bg-blue-50 text-blue-600', numClass: 'text-slate-900',
+      cardClass: 'border border-slate-200 bg-white', iconClass: 'bg-brand-50 text-brand-600', numClass: 'text-slate-900',
       action: () => navigate('/inventory'), actionHint: '查看' },
     { title: '总库存', value: stats.totalStock, format: (v) => Math.round(v).toLocaleString(), unit: '件商品', icon: Package,
-      cardClass: 'border border-slate-200 bg-white', iconClass: 'bg-blue-50 text-blue-600', numClass: 'text-slate-900',
+      cardClass: 'border border-slate-200 bg-white', iconClass: 'bg-brand-50 text-brand-600', numClass: 'text-slate-900',
       action: () => navigate('/inventory'), actionHint: '查看' },
     { title: '今日入库', value: stats.todayIn, format: (v) => `+${Math.round(v)}`, unit: '件入库', icon: PackagePlus,
-      cardClass: 'border border-slate-200 bg-white', iconClass: 'bg-blue-50 text-blue-600', numClass: 'text-slate-900',
+      cardClass: 'border border-slate-200 bg-white', iconClass: 'bg-brand-50 text-brand-600', numClass: 'text-slate-900',
       action: () => navigate('/inbound'), actionHint: '去入库' },
     { title: '今日出库', value: stats.todayOut, format: (v) => `-${Math.round(v)}`, unit: '件出库', icon: PackageMinus,
-      cardClass: 'border border-slate-200 bg-white', iconClass: 'bg-blue-50 text-blue-600', numClass: 'text-slate-900',
+      cardClass: 'border border-slate-200 bg-white', iconClass: 'bg-brand-50 text-brand-600', numClass: 'text-slate-900',
       action: () => navigate('/outbound'), actionHint: '去出库' },
     { title: '待盘点', value: stats.pendingCount, format: int, unit: '个SKU', icon: ClipboardList,
-      cardClass: 'border border-slate-200 bg-white', iconClass: 'bg-blue-50 text-blue-600', numClass: 'text-slate-900',
+      cardClass: 'border border-slate-200 bg-white', iconClass: 'bg-brand-50 text-brand-600', numClass: 'text-slate-900',
       action: () => navigate('/inventory?status=' + encodeURIComponent('待盘点')), actionHint: '去处理' },
     { title: '低库存', value: stats.lowStockCount, format: int, unit: '个预警', icon: TriangleAlert,
       cardClass: 'border border-red-100 bg-red-50/70', iconClass: 'bg-red-100 text-red-600', numClass: 'text-red-600',
@@ -305,7 +305,7 @@ export function DashboardPage() {
       unit: expiringCount === 0 ? '没有临期商品' : expiredCount > 0 ? `其中 ${expiredCount} 个已过期` : '30 天内到期',
       icon: CalendarClock,
       cardClass: expiredCount > 0 ? 'border border-red-100 bg-red-50/70' : 'border border-slate-200 bg-white',
-      iconClass: expiredCount > 0 ? 'bg-red-100 text-red-600' : 'bg-blue-50 text-blue-600',
+      iconClass: expiredCount > 0 ? 'bg-red-100 text-red-600' : 'bg-brand-50 text-brand-600',
       numClass: expiredCount > 0 ? 'text-red-600' : 'text-slate-900',
       pulse: expiredCount > 0,
       action: () => navigate('/inventory?filter=expiring'), actionHint: expiringCount > 0 ? '去处理' : '查看' },
@@ -387,9 +387,9 @@ export function DashboardPage() {
           <Link
             key={q.to}
             to={q.to}
-            className="group flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-400 hover:shadow-md"
+            className="group flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-md"
           >
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-brand-50 text-brand-600">
               <q.icon className="size-4.5" />
             </div>
             <div className="min-w-0">

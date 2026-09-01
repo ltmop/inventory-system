@@ -66,9 +66,12 @@
   --color-lake-50: oklch(0.97 0.02 196);
   --color-lake-100: oklch(0.93 0.04 196);
   --color-lake-200: oklch(0.87 0.07 196);
+  --color-lake-300: oklch(0.82 0.085 196);
   --color-lake-400: oklch(0.77 0.11 195);
   --color-lake-500: oklch(0.69 0.12 195);
   --color-lake-600: oklch(0.61 0.10 196);
+  --color-lake-700: oklch(0.54 0.09 196);
+  --color-lake-800: oklch(0.44 0.08 198);
   /* 金色系保留变量名（历史组件兼容），实际映射为蓝色强调 */
   --color-sand-50: #eff6ff;
   --color-sand-100: #dbeafe;

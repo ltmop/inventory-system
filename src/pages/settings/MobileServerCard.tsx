@@ -117,7 +117,7 @@ export function MobileServerCard({
         )}
         {/* 手机开店 /m/ 全功能操作端 */}
         {serverStatus?.running && serverStatus.url && posQrDataUrl && (
-          <div className="flex flex-wrap items-start gap-5 rounded-lg bg-blue-50 px-4 py-4">
+          <div className="flex flex-wrap items-start gap-5 rounded-lg bg-brand-50 px-4 py-4">
             {posQrDataUrl ? (
               <img src={posQrDataUrl} alt="手机开店二维码" className="size-[180px] rounded-lg border bg-white p-1" />
             ) : (

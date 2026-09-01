@@ -520,7 +520,7 @@ export function ReportsPage() {
                     onClick={() => navigate('/customers')}
                     title="点我去客户页记还账"
                   >
-                    <TableCell className="font-medium text-sky-700">{c.name}</TableCell>
+                    <TableCell className="font-medium text-lake-700">{c.name}</TableCell>
                     <TableCell>{c.phone ?? '-'}</TableCell>
                     <TableCell className="text-right text-lg font-bold tabular-nums text-red-600">
                       {formatPrice(c.outstanding)}
@@ -589,7 +589,7 @@ export function ReportsPage() {
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0">
           <CardTitle className="text-base">
-            <Users className="mr-2 inline-block size-4 text-sky-500" />
+            <Users className="mr-2 inline-block size-4 text-lake-500" />
             老客户多久没来了（超过 30 天）
           </CardTitle>
           {lapsedCustomers.length > 0 && (
@@ -617,7 +617,7 @@ export function ReportsPage() {
                   const days = Math.floor((Date.now() - new Date(x.last).getTime()) / 86400_000)
                   return (
                     <TableRow key={x.customer!.id}>
-                      <TableCell className="font-medium text-sky-700">{x.customer!.name}</TableCell>
+                      <TableCell className="font-medium text-lake-700">{x.customer!.name}</TableCell>
                       <TableCell>{x.customer!.phone ?? '-'}</TableCell>
                       <TableCell className="text-right tabular-nums">{formatPrice(x.total)}</TableCell>
                       <TableCell className="text-right text-muted-foreground">

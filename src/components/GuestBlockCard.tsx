@@ -8,21 +8,21 @@ export function GuestBlockCard({ title }: { title: string }) {
   const cloudAuth = useAppStore((s) => s.cloudAuth)
   if (cloudAuth !== 'guest') return null
   return (
-    <div className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-sky-200 bg-sky-50 px-5 py-4">
+    <div className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-lake-200 bg-lake-50 px-5 py-4">
       <div className="flex items-center gap-3">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-sky-100 text-sky-700">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-lake-100 text-lake-700">
           <CloudOff className="size-5" />
         </div>
         <div>
-          <div className="text-sm font-bold text-sky-800">本地模式：{title}照常可用，数据存在这台电脑</div>
-          <div className="mt-0.5 text-xs text-sky-700">
+          <div className="text-sm font-bold text-lake-800">本地模式：{title}照常可用，数据存在这台电脑</div>
+          <div className="mt-0.5 text-xs text-lake-700">
             登录云账号后，多台电脑自动同步、云端备份，换机不丢账
           </div>
         </div>
       </div>
       <Button
         size="sm"
-        className="shrink-0 bg-sky-600 hover:bg-sky-700"
+        className="shrink-0 bg-lake-600 hover:bg-lake-700"
         onClick={() => {
           setGuestMode(false)
           useAppStore.setState({ cloudAuth: 'none' })

@@ -40,14 +40,14 @@ export function FeatureGrid({
           <Link
             key={item.to}
             to={item.to}
-            className="group flex flex-col rounded-xl border border-slate-200 bg-white p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-400/70 hover:shadow-md"
+            className="group flex flex-col rounded-xl border border-slate-200 bg-white p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-400/70 hover:shadow-md"
           >
             <div className="flex items-start justify-between">
-              <div className="flex size-10 items-center justify-center rounded-lg bg-blue-50/80 text-blue-600 transition-colors group-hover:bg-blue-600/10">
+              <div className="flex size-10 items-center justify-center rounded-lg bg-brand-50/80 text-brand-600 transition-colors group-hover:bg-brand-600/10">
                 <item.icon className="size-5" />
               </div>
               {item.isNew && (
-                <span className="rounded-md bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white">新</span>
+                <span className="rounded-md bg-brand-600 px-1.5 py-0.5 text-[10px] font-bold text-white">新</span>
               )}
               {item.badge != null && item.badge > 0 && (
                 <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-600">

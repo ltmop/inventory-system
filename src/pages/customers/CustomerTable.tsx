@@ -61,7 +61,7 @@ export function CustomerTable({ customers, onOpenDetail, onEdit, onDelete }: Cus
                 {pg.pageItems.map((c) => (
                   <TableRow key={c.id} className="cursor-pointer" onClick={() => onOpenDetail(c)}>
                     <TableCell>
-                      <button className="font-medium text-sky-700 hover:underline cursor-pointer">
+                      <button className="font-medium text-lake-700 hover:underline cursor-pointer">
                         {c.name}
                       </button>
                       {c.notes && <div className="text-xs text-muted-foreground">{c.notes}</div>}

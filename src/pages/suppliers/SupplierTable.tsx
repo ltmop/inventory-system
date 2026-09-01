@@ -110,7 +110,7 @@ export function SupplierTable({
                         <TableCell>
                           <button
                             onClick={() => toggleExpand(s.id)}
-                            className="font-medium text-sky-700 hover:underline cursor-pointer"
+                            className="font-medium text-lake-700 hover:underline cursor-pointer"
                           >
                             {s.name}
                           </button>

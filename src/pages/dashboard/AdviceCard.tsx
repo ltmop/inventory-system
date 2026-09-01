@@ -31,7 +31,7 @@ export function AdviceCard({ advice, products }: AdviceCardProps) {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
-          <Lightbulb className="size-4 text-blue-500" />
+          <Lightbulb className="size-4 text-brand-500" />
           经营建议
         </CardTitle>
       </CardHeader>
@@ -85,7 +85,7 @@ export function AdviceCard({ advice, products }: AdviceCardProps) {
           <div>
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
-                <Snail className="size-4 text-blue-600" />
+                <Snail className="size-4 text-brand-600" />
                 该清仓了
               </div>
               {advice.deadStock.length > 0 && (

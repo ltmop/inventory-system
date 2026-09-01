@@ -25,7 +25,7 @@ import { PO_STATUS_LABELS, type POStatus, type PurchaseOrderListItem } from '@/t
 export const PO_STATUS_BADGE_CLASS: Record<POStatus, string> = {
   draft: 'bg-slate-200 text-slate-500',
   sent: 'bg-yellow-100 text-yellow-700',
-  partial: 'bg-blue-100 text-blue-700',
+  partial: 'bg-brand-100 text-brand-700',
   complete: 'bg-green-100 text-green-700',
   cancelled: 'bg-slate-200 text-slate-500',
 }

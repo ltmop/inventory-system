@@ -60,7 +60,7 @@ export function IndustryTemplateCard() {
               <div className="text-xs text-slate-500">{t.desc}</div>
             </div>
             {current === t.id ? (
-              <span className="flex items-center gap-1 text-sm font-bold text-blue-600">
+              <span className="flex items-center gap-1 text-sm font-bold text-brand-600">
                 <CheckCircle2 className="size-4" />当前
               </span>
             ) : (

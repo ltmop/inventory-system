@@ -33,7 +33,7 @@ const KIND_LABEL: Record<string, string> = {
 }
 
 const KIND_STYLE: Record<string, string> = {
-  fact: 'bg-sky-100 text-sky-700',
+  fact: 'bg-lake-100 text-lake-700',
   preference: 'bg-purple-100 text-purple-700',
   suggestion: 'bg-amber-100 text-amber-700',
   knowledge: 'bg-emerald-100 text-emerald-700',
