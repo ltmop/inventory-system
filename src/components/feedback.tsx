@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { motion } from 'motion/react'
-import { toast } from '@/components/toast'
+import { toast } from '@/components/ui/toast'
 
 /** 统一页面标题区：主标题 + 副标题说明 */
 export function PageHeader({

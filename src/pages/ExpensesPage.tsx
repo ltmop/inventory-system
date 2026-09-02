@@ -61,7 +61,7 @@ const EMPTY_FORM: ExpenseForm = {
   note: '',
 }
 
-type RangeKey = 'month' | 'lastMonth' | 'all'
+type RangeKey = 'month' | 'lastMonth' | 'all' | 'custom'
 
 const NO_SUPPLIER = '__none__'
 
@@ -94,6 +94,8 @@ export function ExpensesPage() {
   // 筛选：时间区间 + 分类
   const [range, setRange] = useState<RangeKey>('month')
   const [categoryFilter, setCategoryFilter] = useState<ExpenseCategory | ''>('')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
 
   // 新增/编辑
   const [formOpen, setFormOpen] = useState(false)
@@ -113,15 +115,19 @@ export function ExpensesPage() {
     return () => clearTimeout(t)
   }, [success])
 
+  const rangeInvalid = range === 'custom' && customFrom !== '' && customTo !== '' && customFrom > customTo
   const filtered = useMemo(() => {
     let rows = expenses
-    if (range !== 'all') {
+    if (range === 'custom') {
+      if (customFrom && !rangeInvalid) rows = rows.filter((e) => e.expense_date >= customFrom)
+      if (customTo && !rangeInvalid) rows = rows.filter((e) => e.expense_date <= customTo)
+    } else if (range !== 'all') {
       const [from, to] = monthRange(range === 'month' ? 0 : -1)
       rows = rows.filter((e) => e.expense_date >= from && e.expense_date <= to)
     }
     if (categoryFilter) rows = rows.filter((e) => e.category === categoryFilter)
     return rows
-  }, [expenses, range, categoryFilter])
+  }, [expenses, range, categoryFilter, customFrom, customTo, rangeInvalid])
 
   const filteredTotal = filtered.reduce((s, e) => s + e.amount, 0)
   const todayTotal = useMemo(() => {
@@ -212,7 +218,7 @@ export function ExpensesPage() {
     }
   }
 
-  const rangeLabel = range === 'month' ? '本月' : range === 'lastMonth' ? '上月' : '全部'
+  const rangeLabel = range === 'month' ? '本月' : range === 'lastMonth' ? '上月' : range === 'custom' ? (customFrom || customTo ? `${customFrom || '…'} ~ ${customTo || '…'}` : '自定义') : '全部'
 
   return (
     <div className="space-y-6">
@@ -259,7 +265,7 @@ export function ExpensesPage() {
       {/* 筛选行 */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex overflow-hidden rounded-lg border border-slate-200">
-          {(['month', 'lastMonth', 'all'] as const).map((k) => (
+          {(['month', 'lastMonth', 'all', 'custom'] as const).map((k) => (
             <button
               key={k}
               onClick={() => setRange(k)}
@@ -267,10 +273,35 @@ export function ExpensesPage() {
                 range === k ? 'bg-brand-600 font-medium text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
               }`}
             >
-              {k === 'month' ? '本月' : k === 'lastMonth' ? '上月' : '全部'}
+              {k === 'month' ? '本月' : k === 'lastMonth' ? '上月' : k === 'custom' ? '自定义' : '全部'}
             </button>
           ))}
         </div>
+        {range === 'custom' && (
+          <span className="flex items-center gap-1.5 text-sm text-slate-600">
+            <input
+              type="date"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              className="h-9 rounded-lg border border-slate-200 px-2 text-sm"
+            />
+            到
+            <input
+              type="date"
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+              className="h-9 rounded-lg border border-slate-200 px-2 text-sm"
+            />
+            <button
+              onClick={() => { setRange('month'); setCustomFrom(''); setCustomTo('') }}
+              className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
+              title="清空回到本月"
+            >
+              清空
+            </button>
+          </span>
+        )}
+        {rangeInvalid && <span className="text-xs text-red-600">结束日期不能早于开始日期</span>}
         <Select
           value={categoryFilter || '__all__'}
           onValueChange={(v) => setCategoryFilter(v === '__all__' ? '' : (v as ExpenseCategory))}

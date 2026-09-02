@@ -1,3 +1,4 @@
+import { useMemo, type ReactNode } from 'react'
 import { create } from 'zustand'
 import { AnimatePresence, motion } from 'motion/react'
 import { CircleAlert, CircleCheck, Info, X } from 'lucide-react'
@@ -29,11 +30,16 @@ function show(kind: ToastKind, message: string, duration?: number) {
   window.setTimeout(() => useToastStore.getState().remove(id), duration ?? DURATION[kind])
 }
 
-/** 全局 toast：操作成功后轻量浮层反馈，自动消失，不推挤页面布局 */
+/** 全局 toast：成功/错误/信息浮层，自动消失，可堆叠，不推挤页面布局 */
 export const toast = {
   success: (m: string, d?: number) => show('success', m, d),
   error: (m: string, d?: number) => show('error', m, d),
   info: (m: string, d?: number) => show('info', m, d),
+}
+
+/** Hook：组件内取 toast API（useToast().success('...')） */
+export function useToast() {
+  return useMemo(() => toast, [])
 }
 
 const KIND_STYLE: Record<ToastKind, { icon: typeof CircleCheck; ring: string; iconColor: string }> = {
@@ -42,7 +48,7 @@ const KIND_STYLE: Record<ToastKind, { icon: typeof CircleCheck; ring: string; ic
   info: { icon: Info, ring: 'border-sky-200 dark:border-sky-500/30', iconColor: 'text-sky-500' },
 }
 
-/** 全局浮层宿主：挂在 App 根，顶部居中堆叠 */
+/** 全局浮层宿主：顶部居中堆叠 */
 export function Toaster() {
   const items = useToastStore((s) => s.items)
   const remove = useToastStore((s) => s.remove)
@@ -76,5 +82,15 @@ export function Toaster() {
         })}
       </AnimatePresence>
     </div>
+  )
+}
+
+/** Provider：包裹应用并渲染浮层宿主；子组件可用 useToast() 弹浮层 */
+export function ToastProvider({ children }: { children: ReactNode }) {
+  return (
+    <>
+      {children}
+      <Toaster />
+    </>
   )
 }

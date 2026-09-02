@@ -1048,6 +1048,7 @@ export function OutboundPage() {
       {/* 购物清单（一单多商品）：扫码加入后在这里改数量/单价，去开单统一收款 */}
       <CartPanel
         items={cart}
+        batches={batches}
         totalStockOf={totalStockOf}
         onQtyChange={cartQtyChange}
         onPriceChange={cartPriceChange}

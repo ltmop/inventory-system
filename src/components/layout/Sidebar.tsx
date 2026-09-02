@@ -9,24 +9,35 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   KeyRound,
+  type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { BrandLogo } from '@/components/BrandLogo'
 import { APP_VERSION } from '@/lib/version'
+import { useAppStore } from '@/store/appStore'
+import { menuByRole, PERMS, type Perm } from '@/lib/permissions'
 
-// 主导航：业务功能按场景归类
-const NAV_ITEMS = [
+interface NavItem {
+  to: string
+  label: string
+  icon: LucideIcon
+  end?: boolean
+  perm?: Perm
+}
+
+// 主导航：业务功能按场景归类（perm=operate 的店员可见；无 perm=全角色可见）
+const NAV_ITEMS: NavItem[] = [
   { to: '/', label: '首页', icon: LayoutDashboard, end: true },
-  { to: '/inbound-hub', label: '入库', icon: PackagePlus },
-  { to: '/sales-hub', label: '销售', icon: ShoppingCart },
-  { to: '/stock-hub', label: '库存', icon: PackageSearch },
+  { to: '/inbound-hub', label: '入库', icon: PackagePlus, perm: PERMS.operate },
+  { to: '/sales-hub', label: '销售', icon: ShoppingCart, perm: PERMS.operate },
+  { to: '/stock-hub', label: '库存', icon: PackageSearch, perm: PERMS.operate },
   { to: '/mine-hub', label: '我的', icon: User },
 ]
 
-// 底部固定区：账号（左下角）+ 设置在账号下方
-const BOTTOM_ITEMS = [
-  { to: '/account', label: '账号', icon: KeyRound, end: true },
-  { to: '/settings', label: '设置', icon: Settings, end: true },
+// 底部固定区：账号（左下角）+ 设置在账号下方；账号=云/员工管理、设置=系统设置，仅老板可见
+const BOTTOM_ITEMS: NavItem[] = [
+  { to: '/account', label: '账号', icon: KeyRound, end: true, perm: PERMS.cloudManage },
+  { to: '/settings', label: '设置', icon: Settings, end: true, perm: PERMS.settingsManage },
 ]
 
 interface SidebarProps {
@@ -35,6 +46,11 @@ interface SidebarProps {
 }
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
+  // 当前角色：未开员工登录/单机 → null → 全显（老板直接用）
+  const role = useAppStore((s) => s.currentUser)?.role ?? null
+  const navItems = menuByRole(role, NAV_ITEMS)
+  const bottomItems = menuByRole(role, BOTTOM_ITEMS)
+
   return (
     <aside
       className={cn(
@@ -55,7 +71,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* 主导航：业务功能 */}
       <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
-        {NAV_ITEMS.map((item) => (
+        {navItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
@@ -80,7 +96,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {/* 底部固定区：账号（左下角）+ 设置（账号下方） */}
       <div className="shrink-0 border-t border-slate-100 px-2 py-2">
         <nav className="space-y-1">
-          {BOTTOM_ITEMS.map((item) => (
+          {bottomItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

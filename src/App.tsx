@@ -3,7 +3,7 @@ import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { LoginGate } from '@/components/LoginGate'
 import { UpdateBanner } from '@/components/UpdateBanner'
-import { Toaster } from '@/components/toast'
+import { ToastProvider } from '@/components/ui/toast'
 import { SplashScreen } from '@/components/SplashScreen'
 import { Layout } from '@/components/layout/Layout'
 import { DashboardPage } from '@/pages/DashboardPage'
@@ -134,11 +134,11 @@ function App() {
 
   return (
     <ErrorBoundary>
+      <ToastProvider>
       {/* 员工登录门（v0.1）：开着员工登录且没人登录时覆盖全屏 */}
       <LoginGate />
       {/* 自动更新提示条：检测到新版本时底部弹出（preload 暴露 onUpdateAvailable 后生效） */}
       <UpdateBanner />
-      <Toaster />
       {!splashDone && <SplashScreen onFinish={() => setSplashDone(true)} />}
       {splashDone && (
       <HashRouter>
@@ -178,6 +178,7 @@ function App() {
         </Routes>
       </HashRouter>
       )}
+      </ToastProvider>
     </ErrorBoundary>
   )
 }

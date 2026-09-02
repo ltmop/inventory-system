@@ -50,11 +50,12 @@ export function DailyReconcileCard({
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
 
-  // 自定义两个日期都填了 → 把区间上报父级（选反了自动交换）
+  // 自定义区间有效性：结束早于开始 → 不应用并提示
+  const rangeInvalid = preset === 'custom' && customFrom !== '' && customTo !== '' && customFrom > customTo
   useEffect(() => {
     if (preset !== 'custom' || !customFrom || !customTo) return
-    const [f, t] = customFrom <= customTo ? [customFrom, customTo] : [customTo, customFrom]
-    if (f !== from || t !== to) onRangeChange(f, t)
+    if (customFrom > customTo) return // 结束早于开始：拦截，不应用
+    if (customFrom !== from || customTo !== to) onRangeChange(customFrom, customTo)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preset, customFrom, customTo])
 
@@ -163,8 +164,16 @@ export function DailyReconcileCard({
                 onChange={(e) => setCustomTo(e.target.value)}
                 className="h-9 rounded-lg border border-slate-200 px-2 text-sm"
               />
+              <button
+                onClick={() => { setPreset('last7'); setCustomFrom(''); setCustomTo(''); onRangeChange(...rangePreset('last7')) }}
+                className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
+                title="清空回到近7天"
+              >
+                清空
+              </button>
             </span>
           )}
+          {rangeInvalid && <span className="text-xs text-red-600">结束日期不能早于开始日期</span>}
           <span className="text-xs text-muted-foreground">
             当前：{from} ~ {to}
           </span>
