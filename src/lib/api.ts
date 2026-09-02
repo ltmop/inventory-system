@@ -68,17 +68,25 @@ export const lanToken: string | null = (() => {
 /** 局域网 HTTP 桥：与 window.fi 同一 invoke(channel, payload) 形状，store 层零改动 */
 function createHttpBackend(token: string, baseUrl = ''): FiBridge {
   const url = (baseUrl ? baseUrl.replace(/\/$/, '') : '') + '/api/invoke'
+  const label = baseUrl ? '中心库' : '主机'
   return {
     async invoke(channel: string, payload?: unknown) {
       let r: Response
-      try {
-        r = await fetch(url, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', 'x-token': token },
-          body: JSON.stringify({ channel, payload: payload ?? {} }),
-        })
-      } catch {
-        throw new Error('连不上主机——检查收银电脑是不是开着、这台设备是不是连着店里 WiFi')
+      // 稳定性（P3）：短暂断网/抖动自动重试，最多 3 次指数退避，避免一次掉线就中断操作
+      for (let attempt = 0; ; attempt++) {
+        try {
+          r = await fetch(url, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-token': token },
+            body: JSON.stringify({ channel, payload: payload ?? {} }),
+          })
+          break
+        } catch {
+          if (attempt >= 2) {
+            throw new Error('连不上' + label + '——检查网络是否连接、' + label + '是否在线，稍后重试；已自动重试 3 次')
+          }
+          await new Promise((res) => setTimeout(res, 700 * (attempt + 1)))
+        }
       }
       const data = await r.json().catch(() => ({}))
       if (r.status === 401) {
