@@ -22,7 +22,7 @@ import { createInventoryServer } from './server.js'
 import { createPhotoStore } from './photo.js'
 import { initAutoUpdater, checkForUpdates, downloadAndInstall } from './updater.js'
 import { loadLicense, activateLicense, machineFingerprint, saveLevelToDb, quotaStatus, planFor } from './license.js'
-import { initCloud, pairWithCloud, syncSnapshot, uploadBackup, listCloudBackups, restoreFromCloud, regenViewLink, getCloudState, stopScheduler as stopCloudScheduler, exitSnapshot as exitCloudSnapshot, registerAccount as cloudRegisterAccount, loginAccount as cloudLoginAccount, logoutAccount as cloudLogoutAccount } from './cloud.js'
+import { initCloud, pairWithCloud, syncSnapshot, uploadBackup, listCloudBackups, restoreFromCloud, regenViewLink, getCloudState, stopScheduler as stopCloudScheduler, exitSnapshot as exitCloudSnapshot, registerAccount as cloudRegisterAccount, loginAccount as cloudLoginAccount, logoutAccount as cloudLogoutAccount, resolveConflict } from './cloud.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -487,6 +487,7 @@ function registerIpc() {
   ipcMain.handle('cloud:status', () => getCloudState())
   ipcMain.handle('cloud:pair', (_e, p) => pairWithCloud(p?.pairCode ?? ''))
   ipcMain.handle('cloud:syncNow', () => syncSnapshot())
+  ipcMain.handle('cloud:resolveConflict', () => resolveConflict())
   ipcMain.handle('cloud:backupNow', () => uploadBackup())
   ipcMain.handle('cloud:listBackups', () => listCloudBackups())
   ipcMain.handle('cloud:restore', async (_e, p) => {

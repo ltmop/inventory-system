@@ -259,6 +259,14 @@ export async function syncSnapshot(storeName) {
   }
 }
 
+/** 冲突时用户选择"保留本机"：把本机 lastServerAt 设为当前时间，下次同步即无冲突覆盖云端（last-write-wins，用户明确选择） */
+export async function resolveConflict() {
+  cloudState.lastServerAt = new Date().toISOString()
+  saveLocalConfig()
+  await syncSnapshot()
+  return cloudState.error ? { ok: false, error: cloudState.error } : { ok: true }
+}
+
 // ---------- 整库备份上传 ----------
 
 export async function uploadBackup() {

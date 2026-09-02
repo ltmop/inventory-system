@@ -97,6 +97,18 @@ export function CloudCard() {
     }
   }
 
+  // 同步冲突（另一台电脑有新数据）时用户选择"保留本机"：强制把本机统计快照覆盖上去
+  const handleResolveConflict = async () => {
+    if (!backend) return
+    try {
+      await backend.invoke('cloud:resolveConflict')
+      const s = await backend.invoke('cloud:status')
+      if (s) setCloud(s)
+    } catch (e) {
+      setCloud({ error: e instanceof Error ? e.message : String(e) })
+    }
+  }
+
   const handleRegenLink = async () => {
     if (!backend) return
     try {
@@ -369,9 +381,14 @@ export function CloudCard() {
 
           {/* 错误提示 */}
           {cloud.error && (
-            <div className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
-              <XCircle className="size-3" />
-              {cloud.error}
+            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
+              <XCircle className="size-3 shrink-0" />
+              <span className="min-w-0 flex-1">{cloud.error}</span>
+              {cloud.error.includes('同步冲突') && (
+                <button onClick={handleResolveConflict} className="shrink-0 rounded-md bg-red-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-red-500 cursor-pointer">
+                  仍要覆盖本机数据
+                </button>
+              )}
             </div>
           )}
         </CardContent>
