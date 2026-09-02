@@ -13,6 +13,7 @@ import { BackupCard } from './settings/BackupCard'
 import { FeedbackCard } from './settings/FeedbackCard'
 import { MobileServerCard, type ServerStatus } from './settings/MobileServerCard'
 import { PaymentQrCard } from './settings/PaymentQrCard'
+import { CentralModeCard } from './settings/CentralModeCard'
 import { StaffCard } from './settings/StaffCard'
 import { IndustryTemplateCard } from './settings/IndustryTemplateCard'
 import { PreferenceRow } from './settings/PreferenceRow'
@@ -422,6 +423,8 @@ export function SettingsPage() {
       {/* 收款码：手机端开单选微信/支付宝时展示给顾客扫 */}
       <PaymentQrCard />
 
+      {/* 连接云端中心库（P2）：桌面软件连中心库，多点实时共享 */}
+      <CentralModeCard />
 
 
         </div>

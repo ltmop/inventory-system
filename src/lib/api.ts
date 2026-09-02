@@ -66,12 +66,13 @@ export const lanToken: string | null = (() => {
 })()
 
 /** 局域网 HTTP 桥：与 window.fi 同一 invoke(channel, payload) 形状，store 层零改动 */
-function createHttpBackend(token: string): FiBridge {
+function createHttpBackend(token: string, baseUrl = ''): FiBridge {
+  const url = (baseUrl ? baseUrl.replace(/\/$/, '') : '') + '/api/invoke'
   return {
     async invoke(channel: string, payload?: unknown) {
       let r: Response
       try {
-        r = await fetch('/api/invoke', {
+        r = await fetch(url, {
           method: 'POST',
           headers: { 'content-type': 'application/json', 'x-token': token },
           body: JSON.stringify({ channel, payload: payload ?? {} }),
@@ -94,13 +95,31 @@ function createHttpBackend(token: string): FiBridge {
   }
 }
 
-/** 原始桥（未包装） */
+// 中心库模式（P2：桌面软件连云端）——设置里配了「连接云端中心库」的 URL+token, 桌面版也走 http-backend 连它（覆盖本地 IPC），读写全走中心库（多点实时共享）
+const CENTRAL_URL_KEY = 'fi-central-url'
+const CENTRAL_TOKEN_KEY = 'fi-central-token'
+export function getCentralConfig(): { url: string; token: string } {
+  try {
+    return { url: localStorage.getItem(CENTRAL_URL_KEY) ?? '', token: localStorage.getItem(CENTRAL_TOKEN_KEY) ?? '' }
+  } catch { return { url: '', token: '' } }
+}
+export function setCentralConfig(url: string, token: string) {
+  try {
+    if (url && token) { localStorage.setItem(CENTRAL_URL_KEY, url); localStorage.setItem(CENTRAL_TOKEN_KEY, token) }
+    else { localStorage.removeItem(CENTRAL_URL_KEY); localStorage.removeItem(CENTRAL_TOKEN_KEY) }
+  } catch { /* ignore */ }
+}
+const central = getCentralConfig()
+
+/** 原始桥（未包装）：优先中心库模式，其次本地 IPC（Electron），再局域网 http */
 const rawBackend: FiBridge | null =
-  typeof window !== 'undefined' && window.fi
-    ? window.fi
-    : typeof window !== 'undefined' && lanToken
-      ? createHttpBackend(lanToken)
-      : null
+  typeof window !== 'undefined' && central.url && central.token
+    ? createHttpBackend(central.token, central.url)
+    : typeof window !== 'undefined' && window.fi
+      ? window.fi
+      : typeof window !== 'undefined' && lanToken
+        ? createHttpBackend(lanToken)
+        : null
 
 /**
  * 本地模式（原"游客"）：云账号是可选项，不登录也能全功能使用，数据只保存在本机。
@@ -109,4 +128,4 @@ const rawBackend: FiBridge | null =
 export const backend: FiBridge | null = rawBackend
 
 export const backendKind: BackendKind =
-  typeof window !== 'undefined' && window.fi ? 'ipc' : backend ? 'http' : null
+  typeof window !== 'undefined' && window.fi && !central.url ? 'ipc' : backend ? 'http' : null
