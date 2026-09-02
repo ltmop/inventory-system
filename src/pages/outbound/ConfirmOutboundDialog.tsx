@@ -1,6 +1,8 @@
-import { Loader2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Loader2, ShieldAlert } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -85,6 +87,15 @@ export function ConfirmOutboundDialog({
   executing,
   onExecute,
 }: ConfirmOutboundDialogProps) {
+  const priceCents = qtyValid ? yuanToCents(priceYuan) : null
+  const totalCents = selected && priceCents !== null ? qty * priceCents : null
+  const HIGH_VALUE_CENTS = 50000
+  const highValue = totalCents !== null && totalCents >= HIGH_VALUE_CENTS
+  const [recheck, setRecheck] = useState(false)
+  useEffect(() => {
+    if (open) setRecheck(false)
+  }, [open])
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -100,6 +111,26 @@ export function ConfirmOutboundDialog({
             ，将按 FIFO 扣减以下批次：
           </DialogDescription>
         </DialogHeader>
+        {highValue && totalCents !== null && (
+          <div className="rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3">
+            <div className="flex items-center gap-2 text-amber-700">
+              <ShieldAlert className="size-4" />
+              <span className="text-sm font-semibold">高价值商品复核</span>
+            </div>
+            <div className="mt-2 text-lg font-bold text-slate-800">
+              {selected ? productName(selected) : ''} × {quantity}
+            </div>
+            <div className="mt-1 text-sm text-slate-600">
+              单笔合计{' '}
+              <span className="text-2xl font-bold tabular-nums text-amber-700">{formatPrice(totalCents)}</span>
+            </div>
+            <label className="mt-2.5 flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700">
+              <Checkbox checked={recheck} onCheckedChange={(v) => setRecheck(v === true)} />
+              我已核对商品、数量与金额无误，确认出库
+            </label>
+          </div>
+        )}
+
         <div className="space-y-2">
           {plan?.allocations.map((a) => (
             <div
@@ -244,7 +275,7 @@ export function ConfirmOutboundDialog({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             取消
           </Button>
-          <Button variant="destructive" onClick={onExecute} disabled={executing}>
+          <Button variant="destructive" onClick={onExecute} disabled={executing || (highValue && !recheck)}>
             {executing && <Loader2 className="size-4 animate-spin" />}
             {executing ? '执行中...' : '确认执行出库'}
           </Button>

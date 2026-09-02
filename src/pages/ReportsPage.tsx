@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, CircleDollarSign, Download, Package, TrendingUp, Tr
 import { useAppStore } from '@/store/appStore'
 import { formatDateTime, formatPrice, productName, csvCell } from '@/lib/formatters'
 import { DailyReconcileCard } from '@/pages/reports/DailyReconcileCard'
+import { localDayKey, rangePreset } from '@/lib/salesReport'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Table,
@@ -137,6 +138,8 @@ export function ReportsPage() {
 
   const [profitSort, setProfitSort] = useState<ProfitSortKey>('profit')
   const [profitAsc, setProfitAsc] = useState(false)
+  const [range, setRange] = useState<[string, string]>(() => rangePreset('last7'))
+  const [from, to] = range
 
   // 「谁欠我钱」走 customer:list（loadAll 不含客户）
   useEffect(() => {
@@ -212,9 +215,21 @@ export function ReportsPage() {
       .slice(0, 10)
   }, [saleTxs, customers])
 
-  // ========== 什么最赚钱：本月商品毛利排行 TOP20（可点表头排序） ==========
+  // ========== 区间聚合：整页统一区间（日结卡选择，什么最赚钱跟随同一区间） ==========
+  const rangeStats = useMemo(
+    () =>
+      aggregate(
+        saleTxs.filter((t) => {
+          const dk = localDayKey(t.timestamp)
+          return dk >= from && dk <= to
+        }),
+      ),
+    [saleTxs, from, to],
+  )
+
+  // ========== 什么最赚钱：区间商品毛利排行 TOP20（可点表头排序） ==========
   const profitTop = useMemo(() => {
-    const rows = [...monthStats.byProduct.values()].map((x) => ({
+    const rows = [...rangeStats.byProduct.values()].map((x) => ({
       ...x,
       margin: x.revenue > 0 ? x.profit / x.revenue : null,
     }))
@@ -225,7 +240,7 @@ export function ReportsPage() {
       return (a.profit - b.profit) * dir
     })
     return rows.slice(0, 20)
-  }, [monthStats, profitSort, profitAsc])
+  }, [rangeStats, profitSort, profitAsc])
 
   const toggleProfitSort = (key: ProfitSortKey) => {
     if (profitSort === key) setProfitAsc(!profitAsc)
@@ -428,20 +443,20 @@ export function ReportsPage() {
       </div>
 
       {/* 日结对账：任意区间看每天的营业额/毛利/收款方式/赊账 */}
-      <DailyReconcileCard transactions={transactions} />
+      <DailyReconcileCard transactions={transactions} from={from} to={to} onRangeChange={(f, t) => setRange([f, t])} />
 
       {/* 什么最赚钱 */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
             <Trophy className="mr-2 inline-block size-4 text-amber-500" />
-            什么最赚钱（本月 Top 20）
+            什么最赚钱（{from} ~ {to} Top 20）
           </CardTitle>
         </CardHeader>
         <CardContent>
           {profitTop.length === 0 ? (
             <div className="py-8 text-center text-sm text-muted-foreground">
-              本月还没有成交记录，开始卖货后这里会排出最赚钱的商品
+              {from} ~ {to} 还没有成交记录，开始卖货后这里会排出最赚钱的商品
             </div>
           ) : (
             <Table>

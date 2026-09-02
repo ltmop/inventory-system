@@ -48,6 +48,10 @@ export function InventoryPage() {
   const [lowOnly, setLowOnly] = useState(false)
   // 临期快捷筛选：仪表盘「临期商品」卡片跳转过来时自动开启
   const [expiringOnly, setExpiringOnly] = useState(false)
+  const [brand, setBrand] = useState(ALL)
+  const [location, setLocation] = useState(ALL)
+  const [stockMin, setStockMin] = useState('')
+  const [stockMax, setStockMax] = useState('')
   const [searchParams] = useSearchParams()
 
   // 临期/过期商品（productId → 详情）：行徽章 + 临期筛选共用；与后端 product:expiring 同口径本地算
@@ -327,12 +331,32 @@ export function InventoryPage() {
     return () => clearTimeout(t)
   }, [keyword])
 
+  const brands = useMemo(() => [...new Set(products.map((p) => p.brand).filter((b): b is string => !!b))].sort(), [products])
+  const locations = useMemo(() => [...new Set(products.map((p) => p.location).filter((l): l is string => !!l))].sort(), [products])
+
+  const resetFilters = () => {
+    setKeyword('')
+    setCategory(ALL)
+    setStatus(ALL)
+    setLowOnly(false)
+    setExpiringOnly(false)
+    setBrand(ALL)
+    setLocation(ALL)
+    setStockMin('')
+    setStockMax('')
+  }
+
   const filtered = useMemo(() => {
     return products.filter((p) => {
       if (category !== ALL && p.category !== (category as Category)) return false
       if (status !== ALL && p.status !== (status as ProductStatus)) return false
       if (lowOnly && totalStockOf(p.id) >= (p.min_stock ?? LOW_STOCK_THRESHOLD)) return false
       if (expiringOnly && !expiringMap.has(p.id)) return false
+      if (brand !== ALL && p.brand !== (brand as string)) return false
+      if (location !== ALL && p.location !== (location as string)) return false
+      const stockNow = totalStockOf(p.id)
+      if (stockMin !== '' && stockNow < Number(stockMin)) return false
+      if (stockMax !== '' && stockNow > Number(stockMax)) return false
       if (debouncedKeyword) {
         const kw = debouncedKeyword.toLowerCase()
         // 规格字段（长度/调性/线号等）也纳入搜索：搜"3.6"能找到 3.6m 的竿
@@ -347,7 +371,7 @@ export function InventoryPage() {
       }
       return true
     })
-  }, [products, category, status, debouncedKeyword, lowOnly, expiringOnly, expiringMap, totalStockOf])
+  }, [products, category, status, debouncedKeyword, lowOnly, expiringOnly, expiringMap, totalStockOf, brand, location, stockMin, stockMax])
 
   // 表头排序（纯前端，不动数据层）：主表按总库存（批次子表排序在 InventoryTable 内部）
   const [stockSort, setStockSort] = useState<SortDir | null>(null)
@@ -456,6 +480,17 @@ export function InventoryPage() {
         onToggleLowOnly={() => setLowOnly((v) => !v)}
         expiringOnly={expiringOnly}
         onToggleExpiringOnly={() => setExpiringOnly((v) => !v)}
+        brand={brand}
+        onBrandChange={setBrand}
+        brands={brands}
+        location={location}
+        onLocationChange={setLocation}
+        locations={locations}
+        stockMin={stockMin}
+        onStockMinChange={setStockMin}
+        stockMax={stockMax}
+        onStockMaxChange={setStockMax}
+        onReset={resetFilters}
         filteredCount={filtered.length}
         allValue={ALL}
       />

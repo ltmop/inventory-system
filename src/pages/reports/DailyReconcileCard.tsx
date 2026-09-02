@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { CalendarDays, Download } from 'lucide-react'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -31,20 +31,41 @@ function money(v: number): string {
   return v === 0 ? '-' : formatPrice(v)
 }
 
-/** 日结对账卡：按区间看每天的营业额/毛利/收款方式/赊账，钱从哪来到哪去一眼对清 */
-export function DailyReconcileCard({ transactions }: { transactions: Transaction[] }) {
+/**
+ * 日结对账卡（受控）：区间由父级 ReportsPage 统一持有（整页统一区间），
+ * 本卡只负责展示该区间每天的营业额/毛利/收款方式/赊账，并把区间选择上报父级。
+ */
+export function DailyReconcileCard({
+  transactions,
+  from,
+  to,
+  onRangeChange,
+}: {
+  transactions: Transaction[]
+  from: string
+  to: string
+  onRangeChange: (from: string, to: string) => void
+}) {
   const [preset, setPreset] = useState<PresetKey>('last7')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
 
-  const [from, to] = useMemo<[string, string]>(() => {
-    if (preset === 'custom') {
-      if (customFrom && customTo && customFrom <= customTo) return [customFrom, customTo]
-      if (customFrom && customTo) return [customTo, customFrom] // 选反了自动交换
-      return rangePreset('today')
-    }
-    return rangePreset(preset)
+  // 自定义两个日期都填了 → 把区间上报父级（选反了自动交换）
+  useEffect(() => {
+    if (preset !== 'custom' || !customFrom || !customTo) return
+    const [f, t] = customFrom <= customTo ? [customFrom, customTo] : [customTo, customFrom]
+    if (f !== from || t !== to) onRangeChange(f, t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preset, customFrom, customTo])
+
+  function pick(key: Exclude<PresetKey, 'custom'>) {
+    setPreset(key)
+    const [f, t] = rangePreset(key)
+    if (f !== from || t !== to) onRangeChange(f, t)
+  }
+  function pickCustom() {
+    setPreset('custom')
+  }
 
   const report = useMemo(() => buildRangeReport(transactions, from, to), [transactions, from, to])
   const t = report.totals
@@ -100,12 +121,12 @@ export function DailyReconcileCard({ transactions }: { transactions: Transaction
         </button>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* 区间选择：预设一排 + 自定义起止 */}
+        {/* 区间选择：预设一排 + 自定义起止（全页统一区间即此） */}
         <div className="flex flex-wrap items-center gap-2">
           {PRESETS.map((p) => (
             <button
               key={p.key}
-              onClick={() => setPreset(p.key)}
+              onClick={() => pick(p.key)}
               className={cn(
                 'h-9 cursor-pointer rounded-lg border px-3.5 text-sm font-medium transition-colors',
                 preset === p.key
@@ -117,7 +138,7 @@ export function DailyReconcileCard({ transactions }: { transactions: Transaction
             </button>
           ))}
           <button
-            onClick={() => setPreset('custom')}
+            onClick={pickCustom}
             className={cn(
               'h-9 cursor-pointer rounded-lg border px-3.5 text-sm font-medium transition-colors',
               preset === 'custom'

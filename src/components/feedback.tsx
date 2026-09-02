@@ -1,6 +1,6 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { motion } from 'motion/react'
-import { CircleCheck } from 'lucide-react'
+import { toast } from '@/components/toast'
 
 /** 统一页面标题区：主标题 + 副标题说明 */
 export function PageHeader({
@@ -23,25 +23,17 @@ export function PageHeader({
   )
 }
 
-/** 操作成功反馈：弹簧打勾动画，替代静态文字 */
+/** 操作成功反馈：改为全局浮层 toast（自动消失、不推挤布局）。
+ * 保持同名组件便于页面零改动：挂载即触发 toast，不再渲染内联横幅。 */
 export function SuccessBanner({ children }: { children: ReactNode }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.96, y: -6 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      transition={{ type: 'spring', stiffness: 400, damping: 22 }}
-      className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-4 py-2.5 text-sm font-medium text-green-700"
-    >
-      <motion.span
-        initial={{ scale: 0, rotate: -30 }}
-        animate={{ scale: 1, rotate: 0 }}
-        transition={{ type: 'spring', stiffness: 500, damping: 15, delay: 0.05 }}
-      >
-        <CircleCheck className="size-4" />
-      </motion.span>
-      {children}
-    </motion.div>
-  )
+  const last = useRef<string | null>(null)
+  const msg = typeof children === 'string' ? children : String(children ?? '')
+  useEffect(() => {
+    if (!msg || last.current === msg) return
+    last.current = msg
+    toast.success(msg)
+  }, [msg])
+  return null
 }
 
 /** 操作失败/校验错误反馈 */
