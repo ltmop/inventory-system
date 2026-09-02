@@ -754,11 +754,39 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     return status()
   }
 
-  function tokenOk(provided) {
-    if (!provided || !token) return false
-    const a = Buffer.from(String(provided))
-    const b = Buffer.from(token)
+  // ---------- P3 权限：只读 token（财务/只看账号）只能读，不能开单/入库等写操作 ----------
+  let viewToken = null
+  function loadOrCreateViewToken() {
+    try {
+      const t = fs.readFileSync(path.join(dataDir, 'server-view-token.txt'), 'utf8').trim()
+      if (/^[0-9a-f]{32}$/.test(t)) return t
+    } catch {}
+    const t = crypto.randomBytes(16).toString('hex')
+    fs.mkdirSync(dataDir, { recursive: true })
+    fs.writeFileSync(path.join(dataDir, 'server-view-token.txt'), t, { mode: 0o600 })
+    return t
+  }
+  function tokenOkSingle(provided, t) {
+    if (!t) return false
+    const a = Buffer.from(String(provided)); const b = Buffer.from(t)
     return a.length === b.length && crypto.timingSafeEqual(a, b)
+  }
+  function isViewToken(provided) { return tokenOkSingle(provided, viewToken) }
+  // 写通道（只读 token 禁止调用）；其余通道视为只读
+  const WRITE_CHANNELS = new Set([
+    'product:create','product:update','product:batchUpdate','product:delete','product:mark',
+    'inbound:create','outbound:confirm','outbound:checkout','outbound:return','outbound:exchange',
+    'supplier:create','supplier:update','supplier:delete','supplier:pay',
+    'stocktake:create','stocktake:updateItem','stocktake:complete','stocktake:submit','import:batch',
+    'customer:create','customer:update','customer:delete','payment:record',
+    'expense:create','expense:update','expense:delete','waste:create',
+    'part:set','part:setMany','kit:save','kit:delete','receipt:register','receipt:reconcile',
+    'po:create','po:receive','po:cancel','priceTier:set','priceTier:delete','photo:save','photo:delete',
+  ])
+
+  function tokenOk(provided) {
+    if (!provided) return false
+    return tokenOkSingle(provided, token) || tokenOkSingle(provided, viewToken)
   }
 
   function rateLimited(ip, validToken) {
@@ -1194,6 +1222,10 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       sendJson(res, 404, { error: 'unknown channel' })
       return
     }
+    if (isViewToken(tokenOf(req, url)) && WRITE_CHANNELS.has(body.channel)) {
+      sendJson(res, 403, { ok: false, error: '只读账号：不能执行操作，仅可查看报表/库存' })
+      return
+    }
     try {
       const result = await fn(db, body.payload ?? {})
       sendJson(res, 200, { ok: true, result })
@@ -1277,6 +1309,11 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       return
     }
     if (isOutbound) {
+      if (isViewToken(reqToken)) {
+        res.writeHead(403, { ...SECURITY_HEADERS, 'Content-Type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify({ error: '只读账号：不能开单' }))
+        return
+      }
       await handleOutbound(req, res, url)
       return
     }
@@ -1397,6 +1434,7 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     if (server) return status()
     if (!loadConfig().enabled) return status()
     token = loadOrCreateToken()
+    viewToken = loadOrCreateViewToken()
     try {
       const r = await tryListen(basePort, MAX_PORT_RETRY - 1)
       server = r.server
