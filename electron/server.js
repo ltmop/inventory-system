@@ -17,6 +17,7 @@ import { ensureTlsCert } from './tls.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 import { confirmOutbound, listCustomers, lowStockProducts, auditLog, supplierStatement, todayPaymentSplit } from './commands.js'
 import * as cmds from './commands.js'
+import { analyticsTrend, analyticsCategory, analyticsTop, analyticsStockValue, analyticsOverview } from './commands/analytics.js'
 import { createPhotoStore } from './photo.js'
 
 const DEFAULT_PORT = 17532
@@ -1118,6 +1119,12 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
          GROUP BY t.product_id ORDER BY qty DESC LIMIT 9`
       ).all(`-${days} days`)
     },
+    // 数据分析命令（与 /api/analytics/* 同源，供 invoke 与桌面、外部 Agent 调用）
+    'analytics:trend': (d, p) => analyticsTrend(d, Number(p?.days) || 7),
+    'analytics:category': (d) => analyticsCategory(d),
+    'analytics:top': (d, p) => analyticsTop(d, Number(p?.n) || 10),
+    'analytics:stockValue': (d) => analyticsStockValue(d),
+    'analytics:overview': (d) => analyticsOverview(d),
     'supplier:list': (d) => {
       const rows = d.prepare(
         `SELECT s.id, s.name, s.phone,
@@ -1369,6 +1376,12 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       '/api/audit': () => auditLog(db, { limit: 50 }),
       '/api/supplier-statement': () =>
         supplierStatement(db, { supplierId: Number(url.searchParams.get('id')) }),
+      // 数据分析 REST（只读，图表/外部 Agent 同源取数）
+      '/api/analytics/trend': () => analyticsTrend(db, Number(url.searchParams.get('days')) || 7),
+      '/api/analytics/category': () => analyticsCategory(db),
+      '/api/analytics/top': () => analyticsTop(db, Number(url.searchParams.get('n')) || 10),
+      '/api/analytics/stockValue': () => analyticsStockValue(db),
+      '/api/analytics/overview': () => analyticsOverview(db),
     }
     const route = ROUTES[url.pathname]
     if (!route) {

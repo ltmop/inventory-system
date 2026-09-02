@@ -17,6 +17,8 @@ import {
   KeyRound,
 } from 'lucide-react'
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   Cell,
@@ -41,6 +43,7 @@ import { StatCard, type CardSpec } from './dashboard/StatCard'
 import { TodaySalesCard } from './dashboard/TodaySalesCard'
 import { AdviceCard } from './dashboard/AdviceCard'
 import { computeRestockAdvice } from '@/lib/restockAdvice'
+import { computeTrend, computeTop } from '@/lib/analytics'
 import { EmptyState } from '@/components/EmptyState'
 
 // 海洋系配色：深海蓝→湖蓝→湖水青→水草绿→沙滩金，像海面由深到浅的层次
@@ -279,6 +282,14 @@ export function DashboardPage() {
     })
   }, [transactions])
 
+  // 营业额&毛利趋势（与 backend analytics:trend 同源）+ 畅销Top
+  const [trendRange, setTrendRange] = useState<'7' | '30'>('7')
+  const trendSeries = useMemo(
+    () => computeTrend(transactions, trendRange === '7' ? 7 : 30).map((d) => ({ ...d, day: d.date.slice(5) })),
+    [transactions, trendRange],
+  )
+  const topProducts = useMemo(() => computeTop(transactions, products, 10), [transactions, products])
+
   const int = (v: number) => String(Math.round(v))
   const cards: CardSpec[] = [
     { title: '总SKU', value: products.length, format: int, unit: '个商品', icon: Box,
@@ -497,6 +508,69 @@ export function DashboardPage() {
                 <Bar dataKey="出库" fill="#10b981" radius={[3, 3, 0, 0]} maxBarSize={26} />
               </BarChart>
             </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* 营业额 & 毛利趋势（近7/30天，与 analytics API 同源） */}
+        <Card>
+          <CardHeader className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-base">营业额 & 毛利趋势</CardTitle>
+            <div className="flex overflow-hidden rounded-lg border">
+              {(['7', '30'] as const).map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setTrendRange(r)}
+                  className={`cursor-pointer px-3 py-1 text-xs transition-colors ${
+                    trendRange === r ? 'bg-brand-600 font-medium text-white' : 'bg-white text-slate-500 hover:bg-slate-50'
+                  }`}
+                >
+                  {r === '7' ? '近7天' : '近30天'}
+                </button>
+              ))}
+            </div>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={280}>
+              <AreaChart data={trendSeries}>
+                <defs>
+                  <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#1f6bd6" stopOpacity={0.22} />
+                    <stop offset="95%" stopColor="#1f6bd6" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="profGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.22} />
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="day" fontSize={11} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} />
+                <YAxis fontSize={10} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} width={44} />
+                <Tooltip contentStyle={{ border: 'none', boxShadow: '0 8px 24px -14px rgba(2,6,23,0.35)', borderRadius: 12, fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 12, paddingTop: 4 }} />
+                <Area type="monotone" dataKey="revenue" name="营业额" stroke="#1f6bd6" strokeWidth={2} fill="url(#revGrad)" />
+                <Area type="monotone" dataKey="profit" name="毛利" stroke="#10b981" strokeWidth={2} fill="url(#profGrad)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* 畅销 Top 10（按营业额） */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">畅销 Top 10（按营业额）</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {topProducts.length === 0 ? (
+              <EmptyState compact title="还没有销售记录" desc="开始卖货后这里会排出畅销榜" />
+            ) : (
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={topProducts} layout="vertical" margin={{ left: 8 }}>
+                  <XAxis type="number" fontSize={10} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} />
+                  <YAxis type="category" dataKey="name" width={120} fontSize={11} tickLine={false} axisLine={false} tick={{ fill: '#64748b' }} />
+                  <Tooltip contentStyle={{ border: 'none', boxShadow: '0 8px 24px -14px rgba(2,6,23,0.35)', borderRadius: 12, fontSize: 12 }} />
+                  <Bar dataKey="revenue" name="营业额" fill="#1f6bd6" radius={[0, 3, 3, 0]} barSize={18} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </div>
