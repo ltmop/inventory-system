@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import {
   Box,
   CalendarClock,
+  MonitorPlay,
   Package,
   PackagePlus,
   PackageMinus,
@@ -352,6 +353,9 @@ export function DashboardPage() {
           </Button>
           <Button variant="outline" onClick={() => navigate('/inbound')} className="gap-1.5">
             <PackagePlus className="size-4" /> 入库
+          </Button>
+          <Button variant="outline" onClick={() => navigate('/bigscreen')} className="gap-1.5">
+            <MonitorPlay className="size-4" /> 大屏
           </Button>
         </div>
       </div>

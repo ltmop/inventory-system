@@ -33,6 +33,7 @@ import AccountPage from '@/pages/AccountPage'
 import { ImportPage } from '@/pages/ImportPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import { ReportsPage } from '@/pages/ReportsPage'
+import BigScreenPage from '@/pages/BigScreenPage'
 import { ActivationPage } from '@/pages/ActivationPage'
 import { OnboardingPage } from '@/pages/OnboardingPage'
 import { computeCustomerStats, useAppStore } from '@/store/appStore'
@@ -146,6 +147,7 @@ function App() {
           <Route element={<Layout />}>
             <Route index element={<OnboardingGuard />} />
             <Route path="reports" element={<ReportsPage />} />
+            <Route path="bigscreen" element={<BigScreenPage />} />
             <Route path="inbound-hub" element={<InboundHubPage />} />
             <Route path="sales-hub" element={<SalesHubPage />} />
             <Route path="stock-hub" element={<StockHubPage />} />

@@ -11,6 +11,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { formatPrice, formatTime } from '@/lib/formatters'
+import { RollingNumber } from '@/components/RollingNumber'
 import type { TodayPaymentSplit } from '@/lib/paySplit'
 import { PAYMENT_METHODS } from '@/types'
 
@@ -66,13 +67,13 @@ export function TodaySalesCard({ summary, paySplit, aiLoading, aiText }: TodaySa
               <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
                 <div className="text-xs text-slate-500">今日营业额</div>
                 <div className="text-xl font-bold text-slate-900 tabular-nums">
-                  {formatPrice(summary.revenue)}
+                  <RollingNumber value={summary.revenue} format={(v) => formatPrice(v)} />
                 </div>
               </div>
               <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
                 <div className="text-xs text-slate-500">今日毛利</div>
                 <div className="text-xl font-bold text-slate-900 tabular-nums">
-                  {formatPrice(summary.profit)}
+                  <RollingNumber value={summary.profit} format={(v) => formatPrice(v)} />
                 </div>
               </div>
               <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">

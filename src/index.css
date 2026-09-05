@@ -233,6 +233,13 @@
   button:not(:disabled) {
     transition: transform 0.14s ease, box-shadow 0.14s ease, background-color 0.14s ease, border-color 0.14s ease;
   }
+
+/* 里程表数字滚动（数据绑定动画；reduced-motion 由 ui-reduce / prefers 全局兜底） */
+.rolling-num{display:inline-block;font-variant-numeric:tabular-nums}
+@keyframes roll-in{0%{opacity:.2;transform:translateY(-9px)}60%{opacity:1}100%{opacity:1;transform:translateY(0)}}
+@media (prefers-reduced-motion:reduce){.rolling-num{animation:none!important}}
+.ui-reduce .rolling-num{animation:none!important}
+
   button:not(:disabled):active {
     transform: scale(0.97);
   }
