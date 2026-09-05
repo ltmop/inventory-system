@@ -2,6 +2,7 @@ node_modules/
 dist/
 release/
 spike/
+sync-workbench.mjs
 *.log
 
 # 激活码私钥（泄露=任何人都能发码），只留在老板发码机
