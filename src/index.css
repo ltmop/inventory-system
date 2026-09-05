@@ -238,6 +238,12 @@
 .rolling-num{display:inline-block;font-variant-numeric:tabular-nums}
 @keyframes roll-in{0%{opacity:.2;transform:translateY(-9px)}60%{opacity:1}100%{opacity:1;transform:translateY(0)}}
 @media (prefers-reduced-motion:reduce){.rolling-num{animation:none!important}}
+/* 壁纸背景缓呼吸缩放（大屏 SVG 壁纸可读又不死板；reduced-motion 兜底） */
+.wallpaper-bg{animation:wbreathe 16s ease-in-out infinite;transform-origin:50% 50%}
+@keyframes wbreathe{0%,100%{transform:scale(1.0)}50%{transform:scale(1.06)}}
+@media (prefers-reduced-motion:reduce){.wallpaper-bg{animation:none!important}}
+.ui-reduce .wallpaper-bg{animation:none!important}
+
 .ui-reduce .rolling-num{animation:none!important}
 
   button:not(:disabled):active {
