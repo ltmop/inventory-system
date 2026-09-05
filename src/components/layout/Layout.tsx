@@ -10,12 +10,14 @@ import { FirstOrderCelebration } from '@/components/FirstOrderCelebration'
 import { CloudLoginGate } from '@/components/CloudLoginGate'
 import { LowStockAlert } from '@/components/LowStockAlert'
 import { useAppStore } from '@/store/appStore'
+import { useWallpaper } from '@/lib/wallpaper'
 import { backend, setGuestMode } from '@/lib/api'
 
 export function Layout() {
   const [collapsed, setCollapsed] = useState(false)
   const location = useLocation()
   const error = useAppStore((s) => s.error)
+  const wallpaper = useWallpaper((s) => s)
   const cloudPaired = useAppStore((s) => s.cloud.paired)
   const cloudAuth = useAppStore((s) => s.cloudAuth)
   const setCloudAuth = useAppStore((s) => s.setCloudAuth)
@@ -35,6 +37,14 @@ export function Layout() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-gradient-to-br from-[#f2f6f9] via-[#eef3f8] to-[#e6eef5] dark:from-[#0a1628] dark:via-[#0c1a2e] dark:to-[#0a1628]">
+      {/* 桌面壁纸：SVG 背景，纯静态 + 压暗层，保证可读、不遮功能模块 */}
+      {wallpaper.enabled && wallpaper.url && (
+        <div className="pointer-events-none fixed inset-0 z-0">
+          <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: 'url("' + wallpaper.url + '")' }} />
+          <div className="absolute inset-0 bg-slate-950/55" />
+        </div>
+      )}
+      <div className="relative z-10 flex min-h-0 min-w-0 flex-1">
       <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
       <div className="flex min-w-0 flex-1 flex-col">
         {/* 顶栏：现代后台骨架 */}
@@ -66,6 +76,7 @@ export function Layout() {
           <Outlet />
         </motion.div>
         </main>
+      </div>
       </div>
       {/* 低库存开机提醒：每次启动弹一次 */}
       <LowStockAlert />

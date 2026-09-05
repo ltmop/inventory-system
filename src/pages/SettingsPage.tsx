@@ -16,6 +16,7 @@ import { PaymentQrCard } from './settings/PaymentQrCard'
 import { CentralModeCard } from './settings/CentralModeCard'
 import { StaffCard } from './settings/StaffCard'
 import { IndustryTemplateCard } from './settings/IndustryTemplateCard'
+import { WallpaperCard } from './settings/WallpaperCard'
 import { PreferenceRow } from './settings/PreferenceRow'
 
 // 设置页分类（2026-09-01 重构：10 个区块按 4 组归类，顶部导航条点击定位）
@@ -314,6 +315,8 @@ export function SettingsPage() {
       <section id="set-appearance" className="scroll-mt-4">
         <h2 className="mb-2 text-sm font-semibold text-slate-700">🎨 外观与操作</h2>
         <div className="space-y-6">
+      {/* 桌面壁纸：SVG 背景，选内置/上传自定义，cover 缩放 + 压暗不遮功能 */}
+      <WallpaperCard />
       {/* 使用偏好：提示音 + 大字模式，本机保存 */}
       <Card>
         <CardHeader>
