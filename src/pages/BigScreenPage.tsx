@@ -49,7 +49,7 @@ export default function BigScreenPage() {
   return (
     <div className={cn('relative min-h-screen overflow-hidden text-slate-100', s.bg)} style={{ backgroundImage: 'radial-gradient(1200px 600px at 15% -5%, rgba(43,109,224,.18), transparent 60%)' }}>
       {/* SVG 动画背景（按需加载，仅 /bigscreen 访问时请求） */}
-      <img src={s.img} alt="" className="absolute inset-0 h-full w-full object-cover opacity-80" />
+      <object data={s.img} type="image/svg+xml" className="absolute inset-0 h-full w-full" aria-label="动画背景" />
 
       <div className="relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col px-8 py-8">
         <div className="flex flex-wrap items-center gap-3">

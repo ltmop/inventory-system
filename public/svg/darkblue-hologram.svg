@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+﻿<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
 <svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0.00 0.00 2000.00 1500.00">
 <g stroke-width="2.00" fill="none" stroke-linecap="butt">
@@ -216318,4 +216318,12 @@
   A 0.26 0.26 0.0 0 1 988.68 1457.03
   Z"
 />
+<style>
+  /* 进销存附加动效：整图缓呼吸缩放 + 线条描绘 draw-in（铁律：动效为增强观感，不遮挡数据） */
+  svg{animation:bpulse 6.5s ease-in-out infinite;transform-origin:50% 50%}
+  @keyframes bpulse{0%,100%{transform:scale(1.02);opacity:1}50%{transform:scale(1.08);opacity:.88}}
+  path{stroke-dasharray:2600;stroke-dashoffset:2600;animation:draw 8s cubic-bezier(.4,0,.2,1) forwards}
+  @keyframes draw{to{stroke-dashoffset:0}}
+  @media (prefers-reduced-motion:reduce){svg,path{animation:none!important}path{stroke-dashoffset:0}}
+</style>
 </svg>
