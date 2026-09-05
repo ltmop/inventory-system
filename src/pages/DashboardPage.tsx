@@ -45,6 +45,7 @@ import { TodaySalesCard } from './dashboard/TodaySalesCard'
 import { AdviceCard } from './dashboard/AdviceCard'
 import { computeRestockAdvice } from '@/lib/restockAdvice'
 import { computeTrend, computeTop } from '@/lib/analytics'
+import { VitalsBar } from '@/components/vitals/VitalsBar'
 import { EmptyState } from '@/components/EmptyState'
 
 // 海洋系配色：深海蓝→湖蓝→湖水青→水草绿→沙滩金，像海面由深到浅的层次
@@ -359,6 +360,9 @@ export function DashboardPage() {
           </Button>
         </div>
       </div>
+
+      {/* 经营体征条：销售心跳 / 库存水位 / 警戒呼吸 / 云同步新鲜度 */}
+      <VitalsBar />
 
       {/* 签名看板元素：今日经营语义条（营业额 = 成本 + 毛利），一眼看清今天赚了多少 */}
       <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-card">
