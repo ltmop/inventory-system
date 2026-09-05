@@ -6,17 +6,19 @@ import { useAppStore } from '@/store/appStore'
 import { formatPrice } from '@/lib/formatters'
 import { computeOverview, computeTrend, computeStockValue } from '@/lib/analytics'
 import { RollingNumber } from '@/components/RollingNumber'
+import darkblueHologram from '@/assets/svg/darkblue-hologram.svg'
+import cybersilverChrome from '@/assets/svg/cybersilver-chrome.svg'
 import { cn } from '@/lib/utils'
 
 type Skin = 'blue' | 'silver'
 const SKINS: Record<Skin, { img: string; label: string; bg: string; panel: string; ink: string; sub: string; border: string }> = {
   blue: {
-    img: '/svg/darkblue-hologram.svg', label: '黑洞 · 暗夜蓝',
+    img: darkblueHologram, label: '黑洞 · 暗夜蓝',
     bg: 'from-[#070b16] via-[#0a0e1c] to-[#060910]',
     panel: 'bg-slate-950/45 backdrop-blur-md border-white/10', ink: 'text-slate-100', sub: 'text-slate-300', border: 'border-white/10',
   },
   silver: {
-    img: '/svg/cybersilver-chrome.svg', label: '铬立方 · 赛博银',
+    img: cybersilverChrome, label: '铬立方 · 赛博银',
     bg: 'from-slate-200 via-slate-100 to-slate-300',
     panel: 'bg-white/65 backdrop-blur-md border-black/10', ink: 'text-slate-900', sub: 'text-slate-600', border: 'border-black/10',
   },
