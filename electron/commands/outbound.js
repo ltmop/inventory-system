@@ -123,9 +123,11 @@ export function confirmOutbound(db, { productId, quantity: rawQuantity, sellingP
       })
       remaining -= deduct
     }
-    // 无库存强制出库：批次全扣完后还有剩余 → 记 batch_id=null 流水 + 负数量批次（提醒补录入库）
+    // 无库存强制出库：批次全扣完后还有剩余 → 记 batch_id=null 流水（成本口径同下），
+    // 不建负数量批次——真实库 schema 有 CHECK (quantity >= 0)，负库存批次根本写不进去（会整单回滚），
+    // 且库存账不允许负数。超卖部分就靠这笔「无批次」出库流水留痕，备注标明待补成本/待补入库。
     if (remaining > 0 && allowNoStock) {
-      // 成本口径（周掌柜审计修正 2026-08-28）：负库存成本 = 最近一次有成本的出库流水 → 回退商品档案进价 → 都没有记 0 并挂「待补成本」。
+      // 成本口径（周掌柜审计修正 2026-08-28）：超卖部分成本 = 最近一次有成本的出库流水 → 回退商品档案进价 → 都没有记 0 并挂「待补成本」。
       // 绝不能拿售价当成本（会让这笔毛利虚高、月底对不上账）。
       const lastCost = db
         .prepare("SELECT unit_price FROM transactions WHERE product_id = ? AND unit_price IS NOT NULL ORDER BY id DESC LIMIT 1")
@@ -137,11 +139,7 @@ export function confirmOutbound(db, { productId, quantity: rawQuantity, sellingP
       db.prepare(
         "INSERT INTO transactions (product_id, batch_id, type, quantity, unit_price, selling_price, timestamp, operator, notes, customer_id, paid_amount, pay_method) VALUES (?, NULL, 'out', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       ).run(productId, remaining, estCost, sellingPrice ?? null, ts, operator ?? null, costNote, customerId ?? null, isCredit ? 0 : null, isCredit ? null : methodForTx)
-      allocations.push(unallocated)
-      // 建负数量批次：库存查询能看到「欠 X 件」；成本按同口径记（不拿售价污染成本账）
-      db.prepare(
-        "INSERT INTO inventory_batches (product_id, batch_no, quantity, cost_price, inbound_date, notes) VALUES (?, ?, ?, ?, ?, ?)",
-      ).run(productId, '负库存-' + now().slice(0, 10), -remaining, estCost, now().slice(0, 10), costNote)
+      allocations.push({ batch_id: null, batch_no: costNote, deduct: remaining, remaining_after: -remaining, cost_price: estCost })
     }
     const outProd = db.prepare('SELECT * FROM products WHERE id = ?').get(productId)
     logAudit(db, '出库', `${outProd ? productLabel(outProd) : `#${productId}`} x${quantity}`,
@@ -255,7 +253,8 @@ export function confirmCheckout(db, { items, customerId, paidAmount, payMethod, 
         allocations.push({ batch_id: b.id, batch_no: b.batch_no, deduct, remaining_after: b.quantity - deduct, cost_price: b.cost_price })
         remaining -= deduct
       }
-      // 无库存强制出库：该行批次全扣完还有剩余 → 记负批次 + 无批次流水
+      // 无库存强制出库：该行批次全扣完还有剩余 → 只记无批次（batch_id=null）流水，
+      // 不建负数量批次——真实库 schema 有 CHECK (quantity >= 0)，负库存写不进去（会整单回滚），库存账也不允许负数。
       if (remaining > 0 && allowNoStock) {
         // 成本口径（周掌柜审计修正）：最近一次有成本出库流水 → 商品档案进价 → 0+挂「待补成本」
         const lastCost = db
@@ -268,10 +267,7 @@ export function confirmCheckout(db, { items, customerId, paidAmount, payMethod, 
         db.prepare(
           "INSERT INTO transactions (product_id, batch_id, type, quantity, unit_price, selling_price, timestamp, operator, notes, customer_id, paid_amount, pay_method) VALUES (?, NULL, 'out', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ).run(l.productId, remaining, estCost, l.sellingPrice, ts, operator ?? null, costNote, customerId ?? null, isCredit ? 0 : null, isCredit ? null : methodForTx)
-        allocations.push({ batch_id: null, batch_no: null, deduct: remaining, remaining_after: -remaining, cost_price: null })
-        db.prepare(
-          "INSERT INTO inventory_batches (product_id, batch_no, quantity, cost_price, inbound_date, notes) VALUES (?, ?, ?, ?, ?, ?)",
-        ).run(l.productId, '负库存-' + now().slice(0, 10), -remaining, estCost, now().slice(0, 10), costNote)
+        allocations.push({ batch_id: null, batch_no: costNote, deduct: remaining, remaining_after: -remaining, cost_price: estCost })
       }
       resultLines.push({ productId: l.productId, quantity: l.quantity, sellingPrice: l.sellingPrice, allocations })
     }

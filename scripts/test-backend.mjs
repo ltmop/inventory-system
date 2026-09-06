@@ -169,6 +169,18 @@ const over = cmd.confirmOutbound(db, { productId: 1, quantity: 999, sellingPrice
 ok('超库存返回 shortage', over.ok === false && over.shortage === 999 - stock1)
 ok('超库存未动批次', db.prepare('SELECT quantity FROM inventory_batches WHERE id = 2').get().quantity > 0)
 
+// 4b. 无库存强制出库（allowNoStock）：店里有货但没录库存 → 放行，超卖部分记 batch_id=null 流水
+//     真实库 schema CHECK (quantity >= 0) 禁止负批次，不能建「负库存」批次——只留无批次出库流水待补录
+const pNoStock = cmd.createProduct(db, { sku_code: '', barcode: null, category: '鱼线', brand: '无库存牌', model: '空库线', cost_price: 0 })
+const noStock = cmd.confirmOutbound(db, { productId: pNoStock.id, quantity: 3, sellingPrice: 900, operator: '测试', allowNoStock: true })
+ok('无库存强制出库返回 ok', noStock.ok === true)
+ok('无库存出库记 batch_id=null 流水', db.prepare("SELECT * FROM transactions WHERE product_id = ? AND type = 'out' AND batch_id IS NULL").get(pNoStock.id) != null)
+const noStockTx = db.prepare("SELECT * FROM transactions WHERE product_id = ? AND type = 'out' AND batch_id IS NULL").get(pNoStock.id)
+ok('无库存出库流水数量与待补备注', noStockTx.quantity === 3 && noStockTx.notes.includes('无库存强制出库'))
+ok('无库存出库不建负批次', db.prepare('SELECT COUNT(*) AS c FROM inventory_batches WHERE product_id = ?').get(pNoStock.id).c === 0)
+const ckNs = cmd.confirmCheckout(db, { items: [{ productId: pNoStock.id, quantity: 2, sellingPrice: 900 }], operator: '测试', allowNoStock: true })
+ok('收银台无库存强制出库 ok', ckNs.ok === true && ckNs.lines[0].allocations.some((a) => a.batch_id === null))
+
 // 5. 盘点闭环：A墙 → 录入实盘 → 完成 → 批次库存按实盘更新
 const take = cmd.createStockTake(db, { locationFilter: 'A区-饮料架', operator: '测试' })
 const items = db.prepare('SELECT * FROM stock_take_items WHERE stock_take_id = ?').all(take.id)
