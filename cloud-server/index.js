@@ -42,6 +42,38 @@ function checkToken(req, expected) {
   return true
 }
 
+// ---------- 驾驶舱账号 · scrypt 哈希 + 登录失败锁定（零依赖，内置 node:crypto） ----------
+function scryptHash(password, salt) {
+  return crypto.scryptSync(String(password), String(salt), 64).toString('hex')
+}
+function verifyScrypt(password, hash, salt) {
+  try {
+    const h = crypto.scryptSync(String(password), String(salt), 64).toString('hex')
+    const a = Buffer.from(h, 'hex')
+    const b = Buffer.from(String(hash), 'hex')
+    if (a.length !== b.length) return false
+    return crypto.timingSafeEqual(a, b)
+  } catch { return false }
+}
+
+// 登录失败锁定（内存记录）：同一用户名 5 次失败锁 15 分钟
+const loginFailures = new Map() // username -> { count, lastAt }
+const MAX_LOGIN_FAILS = 5
+const LOGIN_LOCK_MS = 15 * 60 * 1000
+function loginLocked(username) {
+  const f = loginFailures.get(username)
+  if (!f) return false
+  if (Date.now() - f.lastAt > LOGIN_LOCK_MS) { loginFailures.delete(username); return false }
+  return f.count >= MAX_LOGIN_FAILS
+}
+function recordLoginFail(username) {
+  const f = loginFailures.get(username) || { count: 0, lastAt: 0 }
+  f.count = (f.count || 0) + 1
+  f.lastAt = Date.now()
+  loginFailures.set(username, f)
+}
+function clearLoginFail(username) { loginFailures.delete(username) }
+
 // ---------- 用户鉴权中间件 ----------
 
 function requireUser(req, res) {
@@ -175,6 +207,68 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
       res.end(html)
       return
+    }
+
+    // ====== CEO驾驶舱 · 独立命名空间（绝不改 /api/pair、/api/snapshot、/api/backup*） ======
+    // 一套共享数据：固定槽位 cockpit，管理员建号 + 账号密码登录 + 可撤销过期会话
+
+    // ======== POST /api/cockpit/register (管理员建号，需 ADMIN_KEY；无公开自助注册) ========
+    if (req.method === 'POST' && pathname === '/api/cockpit/register') {
+      const body = JSON.parse((await readBody(req)).toString())
+      if (!ADMIN_KEY || body.adminKey !== ADMIN_KEY) return json(res, 401, { ok: false, error: '需要 ADMIN_KEY' })
+      const username = (body.username || '').trim()
+      const password = body.password || ''
+      if (!username || !password) return json(res, 400, { ok: false, error: '缺少 username/password' })
+      if (password.length < 6) return json(res, 400, { ok: false, error: '密码至少 6 位' })
+      if (store.findByUsername(username)) return json(res, 409, { ok: false, error: '用户名已存在' })
+      const salt = randomHex(16)
+      const m = store.createMember(username, scryptHash(password, salt), salt)
+      if (!m) return json(res, 409, { ok: false, error: '用户名已存在' })
+      store.getOrCreateSlotKey() // 首次建号时确保共享槽密钥存在
+      store.audit('member.register', username)
+      return json(res, 201, { ok: true, username })
+    }
+
+    // ======== POST /api/cockpit/login (账号密码登录，失败锁定限流) ========
+    if (req.method === 'POST' && pathname === '/api/cockpit/login') {
+      const body = JSON.parse((await readBody(req)).toString())
+      const username = (body.username || '').trim()
+      const password = body.password || ''
+      if (loginLocked(username)) return json(res, 429, { ok: false, error: '尝试过多，账号已临时锁定，请稍后再试' })
+      const m = store.findByUsername(username)
+      if (!m || !verifyScrypt(password, m.passwordHash, m.salt)) {
+        recordLoginFail(username)
+        store.audit('member.login.fail', username)
+        return json(res, 401, { ok: false, error: '账号或密码错误' })
+      }
+      if (!m.enabled) return json(res, 403, { ok: false, error: '账号已停用' })
+      clearLoginFail(username)
+      const token = randomHex(32)
+      store.createSession(token, username, 12 * 60 * 60 * 1000) // 12h
+      const slotKey = store.getOrCreateSlotKey()
+      store.audit('member.login', username)
+      return json(res, 200, { ok: true, username, token, slotKey, expiresIn: 12 * 60 * 60 })
+    }
+
+    // ======== GET /api/cockpit/snapshot/fetch (登录会话鉴权) ========
+    if (req.method === 'GET' && pathname === '/api/cockpit/snapshot/fetch') {
+      const sess = store.validateSession(req.headers['x-token'])
+      if (!sess) return json(res, 401, { ok: false, error: '未登录或会话已过期' })
+      const snap = store.loadSnapshot(store.cockpitSlotId())
+      store.audit('cockpit.fetch', sess.username)
+      if (!snap) return json(res, 404, { ok: false, error: '暂无快照数据' })
+      return json(res, 200, { ok: true, iv: snap.iv, data: snap.data })
+    }
+
+    // ======== POST /api/cockpit/snapshot (登录会话鉴权，写共享槽) ========
+    if (req.method === 'POST' && pathname === '/api/cockpit/snapshot') {
+      const sess = store.validateSession(req.headers['x-token'])
+      if (!sess) return json(res, 401, { ok: false, error: '未登录或会话已过期' })
+      const body = JSON.parse((await readBody(req)).toString())
+      if (!body.iv || !body.data) return json(res, 400, { ok: false, error: '缺少 iv/data' })
+      store.saveSnapshot(store.cockpitSlotId(), body.iv, body.data)
+      store.audit('cockpit.snapshot', sess.username, `${(body.data || '').length} bytes`)
+      return json(res, 200, { ok: true, at: new Date().toISOString() })
     }
 
     // ======== GET /admin ========
