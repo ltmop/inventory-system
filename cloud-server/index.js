@@ -271,6 +271,12 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, at: new Date().toISOString() })
     }
 
+    // ======== POST /api/cockpit/logout (撤销当前会话令牌，主动作废) ========
+    if (req.method === 'POST' && pathname === '/api/cockpit/logout') {
+      store.revokeSession(req.headers['x-token'])
+      return json(res, 200, { ok: true })
+    }
+
     // ======== GET /admin ========
     if (pathname === '/admin' || pathname === '/admin/') {
       const key = url.searchParams.get('key')
