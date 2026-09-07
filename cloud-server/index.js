@@ -55,7 +55,6 @@ function verifyScrypt(password, hash, salt) {
     return crypto.timingSafeEqual(a, b)
   } catch { return false }
 }
-
 // 登录失败锁定（内存记录）：同一用户名 5 次失败锁 15 分钟
 const loginFailures = new Map() // username -> { count, lastAt }
 const MAX_LOGIN_FAILS = 5
@@ -77,6 +76,18 @@ function clearLoginFail(username) { loginFailures.delete(username) }
 // ---------- 用户鉴权中间件 ----------
 
 function requireUser(req, res) {
+  // 多设备：优先按 uploadToken 匹配设备 → userId；兼容旧版按 x-user-id 单 token
+  const token = req.headers['x-token']
+  if (token) {
+    const hit = store.findDeviceByToken(token)
+    if (hit) return hit.userId
+    // 旧版单 token 兼容：x-user-id + meta.uploadToken
+    const userId = req.headers['x-user-id']
+    if (userId && fs.existsSync(store.userDir(userId))) {
+      const meta = store.loadMeta(userId)
+      if (meta.uploadToken === token) return userId
+    }
+  }
   const userId = req.headers['x-user-id']
   if (!userId || !fs.existsSync(store.userDir(userId))) {
     json(res, 401, { ok: false, error: '未配对或用户不存在' })
@@ -88,17 +99,21 @@ function requireUser(req, res) {
 function requireUploadAuth(req, res) {
   const userId = requireUser(req, res)
   if (!userId) return null
+  const token = req.headers['x-token']
+  if (!token) { json(res, 401, { ok: false, error: '缺少 uploadToken' }); return null }
+  // 多设备 devices 匹配 or 旧单 token 匹配
+  const hit = store.findDeviceByToken(token)
+  if (hit) return hit.userId
   const meta = store.loadMeta(userId)
-  const uploadToken = meta.uploadToken
-  if (!checkToken(req, uploadToken)) {
-    json(res, 401, { ok: false, error: 'uploadToken 无效' })
-    return null
-  }
-  return userId
+  if (meta.uploadToken === token) return userId
+  json(res, 401, { ok: false, error: 'uploadToken 无效' })
+  return null
 }
 
 // 简洁 fs import
 import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 // ---------- 路由 ----------
 
@@ -113,22 +128,87 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  // ======== GET /updates/* —— 自动更新源（latest.yml + 安装包静态托管） ========
+  if (req.method === 'GET' && pathname.startsWith('/updates/')) {
+    const __dirname = fileURLToPath(new URL('.', import.meta.url))
+    const rel = pathname.slice('/updates/'.length)
+    const safe = rel.split('/').filter((p) => p && p !== '..' && !p.includes('\\')).join('/')
+    const full = path.join(__dirname, 'updates', safe)
+    try {
+      const st = fs.statSync(full)
+      if (st.isFile()) {
+        const ext = full.split('.').pop().toLowerCase()
+        const types = { yml: 'text/yaml', yaml: 'text/yaml', exe: 'application/octet-stream', blockmap: 'application/octet-stream' }
+        res.writeHead(200, {
+          'Content-Type': types[ext] || 'application/octet-stream',
+          'Content-Length': st.size,
+          'Cache-Control': 'no-cache',
+          'Access-Control-Allow-Origin': '*',
+        })
+        fs.createReadStream(full).pipe(res)
+        return
+      }
+    } catch { /* 404 below */ }
+    return json(res, 404, { ok: false, error: 'update file not found' })
+  }
+
   try {
-    // ======== POST /api/pair ========
+    // ======== POST /api/account/register（多设备账户注册） ========
+    if (req.method === 'POST' && pathname === '/api/account/register') {
+      // 任务2：每 IP 每天注册上限（防脚本灌号）
+      const ip = req.socket.remoteAddress ?? 'unknown'
+      const regOk = store.checkRegisterAllowed(ip)
+      if (!regOk.allowed) return json(res, 429, { ok: false, error: regOk.error })
+      const body = JSON.parse((await readBody(req)).toString())
+      const r = store.registerAccount(body.username, body.password, body.note || '')
+      if (r.error) return json(res, 400, { ok: false, error: r.error })
+      return json(res, 200, { ok: true, userId: r.userId, username: r.username, salt: r.salt })
+    }
+
+    // ======== POST /api/account/login（多设备账户登录） ========
+    if (req.method === 'POST' && pathname === '/api/account/login') {
+      const body = JSON.parse((await readBody(req)).toString())
+      // 任务2：IP 限速 + 连续失败 5 次锁 15 分钟（防暴力破解）
+      const ip = req.socket.remoteAddress ?? 'unknown'
+      const allow = store.checkLoginAllowed(ip, body.username)
+      if (!allow.allowed) return json(res, 429, { ok: false, error: allow.error })
+      const r = store.loginAccount(body.username, body.password)
+      if (r.error) {
+        store.reportLoginResult(ip, body.username, false)
+        return json(res, 401, { ok: false, error: r.error })
+      }
+      store.reportLoginResult(ip, body.username, true)
+      const meta = store.loadMeta(r.userId)
+      return json(res, 200, { ok: true, userId: r.userId, username: r.username, note: meta.note || '', salt: r.salt })
+    }
+
+    // ======== POST /api/device/bind（多设备绑定：账户登录后追加一台设备） ========
+    if (req.method === 'POST' && pathname === '/api/device/bind') {
+      const body = JSON.parse((await readBody(req)).toString())
+      // 任务2：登录类接口同样限速 + 失败锁定（防爆破绑定通道）
+      const ip = req.socket.remoteAddress ?? 'unknown'
+      const allow = store.checkLoginAllowed(ip, body.username)
+      if (!allow.allowed) return json(res, 429, { ok: false, error: allow.error })
+      const r = store.loginAccount(body.username, body.password)
+      if (r.error) {
+        store.reportLoginResult(ip, body.username, false)
+        return json(res, 401, { ok: false, error: r.error })
+      }
+      store.reportLoginResult(ip, body.username, true)
+      const dev = store.bindDevice(r.userId, body.deviceName, body.note || '')
+      return json(res, 200, { ok: true, userId: r.userId, deviceId: dev.deviceId, uploadToken: dev.uploadToken, viewToken: dev.viewToken, salt: r.salt })
+    }
+
+    // ======== POST /api/pair（原配对码：一次性码换凭证；现支持多设备复用同一账户） ========
     if (req.method === 'POST' && pathname === '/api/pair') {
       const body = JSON.parse((await readBody(req)).toString())
       const code = body.pairCode?.trim()
       if (!code) return json(res, 400, { ok: false, error: '缺少 pairCode' })
       const userId = store.validatePairCode(code)
       if (!userId) return json(res, 403, { ok: false, error: '配对码无效或已过期' })
-      const uploadToken = randomHex(32)
-      const viewToken = randomHex(16)
-      const meta = store.loadMeta(userId)
-      meta.uploadToken = uploadToken
-      meta.viewToken = viewToken
-      meta.note = body.note || meta.note || ''
-      store.saveMeta(userId, meta)
-      return json(res, 200, { ok: true, userId, uploadToken, viewToken })
+      // 多设备：同一 userId 重复配对 → 追加一台设备（保留云端数据）
+      const dev = store.bindDevice(userId, body.deviceName, body.note || '')
+      return json(res, 200, { ok: true, userId, deviceId: dev.deviceId, uploadToken: dev.uploadToken, viewToken: dev.viewToken })
     }
 
     // ======== POST /api/snapshot ========
@@ -137,8 +217,15 @@ const server = http.createServer(async (req, res) => {
       if (!userId) return
       const body = JSON.parse((await readBody(req)).toString())
       if (!body.iv || !body.data) return json(res, 400, { ok: false, error: '缺少 iv/data' })
-      store.saveSnapshot(userId, body.iv, body.data)
-      return json(res, 200, { ok: true, at: new Date().toISOString() })
+      // 任务9（审计 2026-08-30）：多机并发冲突检测——客户端带上上次拿到的快照时间戳，
+      // 若云端已被其他设备更新过（快照 mtime 比客户端认知的新），拒绝覆盖并提示先拉取
+      const serverAt = store.snapshotMtime(userId)
+      const clientLastSync = req.headers['x-last-sync']
+      if (clientLastSync && serverAt && clientLastSync < serverAt) {
+        return json(res, 200, { ok: true, conflict: true, at: serverAt, detail: '另一台电脑有新数据，请先拉取再修改' })
+      }
+      const saved = store.saveSnapshot(userId, body.iv, body.data)
+      return json(res, 200, { ok: true, at: saved.at })
     }
 
     // ======== POST /api/backup ========
@@ -176,12 +263,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathname === '/api/snapshot/fetch') {
       const t = url.searchParams.get('t')
       if (!t) return json(res, 401, { ok: false, error: '缺少 viewToken' })
-      // 遍历用户找匹配的 viewToken
-      const users = store.listUsers()
-      let found = null
-      for (const u of users) {
-        const meta = store.loadMeta(u.userId)
-        if (meta.viewToken === t && !meta.viewTokenOld.includes(t)) { found = u.userId; break }
+      // 多设备：按 viewToken 找设备 → userId（含旧单 token 兼容）
+      let found = store.findDeviceByViewToken(t)
+      if (!found) {
+        const users = store.listUsers()
+        for (const u of users) {
+          const meta = store.loadMeta(u.userId)
+          if (meta.viewToken === t && !meta.viewTokenOld.includes(t)) { found = u.userId; break }
+        }
       }
       if (!found) return json(res, 401, { ok: false, error: 'viewToken 无效或已吊销' })
       const snap = store.loadSnapshot(found)
@@ -192,24 +281,26 @@ const server = http.createServer(async (req, res) => {
     // ======== GET /v/{viewToken} ========
     if (pathname.startsWith('/v/')) {
       const token = pathname.slice(3)
-      const users = store.listUsers()
-      let valid = false
-      for (const u of users) {
-        const meta = store.loadMeta(u.userId)
-        if (meta.viewToken === token && !meta.viewTokenOld.includes(token)) { valid = true; break }
+      let valid = !!store.findDeviceByViewToken(token)
+      if (!valid) {
+        const users = store.listUsers()
+        for (const u of users) {
+          const meta = store.loadMeta(u.userId)
+          if (meta.viewToken === token && !meta.viewTokenOld.includes(token)) { valid = true; break }
+        }
       }
       if (!valid) {
         res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' })
         res.end('<h1>404</h1><p>链接无效或已吊销，请联系老板重新生成</p>')
         return
       }
-      const html = fs.readFileSync(new URL('./view.html', import.meta.url).pathname, 'utf8')
+      const html = fs.readFileSync(fileURLToPath(new URL('./view.html', import.meta.url)), 'utf8')
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
       res.end(html)
       return
     }
 
-    // ====== CEO驾驶舱 · 独立命名空间（绝不改 /api/pair、/api/snapshot、/api/backup*） ======
+    // ====== CEO驾驶舱 · 独立命名空间（绝不改 /api/pair、/api/snapshot、/api/account/*、/api/backup*） ======
     // 一套共享数据：固定槽位 cockpit，管理员建号 + 账号密码登录 + 可撤销过期会话
 
     // ======== POST /api/cockpit/register (管理员建号，需 ADMIN_KEY；无公开自助注册) ========
@@ -250,6 +341,12 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, username, token, slotKey, expiresIn: 12 * 60 * 60 })
     }
 
+    // ======== POST /api/cockpit/logout (撤销当前会话令牌，主动作废) ========
+    if (req.method === 'POST' && pathname === '/api/cockpit/logout') {
+      store.revokeSession(req.headers['x-token'])
+      return json(res, 200, { ok: true })
+    }
+
     // ======== GET /api/cockpit/snapshot/fetch (登录会话鉴权) ========
     if (req.method === 'GET' && pathname === '/api/cockpit/snapshot/fetch') {
       const sess = store.validateSession(req.headers['x-token'])
@@ -271,12 +368,6 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, at: new Date().toISOString() })
     }
 
-    // ======== POST /api/cockpit/logout (撤销当前会话令牌，主动作废) ========
-    if (req.method === 'POST' && pathname === '/api/cockpit/logout') {
-      store.revokeSession(req.headers['x-token'])
-      return json(res, 200, { ok: true })
-    }
-
     // ======== GET /admin ========
     if (pathname === '/admin' || pathname === '/admin/') {
       const key = url.searchParams.get('key')
@@ -285,7 +376,7 @@ const server = http.createServer(async (req, res) => {
         res.end('<h1>401</h1><p>需要 ADMIN_KEY</p>')
         return
       }
-      const html = fs.readFileSync(new URL('./admin.html', import.meta.url).pathname, 'utf8')
+      const html = fs.readFileSync(fileURLToPath(new URL('./admin.html', import.meta.url)), 'utf8')
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
       res.end(html)
       return
@@ -332,6 +423,14 @@ const server = http.createServer(async (req, res) => {
       // 用户列表
       if (pathname === '/admin/users' && req.method === 'GET') {
         return json(res, 200, { ok: true, users: store.listUsers() })
+      }
+
+      // 任务3：重置密码（按用户名；重置后旧密码失效，需重新绑定设备）
+      if (pathname === '/admin/reset-password' && req.method === 'POST') {
+        const body = JSON.parse((await readBody(req)).toString())
+        const r = store.resetPassword(body.username, body.newPassword)
+        if (r.error) return json(res, 400, { ok: false, error: r.error })
+        return json(res, 200, { ok: true, username: r.username, detail: '密码已重置，请用新密码重新登录并绑定设备' })
       }
     }
 
