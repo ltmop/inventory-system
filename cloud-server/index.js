@@ -356,9 +356,13 @@ const server = http.createServer(async (req, res) => {
       const ip = req.socket.remoteAddress ?? 'unknown'
       const regOk = store.checkRegisterAllowed(ip)
       if (!regOk.allowed) return json(res, 429, { ok: false, error: regOk.error })
-      const codeOk = store.verifyCode(body.phone, body.sms_code)
-      if (!codeOk.ok) return json(res, 400, { ok: false, error: codeOk.error || '验证码错误或已过期' })
-      const owner = !!body.isOwner && ADMIN_KEY && body.adminKey === ADMIN_KEY
+      // 短信绕行：adminKey 有效 = 店长/管理员担保建号，免短信验证码（未接真实 SMS 前的降级路径；客户自助注册仍需短信码）
+      const isAdmin = !!(ADMIN_KEY && body.adminKey === ADMIN_KEY)
+      if (!isAdmin) {
+        const codeOk = store.verifyCode(body.phone, body.sms_code)
+        if (!codeOk.ok) return json(res, 400, { ok: false, error: codeOk.error || '验证码错误或已过期' })
+      }
+      const owner = !!body.isOwner && isAdmin
       const r = store.createCockpitAcc({ phone: body.phone, name: body.name, password: body.password, isOwner: owner })
       if (r.error) return json(res, 400, { ok: false, error: r.error })
       if (owner) { store.migrateSharedSlotToOwner(r.account.userId); store.getCockpitSlotKey(r.account.userId) }
