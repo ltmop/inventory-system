@@ -406,6 +406,7 @@ const server = http.createServer(async (req, res) => {
       if (!body.new_password || String(body.new_password).length < 6) return json(res, 400, { ok: false, error: '新密码至少 6 位' })
       const salt = randomHex(16)
       store.updateCockpitAcc(acc.phone, { salt, passHash: scryptHash(body.new_password, salt) })
+      store.clearCockpitFail(acc.phone) // 已用短信码验证身份，重置后清除登录锁定，用户可立即用新密码登录
       store.audit('cockpit.forgot', acc.name, acc.phone, acc.userId)
       return json(res, 200, { ok: true, message: '密码已重置，请用新密码登录' })
     }
