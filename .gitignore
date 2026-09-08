@@ -3,3 +3,5 @@ dist/
 release/
 spike/
 *.log
+config*.bak
+*.tmp

@@ -228,16 +228,24 @@ function hashPassword(password, salt) {
 }
 
 /** 注册账户：username 唯一；返回 userId 或 { error } */
-export function registerAccount(username, password, note = '') {
+export function registerAccount(username, password, note = '', phone = '', code = '') {
   const uname = String(username || '').trim().toLowerCase()
   if (!uname || uname.length < 2) return { error: '用户名至少 2 个字符' }
   if (!password || String(password).length < 6) return { error: '密码至少 6 位' }
+  const ph = String(phone || '').trim()
+  if (ph) {
+    if (!/^1\d{10}$/.test(ph)) return { error: '手机号格式不正确' }
+    const vc = verifyCode(ph, code)
+    if (!vc.ok) return { error: vc.error || '验证码错误或已过期' }
+  }
   const accounts = loadAccounts()
   if (accounts[uname]) return { error: '该账户已存在，请直接登录' }
+  for (const a of Object.values(accounts)) if (a.phone && a.phone === ph) return { error: '该手机号已被注册' }
   const userId = crypto.randomBytes(16).toString('hex')
   const salt = crypto.randomBytes(16).toString('hex')
   accounts[uname] = {
     userId, salt, passwordHash: hashPassword(password, salt),
+    phone: ph, enabled: true,
     note: String(note || ''), createdAt: new Date().toISOString(),
   }
   saveAccounts(accounts)
@@ -300,20 +308,25 @@ export function checkRegisterAllowed(ip) {
 }
 
 /** 登录账户：校验用户名密码 → userId */
-export function loginAccount(username, password) {
-  const uname = String(username || '').trim().toLowerCase()
+export function loginAccount(identifier, password) {
+  const id = String(identifier || '').trim().toLowerCase()
   const accounts = loadAccounts()
-  const acc = accounts[uname]
+  let acc = accounts[id]
+  let uname = id
+  if (!acc && /^1\d{10}$/.test(id)) {
+    for (const [name, a] of Object.entries(accounts)) if (a.phone === id) { acc = a; uname = name; break }
+  }
   if (!acc) return { error: '账户不存在，请先注册' }
+  if (acc.enabled === false) return { error: '该账号已被停用' }
   if (acc.passwordHash !== hashPassword(password, acc.salt)) return { error: '密码不对' }
-  return { ok: true, userId: acc.userId, username: uname }
+  return { ok: true, userId: acc.userId, username: uname, phone: acc.phone || '' }
 }
 
 /** 列出账户（admin 用） */
 export function listAccounts() {
   const accounts = loadAccounts()
   return Object.entries(accounts).map(([username, a]) => ({
-    username, userId: a.userId, note: a.note, createdAt: a.createdAt,
+    username, userId: a.userId, phone: a.phone || '', enabled: a.enabled !== false, note: a.note, createdAt: a.createdAt,
   }))
 }
 
@@ -386,7 +399,7 @@ const MEMBERS_FILE = path.join(DATA_ROOT, 'members.json')
 const AUDIT_FILE = path.join(DATA_ROOT, 'audit.log')
 const COCKPIT_SLOT = 'cockpit' // 驾驶舱固定共享槽位
 
-export function cockpitSlotId() { return COCKPIT_SLOT }
+export function cockpitSlotId(userId) { return String(userId || '') }
 
 // ---------- 驾驶舱成员表（管理员建号，无公开自助注册） ----------
 function readMembers() {
@@ -404,7 +417,7 @@ export function createMember(username, passwordHash, salt) {
   if (!name) return null
   const list = readMembers()
   if (list.find(m => m.username === name)) return null // 用户名已存在
-  const member = { username: name, passwordHash, salt, userId: COCKPIT_SLOT, createdAt: new Date().toISOString(), enabled: true }
+  const member = { username: name, passwordHash, salt, userId: crypto.randomBytes(16).toString('hex'), createdAt: new Date().toISOString(), enabled: true }
   list.push(member)
   writeMembers(list)
   return member
@@ -429,8 +442,9 @@ export function listMembers() {
 }
 
 // ---------- 共享槽密钥（服务端代管，登录后经 HTTPS 下发；与 cloudCrypto.generateKey 同格式 32字节 base64url） ----------
-export function getOrCreateSlotKey() {
-  const dir = userDir(COCKPIT_SLOT)
+export function getOrCreateSlotKey(userId = '') {
+  const uid = String(userId || '').trim() || COCKPIT_SLOT
+  const dir = userDir(uid)
   ensureDir(dir)
   const keyFile = path.join(dir, 'slot.key')
   if (fs.existsSync(keyFile)) return fs.readFileSync(keyFile, 'utf8').trim()
@@ -443,7 +457,9 @@ export function getOrCreateSlotKey() {
 const sessions = new Map() // token -> { username, userId, expiresAt }
 
 export function createSession(token, username, ttlMs) {
-  sessions.set(token, { username, userId: COCKPIT_SLOT, expiresAt: Date.now() + (ttlMs || 12 * 60 * 60 * 1000) })
+  const acc = loadAccounts()[String(username || '').trim().toLowerCase()]
+  const userId = (acc && acc.userId) || COCKPIT_SLOT
+  sessions.set(token, { username, userId, expiresAt: Date.now() + (ttlMs || 12 * 60 * 60 * 1000) })
 }
 
 export function validateSession(token) {
@@ -451,17 +467,224 @@ export function validateSession(token) {
   const s = sessions.get(token)
   if (!s) return null
   if (Date.now() > s.expiresAt) { sessions.delete(token); return null }
-  const m = readMembers().find(x => x.username === s.username)
-  if (!m || !m.enabled) { sessions.delete(token); return null }
+  const acc = loadAccounts()[String(s.username || '').trim().toLowerCase()]
+  if (!acc || acc.enabled === false) { sessions.delete(token); return null }
   return s
 }
 
 export function revokeSession(token) { if (token) sessions.delete(token) }
 
+// ---------- 手机验证码 / 找回密码（多租户：账号可自助注册/找回；code 只存哈希；限流/TTL/错误上限） ----------
+const VERIFIES = new Map() // phone -> { codeHash, expiresAt, attempts, lastSendAt }
+const SEND_IP_HITS = new Map() // ip -> [timestamps]
+const CODE_TTL_MS = 5 * 60 * 1000
+const CODE_MAX_ATTEMPTS = 5
+const SEND_PHONE_GAP_MS = 60 * 1000
+const SEND_IP_MIN_RATE = 5
+
+export function sendCode(phone, ip = '') {
+  const ph = String(phone || '').trim()
+  if (!/^1\d{10}$/.test(ph)) return { error: '手机号格式不正确' }
+  const ent = VERIFIES.get(ph)
+  if (ent && ent.lastSendAt && Date.now() - ent.lastSendAt < SEND_PHONE_GAP_MS) return { error: '发送过于频繁，请 1 分钟后再试' }
+  const now = Date.now()
+  const ipKey = String(ip || 'unknown')
+  const cutoff = now - 60_000
+  const ipHits = (SEND_IP_HITS.get(ipKey) || []).filter(t => t > cutoff)
+  if (ipHits.length >= SEND_IP_MIN_RATE) return { error: '该网络发送过于频繁，请稍后再试' }
+  SEND_IP_HITS.set(ipKey, [...ipHits, now])
+  const code = (process.env.COCKPIT_SMS_MOCK === '1') ? '123456' : String(Math.floor(100000 + Math.random() * 900000)) // dev 测试码 123456；上线走真网关
+  VERIFIES.set(ph, { codeHash: crypto.createHash('sha256').update(code).digest('hex'), expiresAt: Date.now() + CODE_TTL_MS, attempts: 0, lastSendAt: Date.now() })
+  return { ok: true, mockCode: (process.env.COCKPIT_SMS_MOCK === '1' ? code : undefined) }
+}
+
+export function verifyCode(phone, code) {
+  const ph = String(phone || '').trim()
+  const ent = VERIFIES.get(ph)
+  if (!ent) return { error: '请先获取验证码' }
+  if (Date.now() > ent.expiresAt) { VERIFIES.delete(ph); return { error: '验证码已过期，请重新获取' } }
+  if (ent.attempts >= CODE_MAX_ATTEMPTS) { VERIFIES.delete(ph); return { error: '验证码错误次数过多，请重新获取' } }
+  const h = crypto.createHash('sha256').update(String(code || '')).digest('hex')
+  const devOk = (process.env.COCKPIT_SMS_MOCK === '1' && String(code || '').trim() === '123456')
+  if (h !== ent.codeHash && !devOk) {
+    ent.attempts += 1
+    VERIFIES.set(ph, ent)
+    const left = CODE_MAX_ATTEMPTS - ent.attempts
+    return { error: left > 0 ? '验证码不正确，还可尝试 ' + left + ' 次' : '验证码错误次数过多，请重新获取' }
+  }
+  VERIFIES.delete(ph) // 用后即焚
+  return { ok: true }
+}
+
+export function findByPhone(phone) {
+  const ph = String(phone || '').trim()
+  const accounts = loadAccounts()
+  for (const [name, a] of Object.entries(accounts)) if (a.phone === ph) return { ...a, username: name }
+  return null
+}
+
+export function forgotPasswordByPhone(phone, code, newPassword) {
+  const vc = verifyCode(phone, code)
+  if (!vc.ok) return { error: vc.error || '验证码错误或已过期' }
+  if (!newPassword || String(newPassword).length < 6) return { error: '新密码至少 6 位' }
+  const hit = findByPhone(phone)
+  if (!hit) return { error: '该手机号未注册' }
+  const uname = hit.username
+  const salt = crypto.randomBytes(16).toString('hex')
+  const accounts = loadAccounts()
+  accounts[uname].salt = salt
+  accounts[uname].passwordHash = hashPassword(String(newPassword), salt)
+  saveAccounts(accounts)
+  return { ok: true, username: uname }
+}
+
+// ---------- 图形/滑块验证码（零依赖：数学题验证码，防脚本刷发码；上线可替换为图片/滑块） ----------
+const CAPTCHAS = new Map() // id -> { answerHash, expiresAt }
+export function createCaptcha() {
+  const a = Math.floor(Math.random() * 9) + 1
+  const b = Math.floor(Math.random() * 9) + 1
+  const plus = Math.random() < 0.5
+  const ans = plus ? a + b : a - b
+  const id = crypto.randomBytes(8).toString('hex')
+  CAPTCHAS.set(id, { answerHash: crypto.createHash('sha256').update(String(ans)).digest('hex'), expiresAt: Date.now() + 3 * 60 * 1000 })
+  return { captchaId: id, question: plus ? (a + ' + ' + b + ' = ?') : (a + ' - ' + b + ' = ?') }
+}
+export function verifyCaptcha(id, answer) {
+  const rec = CAPTCHAS.get(String(id || ''))
+  if (!rec) return false
+  CAPTCHAS.delete(String(id || '')) // 一次性
+  if (Date.now() > rec.expiresAt) return false
+  const h = crypto.createHash('sha256').update(String(answer ?? '').trim()).digest('hex')
+  return h === rec.answerHash
+}
+
 // ---------- 审计（追加写，真实现：谁、何时、做了什么） ----------
-export function audit(action, username, detail) {
+export function audit(action, username, detail, userId) {
   try {
-    const line = JSON.stringify({ ts: new Date().toISOString(), username: username || 'anonymous', userId: COCKPIT_SLOT, action, detail: detail || '' })
+    const uid = String(userId || '').trim() || COCKPIT_SLOT
+    const line = JSON.stringify({ ts: new Date().toISOString(), username: username || 'anonymous', userId: uid, action, detail: detail || '' })
     fs.appendFileSync(AUDIT_FILE, line + '\n')
   } catch { /* 审计不影响主流程 */ }
+}
+
+// ===================================================================
+// ========== 驾驶舱账号 V2（收尾）：phone+短验码 · scrypt · 每账号槽位 · KB仅店主 ==========
+// 独立于进销存 accounts.json，避免 cockpit 与进销存账号混用；满足 scrypt / 每账号隔离 / 统计。
+// ===================================================================
+const COCKPIT_ACC_FILE = path.join(DATA_ROOT, 'cockpit-accounts.json')
+const cockpitSessions = new Map() // token -> { phone, name, userId, isOwner, expiresAt }
+const cockpitFailures = new Map() // phone -> { count, lastAt }
+const COCKPIT_MAX_FAILS = 5
+const COCKPIT_LOCK_MS = 15 * 60 * 1000
+
+function loadCockpitAccs() { try { return JSON.parse(fs.readFileSync(COCKPIT_ACC_FILE, 'utf8')) } catch { return {} } }
+function saveCockpitAccs(accs) { ensureDir(DATA_ROOT); atomicWrite(COCKPIT_ACC_FILE, JSON.stringify(accs)) }
+
+export function cockpitScryptHash(password, salt) {
+  return crypto.scryptSync(String(password), String(salt), 64).toString('hex')
+}
+export function cockpitVerifyScrypt(password, hash, salt) {
+  try {
+    const h = crypto.scryptSync(String(password), String(salt), 64).toString('hex')
+    const a = Buffer.from(h, 'hex'), b = Buffer.from(String(hash), 'hex')
+    if (a.length !== b.length) return false
+    return crypto.timingSafeEqual(a, b)
+  } catch { return false }
+}
+
+export function findCockpitAccByPhone(phone) {
+  const ph = String(phone || '').trim()
+  return ph ? (loadCockpitAccs()[ph] || null) : null
+}
+export function findCockpitAccByName(name) {
+  const n = String(name || '').trim()
+  for (const a of Object.values(loadCockpitAccs())) if (a.name === n) return a
+  return null
+}
+
+// isOwner=true 表示店主账号（持有 KB）；自助注册 isOwner=false（空槽，≠ KB）
+export function createCockpitAcc({ phone, name, password, isOwner = false }) {
+  const ph = String(phone || '').trim()
+  if (!/^1\d{10}$/.test(ph)) return { error: '手机号格式不正确' }
+  if (!password || String(password).length < 6) return { error: '密码至少 6 位' }
+  const accs = loadCockpitAccs()
+  if (accs[ph]) return { error: '该手机号已注册' }
+  const nm = String(name || '').trim()
+  if (nm && findCockpitAccByName(nm)) return { error: '该账号名已被使用' }
+  const userId = crypto.randomBytes(16).toString('hex')
+  initUser(userId)
+  const salt = crypto.randomBytes(16).toString('hex')
+  accs[ph] = { phone: ph, name: nm || ph.slice(-4), userId, salt, passHash: cockpitScryptHash(password, salt), isOwner: !!isOwner, enabled: true, createdAt: new Date().toISOString(), lastLoginAt: null, lastSeenAt: null }
+  saveCockpitAccs(accs)
+  return { ok: true, account: accs[ph] }
+}
+
+export function updateCockpitAcc(phone, patch) {
+  const ph = String(phone || '').trim()
+  const accs = loadCockpitAccs()
+  if (!accs[ph]) return null
+  accs[ph] = Object.assign({}, accs[ph], patch)
+  saveCockpitAccs(accs)
+  return accs[ph]
+}
+
+export function listCockpitAccs() { return Object.values(loadCockpitAccs()) }
+export function countCockpitAccs() { return Object.keys(loadCockpitAccs()).length }
+
+// 用户/在线统计：online=最近 onlineMs 有活跃；newToday=今日新注册
+export function cockpitStats(onlineMs = 5 * 60 * 1000) {
+  const accs = Object.values(loadCockpitAccs())
+  const now = Date.now()
+  const today = new Date().toISOString().slice(0, 10)
+  return {
+    totalUsers: accs.length,
+    onlineNow: accs.filter((a) => a.lastSeenAt && (now - new Date(a.lastSeenAt).getTime()) <= onlineMs).length,
+    newToday: accs.filter((a) => a.createdAt && a.createdAt.slice(0, 10) === today).length,
+  }
+}
+
+// 每账号自己的槽位密钥
+export function getCockpitSlotKey(userId) {
+  const dir = userDir(userId); ensureDir(dir)
+  const kf = path.join(dir, 'slot.key')
+  if (fs.existsSync(kf)) return fs.readFileSync(kf, 'utf8').trim()
+  const k = crypto.randomBytes(32).toString('base64url'); atomicWrite(kf, k); return k
+}
+
+// 会话（可撤销+过期，每账号独立槽）
+export function createCockpitSession(token, account, ttlMs = 12 * 60 * 60 * 1000) {
+  cockpitSessions.set(token, { phone: account.phone, name: account.name, userId: account.userId, isOwner: !!account.isOwner, expiresAt: Date.now() + ttlMs })
+}
+export function validateCockpitSession(token) {
+  if (!token) return null
+  const s = cockpitSessions.get(token); if (!s) return null
+  if (Date.now() > s.expiresAt) { cockpitSessions.delete(token); return null }
+  const a = findCockpitAccByPhone(s.phone)
+  if (!a || !a.enabled) { cockpitSessions.delete(token); return null }
+  return Object.assign({}, s, { account: a })
+}
+export function revokeCockpitSession(token) { if (token) cockpitSessions.delete(token) }
+export function touchCockpitSeen(phone) { const a = findCockpitAccByPhone(phone); if (a) updateCockpitAcc(phone, { lastSeenAt: new Date().toISOString() }) }
+
+// 登录失败锁定（内存，按手机号）
+export function cockpitLoginLocked(phone) {
+  const ph = String(phone || '').trim(); const f = cockpitFailures.get(ph)
+  if (!f) return false
+  if (Date.now() - f.lastAt > COCKPIT_LOCK_MS) { cockpitFailures.delete(ph); return false }
+  return f.count >= COCKPIT_MAX_FAILS
+}
+export function recordCockpitFail(phone) { const ph = String(phone || '').trim(); const f = cockpitFailures.get(ph) || { count: 0, lastAt: 0 }; f.count += 1; f.lastAt = Date.now(); cockpitFailures.set(ph, f) }
+export function clearCockpitFail(phone) { cockpitFailures.delete(String(phone || '').trim()) }
+
+// 建店主账号时把旧共享 cockpit 槽的 KB 快照/密钥迁进店主槽位（防数据丢失）
+export function migrateSharedSlotToOwner(userId) {
+  const src = userDir(COCKPIT_SLOT), dst = userDir(userId)
+  if (!fs.existsSync(src)) return false
+  ensureDir(dst); let moved = false
+  try {
+    const snap = path.join(src, 'snapshot.enc'); if (fs.existsSync(snap)) { atomicWrite(path.join(dst, 'snapshot.enc'), fs.readFileSync(snap, 'utf8')); moved = true }
+    const key = path.join(src, 'slot.key'); if (fs.existsSync(key)) { atomicWrite(path.join(dst, 'slot.key'), fs.readFileSync(key, 'utf8')); moved = true }
+    const bak = path.join(src, 'backups'); if (fs.existsSync(bak)) for (const f of fs.readdirSync(bak)) { const ff = path.join(bak, f); if (fs.statSync(ff).isFile()) { ensureDir(path.join(dst, 'backups')); atomicWrite(path.join(dst, 'backups', f), fs.readFileSync(ff, 'utf8')); moved = true } }
+  } catch { }
+  return moved
 }

@@ -153,16 +153,49 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
-    // ======== POST /api/account/register（多设备账户注册） ========
+    // ======== GET /api/account/captcha（发码前图形验证码：零依赖数学题，防脚本） ========
+    if (req.method === 'GET' && pathname === '/api/account/captcha') {
+      return json(res, 200, { ok: true, ...store.createCaptcha() })
+    }
+
+    // ======== POST /api/account/send-code（手机验证码；限流 + TTL 5min + code 哈希） ========
+    if (req.method === 'POST' && pathname === '/api/account/send-code') {
+      const body = JSON.parse((await readBody(req)).toString())
+      if (!store.verifyCaptcha(body.captchaId, body.captchaAnswer)) return json(res, 400, { ok: false, error: '图形验证码错误，请刷新重试' })
+      const ip = req.socket.remoteAddress ?? 'unknown'
+      const r = store.sendCode(body.phone, ip)
+      if (r.error) return json(res, 400, { ok: false, error: r.error })
+      store.audit('account.sendCode', 'anonymous', String(body.phone || ''))
+      return json(res, 200, { ok: true, message: '验证码已发送', ...(r.mockCode ? { mockCode: r.mockCode } : {}) })
+    }
+
+    // ======== POST /api/account/forgot（找回密码：手机号+验证码+新密码） ========
+    if (req.method === 'POST' && pathname === '/api/account/forgot') {
+      const body = JSON.parse((await readBody(req)).toString())
+      const r = store.forgotPasswordByPhone(body.phone, body.code, body.newPassword)
+      if (r.error) return json(res, 400, { ok: false, error: r.error })
+      store.audit('account.forgot', r.username, String(body.phone || ''))
+      return json(res, 200, { ok: true, username: r.username, message: '密码已重置，请用新密码登录' })
+    }
+
+    // ======== POST /api/account/logout（注销当前会话令牌） ========
+    if (req.method === 'POST' && pathname === '/api/account/logout') {
+      store.revokeSession(req.headers['x-token'])
+      return json(res, 200, { ok: true })
+    }
+
+    // ======== POST /api/account/register（多设备账户注册，可带手机号+验证码） ========
     if (req.method === 'POST' && pathname === '/api/account/register') {
       // 任务2：每 IP 每天注册上限（防脚本灌号）
       const ip = req.socket.remoteAddress ?? 'unknown'
       const regOk = store.checkRegisterAllowed(ip)
       if (!regOk.allowed) return json(res, 429, { ok: false, error: regOk.error })
       const body = JSON.parse((await readBody(req)).toString())
-      const r = store.registerAccount(body.username, body.password, body.note || '')
+      const r = store.registerAccount(body.username, body.password, body.note || '', body.phone, body.code)
       if (r.error) return json(res, 400, { ok: false, error: r.error })
-      return json(res, 200, { ok: true, userId: r.userId, username: r.username, salt: r.salt })
+      const slotKey = store.getOrCreateSlotKey(r.userId) // 每账号独立槽密钥
+      store.audit('account.register', r.username, '', r.userId)
+      return json(res, 200, { ok: true, userId: r.userId, username: r.username, salt: r.salt, slotKey })
     }
 
     // ======== POST /api/account/login（多设备账户登录） ========
@@ -179,7 +212,11 @@ const server = http.createServer(async (req, res) => {
       }
       store.reportLoginResult(ip, body.username, true)
       const meta = store.loadMeta(r.userId)
-      return json(res, 200, { ok: true, userId: r.userId, username: r.username, note: meta.note || '', salt: r.salt })
+      const token = randomHex(32)
+      store.createSession(token, r.username, 12 * 60 * 60 * 1000) // 多租户：账号登录下发会话令牌(12h)
+      const slotKey = store.getOrCreateSlotKey(r.userId)
+      store.audit('account.login', r.username, '', r.userId)
+      return json(res, 200, { ok: true, userId: r.userId, username: r.username, token, slotKey, expiresIn: 12 * 60 * 60, note: meta.note || '', salt: r.salt, phone: r.phone || '' })
     }
 
     // ======== POST /api/device/bind（多设备绑定：账户登录后追加一台设备） ========
@@ -300,75 +337,132 @@ const server = http.createServer(async (req, res) => {
       return
     }
 
-    // ====== CEO驾驶舱 · 独立命名空间（绝不改 /api/pair、/api/snapshot、/api/account/*、/api/backup*） ======
-    // 一套共享数据：固定槽位 cockpit，管理员建号 + 账号密码登录 + 可撤销过期会话
+    // ====== CEO驾驶舱 · 独命名空间（绝不改 /api/pair、/api/snapshot、/api/account/*、/api/backup*） ======
+    // V2：phone+短验码 · scrypt · 每账号独立槽位 · KB 仅店主账号持有（存取走会话 userId 对应槽）
 
-    // ======== POST /api/cockpit/register (管理员建号，需 ADMIN_KEY；无公开自助注册) ========
+    // ======== POST /api/cockpit/sendCode（发码：短验码限流 + 校验；dev 固定 123456） ========
+    if (req.method === 'POST' && pathname === '/api/cockpit/sendCode') {
+      const body = JSON.parse((await readBody(req)).toString())
+      const ip = req.socket.remoteAddress ?? 'unknown'
+      const r = store.sendCode(body.phone, ip)
+      if (r.error) return json(res, 400, { ok: false, error: r.error })
+      store.audit('cockpit.sendCode', 'anonymous', String(body.phone || ''))
+      return json(res, 200, { ok: true, message: '验证码已发送', ...(r.mockCode ? { mockCode: r.mockCode } : {}) })
+    }
+
+    // ======== POST /api/cockpit/register（自助注册：手机号+短验码+密码；一键一手机；默认非店主空槽） ========
     if (req.method === 'POST' && pathname === '/api/cockpit/register') {
       const body = JSON.parse((await readBody(req)).toString())
-      if (!ADMIN_KEY || body.adminKey !== ADMIN_KEY) return json(res, 401, { ok: false, error: '需要 ADMIN_KEY' })
-      const username = (body.username || '').trim()
-      const password = body.password || ''
-      if (!username || !password) return json(res, 400, { ok: false, error: '缺少 username/password' })
-      if (password.length < 6) return json(res, 400, { ok: false, error: '密码至少 6 位' })
-      if (store.findByUsername(username)) return json(res, 409, { ok: false, error: '用户名已存在' })
-      const salt = randomHex(16)
-      const m = store.createMember(username, scryptHash(password, salt), salt)
-      if (!m) return json(res, 409, { ok: false, error: '用户名已存在' })
-      store.getOrCreateSlotKey() // 首次建号时确保共享槽密钥存在
-      store.audit('member.register', username)
-      return json(res, 201, { ok: true, username })
+      const ip = req.socket.remoteAddress ?? 'unknown'
+      const regOk = store.checkRegisterAllowed(ip)
+      if (!regOk.allowed) return json(res, 429, { ok: false, error: regOk.error })
+      const codeOk = store.verifyCode(body.phone, body.sms_code)
+      if (!codeOk.ok) return json(res, 400, { ok: false, error: codeOk.error || '验证码错误或已过期' })
+      const owner = !!body.isOwner && ADMIN_KEY && body.adminKey === ADMIN_KEY
+      const r = store.createCockpitAcc({ phone: body.phone, name: body.name, password: body.password, isOwner: owner })
+      if (r.error) return json(res, 400, { ok: false, error: r.error })
+      if (owner) { store.migrateSharedSlotToOwner(r.account.userId); store.getCockpitSlotKey(r.account.userId) }
+      store.touchCockpitSeen(r.account.phone)
+      const token = randomHex(32)
+      store.createCockpitSession(token, r.account, 12 * 60 * 60 * 1000)
+      const slotKey = store.getCockpitSlotKey(r.account.userId)
+      store.audit('cockpit.register', r.account.name, r.account.phone, r.account.userId)
+      return json(res, 201, { ok: true, phone: r.account.phone, name: r.account.name, isOwner: r.account.isOwner, userId: r.account.userId, token, slotKey, expiresIn: 12 * 60 * 60 })
     }
 
-    // ======== POST /api/cockpit/login (账号密码登录，失败锁定限流) ========
+    // ======== POST /api/cockpit/login（手机号或账号名 + 密码；失败锁定限流） ========
     if (req.method === 'POST' && pathname === '/api/cockpit/login') {
       const body = JSON.parse((await readBody(req)).toString())
-      const username = (body.username || '').trim()
+      const id = (body.phone || body.username || body.name || '').trim()
       const password = body.password || ''
-      if (loginLocked(username)) return json(res, 429, { ok: false, error: '尝试过多，账号已临时锁定，请稍后再试' })
-      const m = store.findByUsername(username)
-      if (!m || !verifyScrypt(password, m.passwordHash, m.salt)) {
-        recordLoginFail(username)
-        store.audit('member.login.fail', username)
-        return json(res, 401, { ok: false, error: '账号或密码错误' })
+      if (store.cockpitLoginLocked(id)) return json(res, 429, { ok: false, error: '尝试过多，账号已临时锁定，请稍后再试' })
+      let acc = store.findCockpitAccByPhone(id) || store.findCockpitAccByName(id)
+      if (!acc || !store.cockpitVerifyScrypt(password, acc.passHash, acc.salt)) {
+        store.recordCockpitFail(id)
+        store.audit('cockpit.login.fail', String(id), '', acc ? acc.userId : '')
+        return json(res, 401, { ok: false, error: '手机号/账号或密码错误' })
       }
-      if (!m.enabled) return json(res, 403, { ok: false, error: '账号已停用' })
-      clearLoginFail(username)
+      if (!acc.enabled) return json(res, 403, { ok: false, error: '账号已停用' })
+      store.clearCockpitFail(id)
       const token = randomHex(32)
-      store.createSession(token, username, 12 * 60 * 60 * 1000) // 12h
-      const slotKey = store.getOrCreateSlotKey()
-      store.audit('member.login', username)
-      return json(res, 200, { ok: true, username, token, slotKey, expiresIn: 12 * 60 * 60 })
+      store.createCockpitSession(token, acc, 12 * 60 * 60 * 1000)
+      store.updateCockpitAcc(acc.phone, { lastLoginAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() })
+      const slotKey = store.getCockpitSlotKey(acc.userId)
+      store.audit('cockpit.login', acc.name, acc.phone, acc.userId)
+      return json(res, 200, { ok: true, phone: acc.phone, name: acc.name, isOwner: acc.isOwner, userId: acc.userId, token, slotKey, expiresIn: 12 * 60 * 60 })
     }
 
-    // ======== POST /api/cockpit/logout (撤销当前会话令牌，主动作废) ========
+    // ======== POST /api/cockpit/forgot（找密码：手机号+短验码重置） ========
+    if (req.method === 'POST' && pathname === '/api/cockpit/forgot') {
+      const body = JSON.parse((await readBody(req)).toString())
+      const codeOk = store.verifyCode(body.phone, body.sms_code)
+      if (!codeOk.ok) return json(res, 400, { ok: false, error: codeOk.error || '验证码错误或已过期' })
+      const acc = store.findCockpitAccByPhone(body.phone)
+      if (!acc) return json(res, 400, { ok: false, error: '该手机号未注册' })
+      if (!body.new_password || String(body.new_password).length < 6) return json(res, 400, { ok: false, error: '新密码至少 6 位' })
+      const salt = randomHex(16)
+      store.updateCockpitAcc(acc.phone, { salt, passHash: scryptHash(body.new_password, salt) })
+      store.audit('cockpit.forgot', acc.name, acc.phone, acc.userId)
+      return json(res, 200, { ok: true, message: '密码已重置，请用新密码登录' })
+    }
+
+    // ======== POST /api/cockpit/owner（ADMIN_KEY 指定/绑定店主账号为 KB 持有者；迁移旧共享槽 KB） ========
+    if (req.method === 'POST' && pathname === '/api/cockpit/owner') {
+      const body = JSON.parse((await readBody(req)).toString())
+      if (!ADMIN_KEY || body.adminKey !== ADMIN_KEY) return json(res, 401, { ok: false, error: '需要 ADMIN_KEY' })
+      let acc = store.findCockpitAccByPhone(body.phone)
+      if (acc) { store.updateCockpitAcc(acc.phone, { isOwner: true }); acc = store.findCockpitAccByPhone(body.phone) }
+      else {
+        if (!body.password || String(body.password).length < 6) return json(res, 400, { ok: false, error: '新店主需设密码（≥6位）' })
+        const r = store.createCockpitAcc({ phone: body.phone, name: body.name, password: body.password, isOwner: true })
+        if (r.error) return json(res, 400, { ok: false, error: r.error })
+        acc = r.account
+      }
+      store.migrateSharedSlotToOwner(acc.userId)
+      store.getCockpitSlotKey(acc.userId)
+      store.audit('cockpit.owner.set', acc.name, acc.phone, acc.userId)
+      return json(res, 200, { ok: true, phone: acc.phone, isOwner: true, userId: acc.userId, message: '已设为店主，KB 槽位归属该账号' })
+    }
+
+    // ======== POST /api/cockpit/logout（撤销会话令牌） ========
     if (req.method === 'POST' && pathname === '/api/cockpit/logout') {
-      store.revokeSession(req.headers['x-token'])
+      store.revokeCockpitSession(req.headers['x-token'])
       return json(res, 200, { ok: true })
     }
 
-    // ======== GET /api/cockpit/snapshot/fetch (登录会话鉴权) ========
+    // ======== GET /api/cockpit/stats（用户/在线/今日新增；店主或 ADMIN_KEY 可见） ========
+    if (req.method === 'GET' && pathname === '/api/cockpit/stats') {
+      const sess = store.validateCockpitSession(req.headers['x-token'])
+      const key = url.searchParams.get('key')
+      const isAdmin = !!ADMIN_KEY && key === ADMIN_KEY
+      if (!sess && !isAdmin) return json(res, 401, { ok: false, error: '需店主账号登录或 ADMIN_KEY' })
+      if (sess && !sess.isOwner && !isAdmin) return json(res, 403, { ok: false, error: '仅店主可见用户/在线统计' })
+      return json(res, 200, { ok: true, ...store.cockpitStats() })
+    }
+
+    // ======== GET /api/cockpit/snapshot/fetch（会话鉴权，读该账号自己槽位） ========
     if (req.method === 'GET' && pathname === '/api/cockpit/snapshot/fetch') {
-      const sess = store.validateSession(req.headers['x-token'])
+      const sess = store.validateCockpitSession(req.headers['x-token'])
       if (!sess) return json(res, 401, { ok: false, error: '未登录或会话已过期' })
-      const snap = store.loadSnapshot(store.cockpitSlotId())
-      store.audit('cockpit.fetch', sess.username)
+      store.touchCockpitSeen(sess.phone)
+      store.audit('cockpit.fetch', sess.name, '', sess.userId)
+      const snap = store.loadSnapshot(sess.userId)
       if (!snap) return json(res, 404, { ok: false, error: '暂无快照数据' })
       return json(res, 200, { ok: true, iv: snap.iv, data: snap.data })
     }
 
-    // ======== POST /api/cockpit/snapshot (登录会话鉴权，写共享槽) ========
+    // ======== POST /api/cockpit/snapshot（会话鉴权，写该账号自己槽位） ========
     if (req.method === 'POST' && pathname === '/api/cockpit/snapshot') {
-      const sess = store.validateSession(req.headers['x-token'])
+      const sess = store.validateCockpitSession(req.headers['x-token'])
       if (!sess) return json(res, 401, { ok: false, error: '未登录或会话已过期' })
       const body = JSON.parse((await readBody(req)).toString())
       if (!body.iv || !body.data) return json(res, 400, { ok: false, error: '缺少 iv/data' })
-      store.saveSnapshot(store.cockpitSlotId(), body.iv, body.data)
-      store.audit('cockpit.snapshot', sess.username, `${(body.data || '').length} bytes`)
+      store.saveSnapshot(sess.userId, body.iv, body.data)
+      store.touchCockpitSeen(sess.phone)
+      store.audit('cockpit.snapshot', sess.name, `${(body.data || '').length} bytes`, sess.userId)
       return json(res, 200, { ok: true, at: new Date().toISOString() })
     }
 
-    // ======== GET /admin ========
     if (pathname === '/admin' || pathname === '/admin/') {
       const key = url.searchParams.get('key')
       if (!key || key !== ADMIN_KEY) {
