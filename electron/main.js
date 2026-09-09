@@ -4,9 +4,11 @@ import * as Sentry from '@sentry/electron/main'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { openDatabase, finalCheckpoint, listInsights, saveInsight, updateInsight, deleteInsight } from './db.js'
+import { openDatabase, finalCheckpoint, listInsights, saveInsight, updateInsight, deleteInsight, aiUsageStats, listAiUsageLog } from './db.js'
 import * as commands from './commands.js'
 import * as ai from './ai.js'
+import * as aiQuota from './aiQuota.js' // P0 计费阀门：AI 统一计费入口
+import * as voiceOrderService from './voiceOrderService.js' // P1-3 语音开单
 import * as doubao from './doubao.js'
 // ai-orchestrator（1.0）：统一 AI 出口，本地兜底优先，前端不再散调
 import * as orchestrator from './ai-orchestrator.js'
@@ -21,8 +23,8 @@ import * as feedback from './feedback.js'
 import { createInventoryServer } from './server.js'
 import { createPhotoStore } from './photo.js'
 import { initAutoUpdater, checkForUpdates, downloadAndInstall } from './updater.js'
-import { loadLicense, activateLicense, machineFingerprint, saveLevelToDb, quotaStatus, planFor } from './license.js'
-import { initCloud, pairWithCloud, syncSnapshot, uploadBackup, listCloudBackups, restoreFromCloud, regenViewLink, getCloudState, stopScheduler as stopCloudScheduler, exitSnapshot as exitCloudSnapshot, registerAccount as cloudRegisterAccount, loginAccount as cloudLoginAccount, logoutAccount as cloudLogoutAccount, resolveConflict } from './cloud.js'
+import { loadLicense, activateLicense, verifyLicenseCode, machineFingerprint, saveLevelToDb, quotaStatus, planFor } from './license.js'
+import { initCloud, pairWithCloud, syncSnapshot, uploadBackup, listCloudBackups, restoreFromCloud, regenViewLink, getCloudState, stopScheduler as stopCloudScheduler, exitSnapshot as exitCloudSnapshot, registerAccount as cloudRegisterAccount, loginAccount as cloudLoginAccount, logoutAccount as cloudLogoutAccount, resolveConflict, dismissRestoreHold } from './cloud.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -77,6 +79,7 @@ const getExtraDir = () => loadBackupConfig(backupConfigPath).extraDir
 // 商品图片目录：<productId>.<ext>，读写与路径校验全在 photo.js（无 Electron 依赖，可单测）
 const photoStore = createPhotoStore(path.join(dataDir, 'images'))
 ai.initAi(dataDir)
+aiQuota.initAiQuota(dataDir) // P0：计费模块与 AI 同目录初始化
 doubao.initDoubao(dataDir)
 // 离线语音识别模型目录：首次启动后可经 voice:download 通道下载到本机
 const voiceModelDir = path.join(dataDir, 'models', MODEL_NAME)
@@ -149,10 +152,10 @@ function registerIpc() {
     ipcMain.handle(channel, (_e, payload) => fn(db, payload ?? {}))
 
   handle('data:loadAll', (d) => commands.loadAll(d))
-  handle('product:create', (d, p) => commands.createProduct(d, p))
-  handle('product:update', (d, p) => commands.updateProduct(d, p.id, p))
-  handle('product:batchUpdate', (d, p) => commands.batchUpdateProducts(d, p))
-  handle('product:delete', (d, p) => commands.deleteProduct(d, p.id, p.operator ?? null))
+  handle('product:create', (d, p) => { const r = commands.createProduct(d, p); voiceOrderService.refreshVoiceOrderCache(); return r }) // P1-3：商品变更后刷新语音热词
+  handle('product:update', (d, p) => { const r = commands.updateProduct(d, p.id, p); voiceOrderService.refreshVoiceOrderCache(); return r })
+  handle('product:batchUpdate', (d, p) => { const r = commands.batchUpdateProducts(d, p); voiceOrderService.refreshVoiceOrderCache(); return r })
+  handle('product:delete', (d, p) => { const r = commands.deleteProduct(d, p.id, p.operator ?? null); voiceOrderService.refreshVoiceOrderCache(); return r })
   handle('product:mark', (d, p) => commands.markProduct(d, p))
   handle('product:expiring', (d, p) => commands.expiringProducts(d, p))
   // 通用版：分类管理
@@ -196,7 +199,7 @@ function registerIpc() {
   handle('stocktake:updateItem', (d, p) => commands.updateStockTakeItem(d, p))
   handle('stocktake:complete', (d, p) => commands.completeStockTake(d, p.takeId))
   handle('stocktake:submit', (d, p) => commands.submitStockTake(d, p))
-  handle('import:batch', (d, p) => commands.importBatch(d, p))
+  handle('import:batch', (d, p) => { const r = commands.importBatch(d, p); voiceOrderService.refreshVoiceOrderCache(); return r })
   // 赊账包：客户档案 / 还款 / 对账单
   handle('customer:create', (d, p) => commands.createCustomer(d, p))
   handle('customer:update', (d, p) => commands.updateCustomer(d, p))
@@ -358,6 +361,28 @@ function registerIpc() {
     return r
   })
   handle('ai:quota', () => commands.aiQuotaStatus(db, 'vision'))
+  // ---- P0 计费阀门：余额/流水/激活码绑定/本地用量统计（额度卡数据源） ----
+  handle('ai:gatewayQuota', () => aiQuota.gatewayQuota())
+  handle('ai:gatewayUsage', (d, p) => aiQuota.gatewayUsage(p?.limit ?? 20))
+  handle('ai:localUsageStats', () => {
+    try {
+      if (!db) return { ok: false, reason: 'db-not-ready' }
+      return { ok: true, stats: aiUsageStats(db), recent: listAiUsageLog(db, 20) }
+    } catch (e) {
+      return { ok: false, reason: String(e?.message ?? e) }
+    }
+  })
+  // 老用户补绑激活码（P0 前激活的没有留激活码原文）：本地验签通过才存 + 网关绑定迁移
+  handle('ai:bindLicense', async (d, p) => {
+    try {
+      const code = String(p?.code ?? '').trim()
+      const v = verifyLicenseCode(code, machineFingerprint())
+      if (!v.valid) return { ok: false, error: v.error }
+      return await aiQuota.bindLicense(code)
+    } catch (e) {
+      return { ok: false, error: String(e?.message ?? e) }
+    }
+  })
   handle('ai:transcribe', (d, p) => ai.transcribeAudio(p))
   // ---- 1.0 orchestrator 统一出口：本地兜底优先，断网/无 KEY 不哑 ----
   handle('ai:smartSearch', (d, p) => orchestrator.smartSearch(p?.text, p))
@@ -373,6 +398,9 @@ function registerIpc() {
   // 未就绪时渲染端自动回退 ai:transcribe（base64 云端识别），两条通道并存互不干扰
   handle('voice:status', () => ({ ...voice.voiceStatus(), downloading: !!voiceDownloading }))
   handle('voice:transcribe', (d, p) => voice.transcribePcm(p))
+  // ---- P1-3 语音开单：文本/音频 → 开单草稿（不落库，确认卡确认后才走 outbound:checkout） ----
+  handle('voice:parseOrder', (d, p) => voiceOrderService.parseOrderText(p?.text ?? ''))
+  handle('voice:parseOrderAudio', (d, p) => voiceOrderService.parseOrderAudio(p ?? {}))
   // 下载模型：进度经 webContents.send('voice:progress') 推送，渲染端 preload 订阅。
   // 下载成功立刻预加载识别器，首次按住说话不用等 1s 模型加载
   registerModelDownload({
@@ -449,11 +477,18 @@ function registerIpc() {
       return lic
     } catch { return { activated: false, level: 'free', expiresAt: null, machineId: machineFingerprint(), daysLeft: null } }
   })
-  ipcMain.handle('license:activate', (_e, p) => {
+  ipcMain.handle('license:activate', async (_e, p) => {
     try {
       const r = activateLicense(dataDir, p?.code ?? '')
       if (r.ok && db) saveLevelToDb(db, r.license.level)
-      return r.ok ? { ok: true, license: r.license } : { ok: false, error: r.error }
+      // P0 计费阀门：激活成功 → 保存激活码原文（safeStorage 加密）并绑到网关账户（余额迁移）
+      // 网关不可达不阻断激活本身（客户端静默降级原则）
+      let gatewayBind = null
+      if (r.ok) {
+        aiQuota.saveLicenseCode(p?.code ?? '')
+        gatewayBind = await aiQuota.bindLicense(p?.code ?? '').catch(() => null)
+      }
+      return r.ok ? { ok: true, license: r.license, gatewayBind } : { ok: false, error: r.error }
     } catch (e) {
       return { ok: false, error: e.message }
     }
@@ -483,6 +518,8 @@ function registerIpc() {
       return { ok: false, error: e.message }
     }
   })
+  // 清仓建议（决策层 MVP-1）：只读，走命令层单一来源 buildClearance
+  ipcMain.handle('clearance:get', () => { try { return commands.buildClearance(db) } catch (e) { return { dataWindowOk: true, totalCandidate: 0, recoverableCost: 0, byPriority: { P0: 0, P1: 0, P2: 0 }, items: [], error: e.message } } })
   // 云备份通道：配对/快照/备份/恢复/吊销
   ipcMain.handle('cloud:status', () => getCloudState())
   ipcMain.handle('cloud:pair', (_e, p) => pairWithCloud(p?.pairCode ?? ''))
@@ -507,6 +544,8 @@ function registerIpc() {
   ipcMain.handle('cloud:registerAccount', (_e, p) => cloudRegisterAccount(p?.username ?? '', p?.password ?? '', p?.note ?? ''))
   ipcMain.handle('cloud:loginAccount', (_e, p) => cloudLoginAccount(p?.username ?? '', p?.password ?? '', p?.deviceName ?? ''))
   ipcMain.handle('cloud:logout', () => cloudLogoutAccount())
+  // 首登恢复：用户确认"我是新店/不用恢复"，解除上传挂起
+  ipcMain.handle('cloud:dismissRestore', () => dismissRestoreHold())
   // 应用信息（设置页展示数据位置 + 最近备份时间：扫描备份目录最新文件）
   ipcMain.handle('app:info', () => {
     let lastBackupAt = null
@@ -633,11 +672,12 @@ app.whenReady().then(() => {
     return
   }
   ai.bindDb(db)
+  voiceOrderService.initVoiceOrder(db) // P1-3：语音开单热词表/商品候选缓存
   // 1.0：orchestrator 统一 AI 出口（本地兜底优先）——初始化 db 引用
   orchestrator.initOrchestrator(db, dataDir)
   registerIpc()
   // 手机看店服务：db 就绪后随备份调度一起启动；失败只告警不阻断桌面端
-  inventoryServer = createInventoryServer({ db, dataDir, webRoot: path.join(__dirname, '../dist'), ai, voice, doubao })
+  inventoryServer = createInventoryServer({ db, dataDir, webRoot: path.join(__dirname, '../dist'), ai, voice, doubao, voiceOrder: voiceOrderService })
   inventoryServer.start().catch((e) => console.error('[server] 启动失败:', e))
   const stopScheduler = scheduleDailyBackup(db, dbPath, backupDir, (e) =>
     reportBackupError('自动备份失败', e),

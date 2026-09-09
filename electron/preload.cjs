@@ -100,6 +100,10 @@ const CHANNELS = new Set([
   'ai:chat',
   'ai:parseInboundNote',
   'ai:quota',
+  'ai:gatewayQuota',
+  'ai:gatewayUsage',
+  'ai:localUsageStats',
+  'ai:bindLicense',
   'ai:transcribe',
   'ai:history',
   'ai:insights',
@@ -117,6 +121,8 @@ const CHANNELS = new Set([
   'ai:analyzePhoto',
   'voice:status',
   'voice:transcribe',
+  'voice:parseOrder',
+  'voice:parseOrderAudio',
   'voice:download',
   'tts:status',
   'tts:speak',
@@ -139,6 +145,7 @@ const CHANNELS = new Set([
   'onboarding:status',
   'onboarding:reset',
   'onboarding:finish',
+  'clearance:get',
   'cloud:status',
   'cloud:pair',
   'cloud:syncNow',
@@ -149,6 +156,7 @@ const CHANNELS = new Set([
   'cloud:registerAccount',
   'cloud:loginAccount',
   'cloud:logout',
+  'cloud:dismissRestore',
 ])
 
 contextBridge.exposeInMainWorld('fi', {

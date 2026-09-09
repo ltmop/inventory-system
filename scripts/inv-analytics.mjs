@@ -13,6 +13,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import path from 'node:path'
 import os from 'node:os'
+import { buildClearance } from '../electron/commands/clearance.js'
 
 const DB_PATH = path.join(process.env.APPDATA || os.homedir(), 'fishing-inventory', 'data.db')
 
@@ -320,7 +321,7 @@ try {
     case 'customers': result = cmdCustomers(db); break
     case 'dormant': result = cmdDormant(db, parseInt(flag('slow') || '90', 10), parseInt(flag('dead') || '180', 10)); break
     case 'top': result = cmdTop(db, parseInt(flag('n') || '10', 10)); break
-    case 'clearance': result = cmdClearance(db); break
+    case 'clearance': result = buildClearance(db); break
     case 'raw': result = cmdRaw(db, flag('sql')); break
     case 'help':
     default:

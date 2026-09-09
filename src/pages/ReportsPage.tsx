@@ -386,9 +386,20 @@ export function ReportsPage() {
     }
   }, [products, batches, transactions])
 
+  // 真实数据驱动：经 IPC 调命令层单一来源 buildClearance（Electron 下出真实库候选；无 IPC 回退内联）
+  interface ClearanceItem { id: number; name: string; category: string; stock: number; tiedCostYuan: number; lastSaleDaysAgo: number | null; dormantTier: string; expiryInDays: number | null; priority: string; action: string; suggestRange: { low: number; high: number } | null; reason: string[]; guard: { note: string } | null }
+  const [clearanceData, setClearanceData] = useState<null | { items: ClearanceItem[]; totalCandidate: number; recoverableCost: number; byPriority: { P0: number; P1: number; P2: number } }>(null)
+  useEffect(() => {
+    const fi = (window as any).fi
+    if (fi && typeof fi.invoke === 'function') {
+      fi.invoke('clearance:get').then((d: any) => { if (d && Array.isArray(d.items)) setClearanceData(d) }).catch(() => {})
+    }
+  }, [])
+  const CL = clearanceData ?? clearance
+
   function exportClearanceCSV() {
     const lines = ['\uFEFF清仓建议（P0紧急清/P1应清/P2观察清）', '优先级,商品,分类,库存,压货成本(元),建议区间(元),动作,原因,护栏']
-    for (const i of clearance.items) {
+    for (const i of CL.items) {
       const range = i.suggestRange ? i.suggestRange.low + '-' + i.suggestRange.high : '-'
       lines.push([i.priority, csvCell(i.name), csvCell(i.category), i.stock, i.tiedCostYuan.toFixed(2), range, csvCell(i.action), i.reason.join(';'), i.guard ? i.guard.note : ''].join(','))
     }
@@ -808,13 +819,13 @@ export function ReportsPage() {
             清仓建议（谁该清 / 按什么力度清 / 先清谁）
           </CardTitle>
           <div className="flex items-center gap-2">
-            {clearance.totalCandidate > 0 && (
+            {CL.totalCandidate > 0 && (
               <span className="text-sm text-slate-600">
-                可收回 ≈ <span className="font-bold tabular-nums">{formatPrice(Math.round(clearance.recoverableCost * 100))}</span>
-                ，P0 {clearance.byPriority.P0} · P1 {clearance.byPriority.P1} · P2 {clearance.byPriority.P2}
+                可收回 ≈ <span className="font-bold tabular-nums">{formatPrice(Math.round(CL.recoverableCost * 100))}</span>
+                ，P0 {CL.byPriority.P0} · P1 {CL.byPriority.P1} · P2 {CL.byPriority.P2}
               </span>
             )}
-            {clearance.totalCandidate > 0 && (
+            {CL.totalCandidate > 0 && (
               <button
                 onClick={exportClearanceCSV}
                 className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
@@ -825,7 +836,7 @@ export function ReportsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {clearance.totalCandidate === 0 ? (
+          {CL.totalCandidate === 0 ? (
             <div className="py-8 text-center text-sm text-muted-foreground">
               没有需要清仓的积压货，库存周转健康
             </div>
@@ -843,7 +854,7 @@ export function ReportsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {clearance.items.map((x, i) => (
+                {CL.items.map((x, i) => (
                   <TableRow key={x.id}>
                     <TableCell className="text-xs font-medium text-muted-foreground">{i + 1}</TableCell>
                     <TableCell>
