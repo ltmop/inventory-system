@@ -34,6 +34,13 @@ const MAX_BODY_BYTES = 8192
 // 通用调用接口（/api/invoke）请求体上限：批量导入/商品图片 base64 会到几百 KB
 const MAX_INVOKE_BODY = 2 * 1024 * 1024
 
+// 幂等键（防重复提交直接弄错钱）：写接口携带 idempotencyKey(每次逻辑操作唯一) → 网络重试/双击/重发返回原结果，不重复记账
+// 内存缓存 + TTL；键 = channel:key，值为上次成功结果。15 分钟窗口覆盖绝大多数重复提交场景；重启清空(可接受)
+const idemCache = new Map()
+const IDEM_TTL = 15 * 60 * 1000
+function idemCheck(channel, key) { const ck = channel + ':' + String(key ?? ''); const hit = idemCache.get(ck); return hit && Date.now() - hit.at < IDEM_TTL ? hit : null }
+function idemSet(channel, key, result) { idemCache.set(channel + ':' + String(key ?? ''), { result, at: Date.now() }); if (idemCache.size > 5000) { for (const k of idemCache.keys()) if (Date.now() - idemCache.get(k).at > IDEM_TTL) idemCache.delete(k) } }
+
 // 桌面网页版（/app）静态资源 MIME
 const STATIC_MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -693,10 +700,26 @@ if (deepBarcode) {
 let aiRef = null // v1.15: main.js 注入 ai 模块引用，供 ai:photoDraft 桥接
 let voiceRef = null // v2.4: main.js 注入 voice 模块引用，供手机端本地离线语音识别
 let doubaoRef = null // v2.5: main.js 注入 doubao 模块引用，供手机端豆包视觉/ASR
-export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, webRoot = null, ai = null, voice = null, doubao = null }) {
+let voiceOrderRef = null // P1-3: main.js 注入 voiceOrderService，供手机 POS 语音开单
+/** 中心库服务端每日备份列表（backups/central-YYYYMMDD.db），只读 */
+function listCenterBackups(dir) {
+  // 兼容 dataDir={app}/data 与 {app} 两种：备份在 {app}/backups
+  const candidates = [path.join(dir, 'backups'), path.join(dir, '..', 'backups')]
+  const bdir = candidates.find((d) => { try { return fs.existsSync(d) } catch { return false } }) || candidates[0]
+  let files = []
+  try { files = fs.readdirSync(bdir).filter((f) => /^central-\d{8}\.db$/.test(f)) } catch { /* 无备份目录 */ }
+  return files.sort().reverse().map((f) => {
+    const m = /central-(\d{8})\.db/.exec(f)
+    const size = fs.statSync(path.join(bdir, f)).size
+    return { date: m ? m[1] : f, file: f, size }
+  })
+}
+
+export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, webRoot = null, ai = null, voice = null, doubao = null, voiceOrder = null }) {
   if (ai) aiRef = ai
   if (voice) voiceRef = voice
   if (doubao) doubaoRef = doubao
+  if (voiceOrder) voiceOrderRef = voiceOrder
   const tokenPath = path.join(dataDir, 'server-token.txt')
   const configPath = path.join(dataDir, 'server-config.json')
   // 商品图片只读出口：/api/photo?path=<相对文件名>，路径校验与桌面端 fi-img 协议共用 photo.js
@@ -886,7 +909,7 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
    * 校验链：写限流 → token → Content-Type → 8KB 上限 → JSON → 字段白名单/类型 →
    * 业务校验与桌面端共用 commands.confirmOutbound（错误信息原样返回）。
    */
-  const OUTBOUND_FIELDS = ['productId', 'quantity', 'sellingPrice', 'customerId', 'paidAmount', 'payMethod']
+  const OUTBOUND_FIELDS = ['productId', 'quantity', 'sellingPrice', 'customerId', 'paidAmount', 'payMethod', 'idempotencyKey']
   async function handleOutbound(req, res, url) {
     const outboundToken = tokenOf(req, url)
     if (writeRateLimited(req.socket.remoteAddress ?? 'unknown', tokenOk(outboundToken) ? outboundToken : null)) {
@@ -930,6 +953,11 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       sendJson(res, 400, { error: `未知字段：${unknown.join('、')}（只允许 ${OUTBOUND_FIELDS.join('/')}）` })
       return
     }
+    // 幂等键：手机开单重复提交（网络重试/双击）返回上次结果，不重复扣库存/记账
+    if (body.idempotencyKey) {
+      const hit = idemCheck('outbound', body.idempotencyKey)
+      if (hit) { sendJson(res, 200, Object.assign({ ok: true, idempotent: true }, hit.result)); return }
+    }
     if (!Number.isInteger(body.productId) || body.productId <= 0) {
       sendJson(res, 400, { error: `productId 必须是正整数，收到：${body.productId}` })
       return
@@ -959,6 +987,7 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
         sendJson(res, 409, { ok: false, error: `库存不足，还差 ${r.shortage} 件`, shortage: r.shortage })
         return
       }
+      if (body.idempotencyKey) idemSet('outbound', body.idempotencyKey, { totalDue: r.totalDue, paidAmount: r.paidAmount, creditAmount: r.creditAmount })
       sendJson(res, 200, {
         ok: true,
         totalDue: r.totalDue,
@@ -1033,6 +1062,8 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     'priceTier:delete': (d, p) => cmds.deletePriceTier(d, p),
     'priceTier:list': (d, p) => cmds.getPriceTiers(d, p),
     'audit:list': (d, p) => cmds.auditLog(d, p),
+    // 中心库服务端备份列表（桌面中心库模式「云端备份」用）
+    'backup:list': (d, p) => listCenterBackups(dataDir),
     'supplier:statement': (d, p) => cmds.supplierStatement(d, p),
     // 商品图片：与桌面端主进程同款——写盘返回相对文件名 / 删文件+清 photo_path
     // 收款码：手机端开单选微信/支付宝时，读电脑上配好的收款码图展示给顾客扫
@@ -1197,6 +1228,18 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
         return await doubaoRef.doubaoASR({ audioBase64: p.audioBase64, mimeType: p.mimeType || 'audio/webm' })
       } catch (e) { return { ok: false, reason: e.message } }
     },
+    // P1-3 语音开单（手机 POS）：PCM base64 → 桌面端离线识别 + 解析草稿（音频不出店，落库仍走 outbound:checkout）
+    'voice:parseOrderAudio': async (d, p) => {
+      if (!voiceOrderRef) return { ok: false, reason: '语音开单不可用' }
+      try {
+        if (p?.audioBase64) {
+          const buf = Buffer.from(String(p.audioBase64), 'base64')
+          return await voiceOrderRef.parseOrderAudio({ pcm: buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength), sampleRate: p.sampleRate || 16000 })
+        }
+        if (p?.text) return await voiceOrderRef.parseOrderText(String(p.text))
+        return { ok: false, reason: 'no-audio' }
+      } catch (e) { return { ok: false, reason: e.message } }
+    },
   }
 
   /** POST /api/invoke：{ channel, payload } → { ok:true, result }；业务错误 400 原样带中文提示 */
@@ -1233,8 +1276,16 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       sendJson(res, 403, { ok: false, error: '只读账号：不能执行操作，仅可查看报表/库存' })
       return
     }
+    // 幂等键：写接口携带 idempotencyKey（每次逻辑操作唯一）→ 网络重试/双击/重发返回上次结果，不重复记账（防"重复提交弄错钱"）
+    const payload = body.payload ?? {}
+    const idemKey = payload.idempotencyKey || body.idempotencyKey
+    const cleanPayload = idemKey ? Object.assign({}, payload) : payload
+    if (idemKey) delete cleanPayload.idempotencyKey
+    const hit = idemKey ? idemCheck(body.channel, idemKey) : null
+    if (hit) { sendJson(res, 200, { ok: true, result: hit.result, idempotent: true }); return }
     try {
-      const result = await fn(db, body.payload ?? {})
+      const result = await fn(db, cleanPayload)
+      if (idemKey) idemSet(body.channel, idemKey, result)
       sendJson(res, 200, { ok: true, result })
     } catch (e) {
       // 业务校验错误（中文提示）原样返回，前端 catch 后直接展示
@@ -1382,6 +1433,8 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       '/api/analytics/top': () => analyticsTop(db, Number(url.searchParams.get('n')) || 10),
       '/api/analytics/stockValue': () => analyticsStockValue(db),
       '/api/analytics/overview': () => analyticsOverview(db),
+      // 中心库服务端备份列表（只读）：桌面「云端备份」在中心库模式下指到这里
+      '/api/backup/list': () => listCenterBackups(dataDir),
     }
     const route = ROUTES[url.pathname]
     if (!route) {

@@ -1552,6 +1552,24 @@ xdb.close()
   const wTx = wdb.prepare("SELECT * FROM transactions WHERE product_id = ? AND type = 'out' ORDER BY id DESC LIMIT 1").get(spId)
   ok('开单流水正确（建议价 + 操作员标注）', wTx.selling_price === sp[7] && wTx.quantity === 2 && wTx.operator === '手机开单')
 
+  // 幂等键：同一 idempotencyKey 重复提交 → 返回原结果，不重复扣库存 / 记流水（防"重复提交弄错钱"）
+  const rIdem1 = await post({ productId: spId, quantity: 1, idempotencyKey: 'dup-test-1' })
+  const jIdem1 = await rIdem1.json()
+  const stockAfter1 = wdb.prepare('SELECT COALESCE(SUM(quantity),0) AS q FROM inventory_batches WHERE product_id = ?').get(spId).q
+  const txAfter1 = wdb.prepare("SELECT COUNT(*) AS n FROM transactions WHERE product_id = ? AND type='out'").get(spId).n
+  const rIdem2 = await post({ productId: spId, quantity: 1, idempotencyKey: 'dup-test-1' })
+  const jIdem2 = await rIdem2.json()
+  const stockAfter2 = wdb.prepare('SELECT COALESCE(SUM(quantity),0) AS q FROM inventory_batches WHERE product_id = ?').get(spId).q
+  const txAfter2 = wdb.prepare("SELECT COUNT(*) AS n FROM transactions WHERE product_id = ? AND type='out'").get(spId).n
+  ok('幂等首提成功', rIdem1.status === 200 && jIdem1.ok === true)
+  ok('幂等重复提交标记 idempotent 且返回原金额', rIdem2.status === 200 && jIdem2.idempotent === true && jIdem2.totalDue === jIdem1.totalDue && jIdem2.paidAmount === jIdem1.paidAmount && jIdem2.creditAmount === jIdem1.creditAmount)
+  ok('幂等不重复扣库存', stockAfter2 === stockAfter1, stockAfter1 + ' vs ' + stockAfter2)
+  ok('幂等不重复记流水', txAfter2 === txAfter1, txAfter1 + ' vs ' + txAfter2)
+  // 不同 key（不同逻辑操作）应正常执行、不被去重
+  const rIdem3 = await post({ productId: spId, quantity: 1, idempotencyKey: 'dup-test-2' })
+  const jIdem3 = await rIdem3.json()
+  ok('不同 key 正常执行不误杀', rIdem3.status === 200 && jIdem3.ok === true && jIdem3.idempotent !== true)
+
   // 赊账开单：部分付款 → 欠款入账（应付=sp[7]，付 2/3，欠 1/3，期望由种子推导）
   const wPaid = Math.floor((sp[7] * 2) / 3)
   const r2 = await post({ productId: spId, quantity: 1, sellingPrice: sp[7], customerId: wcust.id, paidAmount: wPaid })
