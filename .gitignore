@@ -5,3 +5,4 @@ spike/
 *.log
 config*.bak
 *.tmp
+cockpit-updates/
