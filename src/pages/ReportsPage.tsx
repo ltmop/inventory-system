@@ -314,6 +314,92 @@ export function ReportsPage() {
   const slowValue = slowMoving.reduce((s, r) => s + r.value, 0)
   const slowValue180 = slowMoving.filter((x) => x.tier === '180天+').reduce((s, r) => s + r.value, 0)
 
+  // ========== 清仓建议（决策层 MVP-1）：沉睡档 × 压货成本 × 临期叠加 → P0/P1/P2（每账号只读，不出自动价） ==========
+  const clearance = useMemo(() => {
+    const MIN_TIED_YUAN = 500, EXPIRY_URGENT = 60, GUARD_DAYS = 30
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const now = new Date()
+    const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+    const dayDiff = (from: string, to: string) => Math.round((new Date(to + 'T00:00:00').getTime() - new Date(from + 'T00:00:00').getTime()) / 86400000)
+    const lastSale = new Map<number, string>()
+    const recentOut30 = new Map<number, number>()
+    const cutoff30 = now.getTime() - GUARD_DAYS * 86400000
+    for (const t of transactions) {
+      if (t.type !== 'out') continue
+      const ls = lastSale.get(t.product_id)
+      if (!ls || t.timestamp > ls) lastSale.set(t.product_id, t.timestamp)
+      if (new Date(t.timestamp).getTime() >= cutoff30) recentOut30.set(t.product_id, (recentOut30.get(t.product_id) || 0) + 1)
+    }
+    const agg = new Map<number, { stock: number; tied: number; earliest: string | null }>()
+    for (const b of batches) {
+      const cur = agg.get(b.product_id) || { stock: 0, tied: 0, earliest: null as string | null }
+      cur.stock += b.quantity || 0
+      cur.tied += (b.quantity || 0) * (b.cost_price || 0)
+      if (b.expiry_date && (!cur.earliest || b.expiry_date < cur.earliest)) cur.earliest = b.expiry_date
+      agg.set(b.product_id, cur)
+    }
+    const R = { P0: [0.6, 0.85], P1: [0.8, 1.0], P2: [0.9, 1.0] }
+    const round2 = (x: number) => Math.round(x * 100) / 100
+    const rank: Record<string, number> = { P0: 0, P1: 1, P2: 2 }
+    const items: any[] = []
+    for (const pr of products) {
+      const b = agg.get(pr.id)
+      if (!b || b.stock <= 0) continue
+      const tiedYuan = round2(b.tied / 100)
+      if (tiedYuan < MIN_TIED_YUAN) continue
+      const ls = lastSale.get(pr.id)
+      const noOut = ls ? dayDiff(ls.slice(0, 10), todayStr) : Infinity
+      if (noOut < 90) continue
+      const expiryInDays = b.earliest ? dayDiff(todayStr, b.earliest) : null
+      const dead = noOut >= 180
+      const expiring = expiryInDays != null && expiryInDays <= EXPIRY_URGENT
+      let priority = dead && expiring ? 'P0' : dead ? 'P1' : expiring ? 'P1' : 'P2'
+      let guard: { note: string } | null = null
+      if ((recentOut30.get(pr.id) || 0) > 0) {
+        const down = priority === 'P0' ? 'P1' : priority === 'P1' ? 'P2' : null
+        guard = { note: '近30天有动销，降为' + (down || '排除（在动，不建议清）') }
+        if (down) priority = down
+        else continue
+      }
+      let action = ''
+      let suggestRange: { low: number; high: number } | null = null
+      if (priority === 'P0') {
+        if (expiryInDays != null && expiryInDays <= 0) action = '移出货架/报废核销'
+        else { action = '降价出清'; suggestRange = { low: round2(tiedYuan * R.P0[0]), high: round2(tiedYuan * R.P0[1]) } }
+      } else if (priority === 'P1') { action = '降价/捆绑搭售'; suggestRange = { low: round2(tiedYuan * R.P1[0]), high: round2(tiedYuan * R.P1[1]) } }
+      else { action = '观察/挪动线'; suggestRange = { low: round2(tiedYuan * R.P2[0]), high: round2(tiedYuan * R.P2[1]) } }
+      const reason: string[] = []
+      if (noOut >= 180) reason.push('180天无出库')
+      else reason.push('90天无出库')
+      if (expiryInDays != null && expiryInDays <= 0) reason.push('已过期')
+      else if (expiryInDays != null && expiryInDays <= EXPIRY_URGENT) reason.push('临期' + expiryInDays + '天')
+      if (pr.is_clearance) reason.push('已标记清仓')
+      const name = [pr.brand, pr.model].filter(Boolean).join(' ').trim() || pr.sku_code || ('#' + pr.id)
+      items.push({ id: pr.id, name, category: String(pr.category ?? ''), stock: b.stock, tiedCostYuan: tiedYuan, lastSaleDaysAgo: ls ? noOut : null, dormantTier: noOut >= 180 ? '180天+' : '90天+', expiryInDays, priority, action, suggestRange, reason, guard })
+    }
+    items.sort((a, b) => rank[a.priority] - rank[b.priority] || b.tiedCostYuan - a.tiedCostYuan)
+    return {
+      items,
+      totalCandidate: items.length,
+      recoverableCost: round2(items.reduce((s, i) => s + i.tiedCostYuan, 0)),
+      byPriority: { P0: items.filter((i) => i.priority === 'P0').length, P1: items.filter((i) => i.priority === 'P1').length, P2: items.filter((i) => i.priority === 'P2').length },
+    }
+  }, [products, batches, transactions])
+
+  function exportClearanceCSV() {
+    const lines = ['\uFEFF清仓建议（P0紧急清/P1应清/P2观察清）', '优先级,商品,分类,库存,压货成本(元),建议区间(元),动作,原因,护栏']
+    for (const i of clearance.items) {
+      const range = i.suggestRange ? i.suggestRange.low + '-' + i.suggestRange.high : '-'
+      lines.push([i.priority, csvCell(i.name), csvCell(i.category), i.stock, i.tiedCostYuan.toFixed(2), range, csvCell(i.action), i.reason.join(';'), i.guard ? i.guard.note : ''].join(','))
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = '清仓建议_' + dateKey(new Date()) + '.csv'
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
   // ========== CSV 导出（与新报表同内容） ==========
   function exportCSV() {
     const yuan = (cents: number) => (cents / 100).toFixed(2)
@@ -708,6 +794,79 @@ export function ReportsPage() {
                     </TableRow>
                   )
                 })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 清仓建议（决策层 MVP-1）：沉睡×压货×临期 → P0/P1/P2，给区间不给自动价；纯建议，不自动改价 */}
+      <Card>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-base">
+            <Trophy className="mr-2 inline-block size-4 text-red-600" />
+            清仓建议（谁该清 / 按什么力度清 / 先清谁）
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            {clearance.totalCandidate > 0 && (
+              <span className="text-sm text-slate-600">
+                可收回 ≈ <span className="font-bold tabular-nums">{formatPrice(Math.round(clearance.recoverableCost * 100))}</span>
+                ，P0 {clearance.byPriority.P0} · P1 {clearance.byPriority.P1} · P2 {clearance.byPriority.P2}
+              </span>
+            )}
+            {clearance.totalCandidate > 0 && (
+              <button
+                onClick={exportClearanceCSV}
+                className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              >
+                <Download className="size-3.5" /> 导出 CSV
+              </button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {clearance.totalCandidate === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              没有需要清仓的积压货，库存周转健康
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10">#</TableHead>
+                  <TableHead>商品</TableHead>
+                  <TableHead>优先级</TableHead>
+                  <TableHead className="text-right">压货成本</TableHead>
+                  <TableHead className="text-right">建议区间</TableHead>
+                  <TableHead>建议动作</TableHead>
+                  <TableHead>原因</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {clearance.items.map((x, i) => (
+                  <TableRow key={x.id}>
+                    <TableCell className="text-xs font-medium text-muted-foreground">{i + 1}</TableCell>
+                    <TableCell>
+                      <span>{x.name}</span>
+                      {x.guard && <div className="text-xs text-amber-600">{x.guard.note}</div>}
+                    </TableCell>
+                    <TableCell>
+                      <span className={'rounded px-1.5 py-0.5 text-xs font-bold ' + (x.priority === 'P0' ? 'bg-red-100 text-red-700' : x.priority === 'P1' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700')}>
+                        {x.priority === 'P0' ? 'P0 紧急' : x.priority === 'P1' ? 'P1 应清' : 'P2 观察'}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right font-medium tabular-nums text-slate-700">{formatPrice(Math.round(x.tiedCostYuan * 100))}</TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-700">
+                      {x.suggestRange ? `${formatPrice(Math.round(x.suggestRange.low * 100))} - ${formatPrice(Math.round(x.suggestRange.high * 100))}` : '-'}
+                    </TableCell>
+                    <TableCell className="text-sm">{x.action}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {x.reason.map((r: string) => <span key={r} className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">{r}</span>)}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           )}

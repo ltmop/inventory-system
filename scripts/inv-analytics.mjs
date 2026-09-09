@@ -36,6 +36,21 @@ const localDay = (iso) => {
   return String(iso || '').slice(0, 10)
 }
 
+// ---------- 清仓建议引擎（决策层 MVP-1）常量 ----------
+// v1 固定阈值，后续入设置（本期不做设置 UI）
+const CLEARANCE_MIN_TIED_YUAN = 500   // 压货成本门槛（元）
+const CLEARANCE_EXPIRY_URGENT_DAYS = 60 // 临期紧急阈值（天）
+const CLEARANCE_DORMANT_DEAD_DAYS = 180 // 死亡档（天无出库）
+const CLEARANCE_DORMANT_SLOW_DAYS = 90  // 滞销档（天无出库）
+const CLEARANCE_GUARD_MOVE_DAYS = 30    // 近 N 天有动销 → 降档（不误杀在动商品）
+const CLEARANCE_RANGE = { P0: [0.6, 0.85], P1: [0.8, 1.0], P2: [0.9, 1.0] } // 建议区间 = 成本 × [lo,hi]
+function clearanceRound(x) { return Math.round(x * 100) / 100 }
+function dayDiff(fromStr, toStr) { // 'YYYY-MM-DD' -> 相差天数（to-from）
+  const a = new Date(String(fromStr).slice(0, 10) + 'T00:00:00')
+  const b = new Date(String(toStr).slice(0, 10) + 'T00:00:00')
+  return Math.round((b - a) / 86400000)
+}
+
 // ---------- 命令 ----------
 
 function cmdOverview(db) {
@@ -182,6 +197,98 @@ function cmdTop(db, n) {
   return rows.map(r => ({ sku: r.sku_code, brand: r.brand, model: r.model, qty: r.qty, revenue: fmt(r.revenue) }))
 }
 
+// ---------- 清仓建议引擎（决策层 MVP-1）：纯规则、只读、不写库不改价 ----------
+// 输入全部有货商品，按 沉睡分档(90/180) × 压货成本(≥500) × 临期叠加(≤60) → P0/P1/P2
+// 输出区间（成本×[0.6,0.85]等）而非自动改价；近30天有动销自动降档护栏。
+function cmdClearance(db) {
+  const t = localDay(new Date().toISOString())
+  const anySale = db.prepare("SELECT COUNT(*) AS n FROM transactions WHERE type='out'").get().n
+  // 数据窗口不足：无任何销售流水，不硬出假清单（复用 dormant 的 dataWindow 行为）
+  if (anySale === 0) {
+    return {
+      generatedAt: new Date().toISOString(),
+      dataWindowOk: false,
+      totalCandidate: 0,
+      recoverableCost: 0,
+      byPriority: { P0: 0, P1: 0, P2: 0 },
+      items: [],
+      note: '系统启用以来无销售流水（暂无出库记录），数据窗口不足，无法判定滞销/清仓；启用销售后自动转为真实清仓分析',
+    }
+  }
+  const rows = db.prepare(
+    "SELECT p.id, p.sku_code, p.brand, p.model, p.category, p.is_clearance, " +
+    "SUM(b.quantity) AS stock, " +
+    "CAST(SUM(b.quantity * b.cost_price) AS INTEGER) AS tiedCapital, " +
+    "MIN(CASE WHEN b.quantity > 0 THEN b.expiry_date END) AS earliestExpiry, " +
+    "(SELECT MAX(t.timestamp) FROM transactions t WHERE t.product_id=p.id AND t.type='out') AS lastSold, " +
+    "(SELECT COUNT(*) FROM transactions t WHERE t.product_id=p.id AND t.type='out' AND t.timestamp >= date('now','localtime','-" + CLEARANCE_GUARD_MOVE_DAYS + " days')) AS recentOut30 " +
+    "FROM products p JOIN inventory_batches b ON b.product_id=p.id " +
+    "WHERE p.status != '停产' GROUP BY p.id HAVING stock > 0"
+  ).all()
+
+  const items = []
+  for (const r of rows) {
+    const tiedYuan = clearanceRound(r.tiedCapital / 100)
+    if (tiedYuan < CLEARANCE_MIN_TIED_YUAN) continue // 压货成本门槛
+    const lastSoldDate = r.lastSold ? localDay(r.lastSold) : null
+    const noOutDays = lastSoldDate ? dayDiff(lastSoldDate, t) : Infinity
+    if (noOutDays < CLEARANCE_DORMANT_SLOW_DAYS) continue // 沉睡档不足 90（在动销）→ 非候选
+    const expiryInDays = r.earliestExpiry ? dayDiff(t, r.earliestExpiry) : null
+    const dead = noOutDays >= CLEARANCE_DORMANT_DEAD_DAYS
+    const expiring = expiryInDays != null && expiryInDays <= CLEARANCE_EXPIRY_URGENT_DAYS
+    const isClearance = !!r.is_clearance
+    // 优先级：P0 > P1 > P2
+    let priority
+    if (dead && expiring) priority = 'P0'
+    else if (dead) priority = 'P1'
+    else if (expiring) priority = 'P1'
+    else priority = 'P2'
+    // 护栏：近30天有动销 → 降一档
+    let guard = null
+    if (r.recentOut30 > 0) {
+      const down = priority === 'P0' ? 'P1' : priority === 'P1' ? 'P2' : null
+      guard = { note: '近30天有动销，降为' + (down || '排除（在动，不建议清）') }
+      if (down) priority = down
+      else continue // P2 + 动销 → 移出候选
+    }
+    // 动作 + 建议区间（成本×[lo,hi] 元）
+    let action, suggestRange = null
+    if (priority === 'P0') {
+      if (expiryInDays != null && expiryInDays <= 0) { action = '移出货架/报废核销'; suggestRange = null }
+      else { action = '降价出清'; suggestRange = { low: clearanceRound(tiedYuan * CLEARANCE_RANGE.P0[0]), high: clearanceRound(tiedYuan * CLEARANCE_RANGE.P0[1]) } }
+    } else if (priority === 'P1') { action = '降价/捆绑搭售'; suggestRange = { low: clearanceRound(tiedYuan * CLEARANCE_RANGE.P1[0]), high: clearanceRound(tiedYuan * CLEARANCE_RANGE.P1[1]) } }
+    else { action = '观察/挪动线'; suggestRange = { low: clearanceRound(tiedYuan * CLEARANCE_RANGE.P2[0]), high: clearanceRound(tiedYuan * CLEARANCE_RANGE.P2[1]) } }
+    // 原因标签（固定枚举）
+    const reason = []
+    if (noOutDays >= CLEARANCE_DORMANT_DEAD_DAYS) reason.push('180天无出库')
+    else reason.push('90天无出库')
+    if (expiryInDays != null && expiryInDays <= 0) reason.push('已过期')
+    else if (expiryInDays != null && expiryInDays <= CLEARANCE_EXPIRY_URGENT_DAYS) reason.push('临期' + expiryInDays + '天')
+    if (isClearance) reason.push('已标记清仓，核对是否清完')
+    const name = (((r.brand || '') + ' ' + (r.model || '')).trim()) || r.sku_code || ('商品' + r.id)
+    items.push({
+      id: r.id, name, category: r.category || '',
+      stock: r.stock, tiedCostYuan: tiedYuan,
+      lastSaleDaysAgo: lastSoldDate ? noOutDays : null,
+      dormantTier: (noOutDays >= CLEARANCE_DORMANT_DEAD_DAYS ? '180天+' : '90天+'),
+      expiryInDays,
+      priority, action, suggestRange, reason, guard,
+    })
+  }
+  // 排序：priority(P0<P1<P2) → tiedCostYuan desc
+  const rank = { P0: 0, P1: 1, P2: 2 }
+  items.sort((a, b) => (rank[a.priority] - rank[b.priority]) || (b.tiedCostYuan - a.tiedCostYuan))
+  const byPriority = { P0: items.filter(i => i.priority === 'P0').length, P1: items.filter(i => i.priority === 'P1').length, P2: items.filter(i => i.priority === 'P2').length }
+  return {
+    generatedAt: new Date().toISOString(),
+    dataWindowOk: true,
+    totalCandidate: items.length,
+    recoverableCost: clearanceRound(items.reduce((s, i) => s + i.tiedCostYuan, 0)),
+    byPriority,
+    items,
+  }
+}
+
 function cmdRaw(db, sql) {
   if (!sql) throw new Error('raw 需要 --sql 参数')
   // 只读保护：拒绝非 SELECT
@@ -213,6 +320,7 @@ try {
     case 'customers': result = cmdCustomers(db); break
     case 'dormant': result = cmdDormant(db, parseInt(flag('slow') || '90', 10), parseInt(flag('dead') || '180', 10)); break
     case 'top': result = cmdTop(db, parseInt(flag('n') || '10', 10)); break
+    case 'clearance': result = cmdClearance(db); break
     case 'raw': result = cmdRaw(db, flag('sql')); break
     case 'help':
     default:
@@ -225,6 +333,7 @@ try {
   node scripts/inv-analytics.mjs first-sale         首单状态（判断任务完成依据）
   node scripts/inv-analytics.mjs customers          客户欠款排行
   node scripts/inv-analytics.mjs dormant            沉睡资金榜（90/180天无出库 × 占用资金，倒序）
+  node scripts/inv-analytics.mjs clearance          清仓建议引擎（P0/P1/P2 + 建议区间 + 护栏，只读）
   node scripts/inv-analytics.mjs top --n 10         畅销品 Top N
   node scripts/inv-analytics.mjs raw --sql "SELECT ..."  原始只读查询
   --pretty    人类可读输出（默认 JSON）
