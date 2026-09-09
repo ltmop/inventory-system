@@ -152,6 +152,30 @@ const server = http.createServer(async (req, res) => {
     return json(res, 404, { ok: false, error: 'update file not found' })
   }
 
+  // ======== GET /cockpit-updates/* —— 驾驶舱自动更新源（latest.yml + Setup exe 静态托管；独立于进销存 /updates/*） ========
+  if (req.method === 'GET' && pathname.startsWith('/cockpit-updates/')) {
+    const __dirname = fileURLToPath(new URL('.', import.meta.url))
+    const rel = pathname.slice('/cockpit-updates/'.length)
+    const safe = rel.split('/').filter((p) => p && p !== '..' && !p.includes('\\')).join('/')
+    const full = path.join(__dirname, 'cockpit-updates', safe)
+    try {
+      const st = fs.statSync(full)
+      if (st.isFile()) {
+        const ext = full.split('.').pop().toLowerCase()
+        const types = { yml: 'text/yaml', yaml: 'text/yaml', exe: 'application/octet-stream', blockmap: 'application/octet-stream' }
+        res.writeHead(200, {
+          'Content-Type': types[ext] || 'application/octet-stream',
+          'Content-Length': st.size,
+          'Cache-Control': 'no-cache',
+          'Access-Control-Allow-Origin': '*',
+        })
+        fs.createReadStream(full).pipe(res)
+        return
+      }
+    } catch { /* 404 below */ }
+    return json(res, 404, { ok: false, error: 'update file not found' })
+  }
+
   try {
     // ======== GET /api/account/captcha（发码前图形验证码：零依赖数学题，防脚本） ========
     if (req.method === 'GET' && pathname === '/api/account/captcha') {
