@@ -228,11 +228,16 @@ function hashPassword(password, salt) {
 }
 
 /** 注册账户：username 唯一；返回 userId 或 { error } */
-export function registerAccount(username, password, note = '', phone = '', code = '') {
+export function registerAccount(username, password, note = '', phone = '', code = '', opts = {}) {
   const uname = String(username || '').trim().toLowerCase()
   if (!uname || uname.length < 2) return { error: '用户名至少 2 个字符' }
   if (!password || String(password).length < 6) return { error: '密码至少 6 位' }
   const ph = String(phone || '').trim()
+  // 安全加固（2026-09-10）：自助注册默认强制 手机号+验证码。
+  // 原实现仅在传入 phone 时才校验验证码 —— 不传 phone 即可完全跳过短信校验并批量建号。
+  // 管理员/内部建号走 opts.requirePhone=false，且入口同时要求 ADMIN_KEY。
+  const requirePhone = opts.requirePhone !== false
+  if (!ph && requirePhone) return { error: '需要手机号 + 短信验证码' }
   if (ph) {
     if (!/^1\d{10}$/.test(ph)) return { error: '手机号格式不正确' }
     const vc = verifyCode(ph, code)
@@ -262,32 +267,52 @@ const LOGIN_LOCK_THRESHOLD = 5   // 连续失败 5 次
 const LOGIN_LOCK_MS = 15 * 60 * 1000 // 锁 15 分钟
 const LOGIN_IP_RATE = 10         // 每 IP 每分钟最多 10 次登录尝试
 const REGISTER_IP_DAILY = 20     // 每 IP 每天最多注册 20 个账号（防灌号）
-const loginFailures = new Map()  // `${ip}|${username}` -> { count, lockedUntil }
+const loginFailures = new Map()  // key: ip + '|' + username -> { count, lockedUntil }
 const loginIpHits = new Map()    // ip -> [timestamps]
-const registerIpDay = new Map()  // `${ip}|${yyyy-mm-dd}` -> count
+const registerIpDay = new Map()  // key: ip + '|' + yyyy-mm-dd -> count
+// 安全加固（2026-09-10）：同一 IP 跨账号失败聚合（防横向撞库）。
+// 只在 IP 可信时启用：未启用可信反代时所有请求的 remoteAddress 都是代理地址，
+// 聚合封禁会误伤全站用户（与复核报告 R2 同一根因）→ fail-safe 默认关闭。
+const ipFailures = new Map()        // ip -> { count, lockedUntil }
+const accountFailTotals = new Map() // username -> 累计失败次数（仅告警/审计用，不锁号）
+const IP_AGG_ENABLED = process.env.TRUST_PROXY === '1'
+const IP_FAIL_LOCK_THRESHOLD = Number(process.env.IP_FAIL_LOCK_THRESHOLD || 20)
 
-/** 登录前检查：IP 限速 + 该用户名是否被锁 */
+/** 登录前检查：IP 聚合封禁 + IP 限速 + 账号锁定（键含 IP） */
 export function checkLoginAllowed(ip, username) {
   const now = Date.now()
+  if (IP_AGG_ENABLED) {
+    const ir = ipFailures.get(ip)
+    if (ir && ir.lockedUntil && now < ir.lockedUntil) {
+      const mins = Math.ceil((ir.lockedUntil - now) / 60000)
+      return { allowed: false, error: '该网络失败尝试过多，已临时限制，请 ' + mins + ' 分钟后再试' }
+    }
+  }
   // IP 限速：每分钟 10 次
   const cutoff = now - 60_000
   const ipList = (loginIpHits.get(ip) ?? []).filter((t) => t > cutoff)
   if (ipList.length >= LOGIN_IP_RATE) return { allowed: false, error: '尝试太频繁，请 1 分钟后再试' }
-  // 用户名锁定检查
+  // 账号锁定检查：锁键含 IP —— 既挡住单一来源的爆破，又避免第三方跨 IP 把正常用户锁死
   const key = ip + '|' + String(username || '').trim().toLowerCase()
   const rec = loginFailures.get(key)
   if (rec && rec.lockedUntil && now < rec.lockedUntil) {
     const mins = Math.ceil((rec.lockedUntil - now) / 60000)
-    return { allowed: false, error: `连续失败次数过多，已锁定，请 ${mins} 分钟后再试` }
+    return { allowed: false, error: '连续失败次数过多，已锁定，请 ' + mins + ' 分钟后再试' }
   }
   loginIpHits.set(ip, [...ipList, now])
   return { allowed: true, key }
 }
 
-/** 登录结果上报：成功清零计数；失败计数，达阈值锁定 */
+/** 登录结果上报：成功清零计数；失败计数，达阈值锁定（账号维度 + 可选 IP 聚合维度） */
 export function reportLoginResult(ip, username, success) {
-  const key = ip + '|' + String(username || '').trim().toLowerCase()
-  if (success) { loginFailures.delete(key); return }
+  const uname = String(username || '').trim().toLowerCase()
+  const key = ip + '|' + uname
+  if (success) {
+    loginFailures.delete(key)
+    if (IP_AGG_ENABLED) ipFailures.delete(ip)
+    accountFailTotals.delete(uname)
+    return
+  }
   const rec = loginFailures.get(key) ?? { count: 0, lockedUntil: null }
   rec.count += 1
   if (rec.count >= LOGIN_LOCK_THRESHOLD) {
@@ -295,6 +320,32 @@ export function reportLoginResult(ip, username, success) {
     rec.count = 0
   }
   loginFailures.set(key, rec)
+  accountFailTotals.set(uname, (accountFailTotals.get(uname) ?? 0) + 1)
+  if (IP_AGG_ENABLED) {
+    const ir = ipFailures.get(ip) ?? { count: 0, lockedUntil: null }
+    ir.count += 1
+    if (ir.count >= IP_FAIL_LOCK_THRESHOLD) { ir.lockedUntil = Date.now() + LOGIN_LOCK_MS; ir.count = 0 }
+    ipFailures.set(ip, ir)
+  }
+}
+
+/** 安全计数器快照（供体检/告警；不含任何凭据） */
+export function securitySnapshot() {
+  const now = Date.now()
+  const lockedAccounts = []
+  for (const [k, v] of loginFailures) if (v.lockedUntil && now < v.lockedUntil) lockedAccounts.push(k)
+  const blockedIps = IP_AGG_ENABLED
+    ? [...ipFailures].filter(([, v]) => v.lockedUntil && now < v.lockedUntil).map(([k]) => k)
+    : []
+  return {
+    ipAggEnabled: IP_AGG_ENABLED,
+    lockedAccounts,
+    blockedIps,
+    topFailingAccounts: [...accountFailTotals].sort((a, b) => b[1] - a[1]).slice(0, 10),
+    smsThisHour: SEND_GLOBAL_HOUR.get(new Date(now).toISOString().slice(0, 13)) ?? 0,
+    smsHourlyCap: SEND_GLOBAL_HOURLY,
+    auditFailures: AUDIT_FAILURES,
+  }
 }
 
 /** 注册前检查：每 IP 每天上限（防脚本灌号） */
@@ -316,9 +367,10 @@ export function loginAccount(identifier, password) {
   if (!acc && /^1\d{10}$/.test(id)) {
     for (const [name, a] of Object.entries(accounts)) if (a.phone === id) { acc = a; uname = name; break }
   }
-  if (!acc) return { error: '账户不存在，请先注册' }
+  // 安全加固（2026-09-10）：账号不存在 / 密码错误 / 停用 的文案不再区分「存在性」，避免用户枚举
+  if (!acc) return { error: '账号或密码错误' }
   if (acc.enabled === false) return { error: '该账号已被停用' }
-  if (acc.passwordHash !== hashPassword(password, acc.salt)) return { error: '密码不对' }
+  if (acc.passwordHash !== hashPassword(password, acc.salt)) return { error: '账号或密码错误' }
   return { ok: true, userId: acc.userId, username: uname, phone: acc.phone || '' }
 }
 
@@ -481,6 +533,20 @@ const CODE_TTL_MS = 5 * 60 * 1000
 const CODE_MAX_ATTEMPTS = 5
 const SEND_PHONE_GAP_MS = 60 * 1000
 const SEND_IP_MIN_RATE = 5
+// 安全加固（2026-09-10）1/2：验证码哈希改 HMAC + 进程级 pepper。
+// VERIFIES 只在内存、重启即失效，故 pepper 无需持久化；多实例可用 CODE_PEPPER 统一。
+// 目的：内存转储或日志泄露时无法离线反推 6 位数字码（原为无盐单轮 sha256）。
+const CODE_PEPPER = process.env.CODE_PEPPER || crypto.randomBytes(32).toString('hex')
+function codeHash(phone, code) {
+  return crypto.createHmac('sha256', CODE_PEPPER)
+    .update(String(phone || '') + '|' + String(code || '').trim()).digest('hex')
+}
+// 安全加固（2026-09-10）2/2：短信成本硬上限——每手机号每日上限 + 全局每小时上限。
+// 换号轰炸场景下全局小时配额是唯一兜底（弱图形验证码挡不住脚本）。
+const SEND_PHONE_DAY = new Map() // key: phone + '|' + yyyy-mm-dd
+const SEND_PHONE_DAY_CAP = Number(process.env.SEND_PHONE_DAY_CAP || 10)
+const SEND_GLOBAL_HOUR = new Map() // key: yyyy-mm-ddThh
+const SEND_GLOBAL_HOURLY = Number(process.env.SEND_GLOBAL_HOURLY || 60)
 
 export function sendCode(phone, ip = '') {
   const ph = String(phone || '').trim()
@@ -488,13 +554,20 @@ export function sendCode(phone, ip = '') {
   const ent = VERIFIES.get(ph)
   if (ent && ent.lastSendAt && Date.now() - ent.lastSendAt < SEND_PHONE_GAP_MS) return { error: '发送过于频繁，请 1 分钟后再试' }
   const now = Date.now()
+  const day = new Date(now).toISOString().slice(0, 10)
+  const dkey = ph + '|' + day
+  if ((SEND_PHONE_DAY.get(dkey) ?? 0) >= SEND_PHONE_DAY_CAP) return { error: '该手机号今日获取验证码次数已达上限，请明天再试' }
+  const hour = new Date(now).toISOString().slice(0, 13)
+  if ((SEND_GLOBAL_HOUR.get(hour) ?? 0) >= SEND_GLOBAL_HOURLY) return { error: '验证码发送已达本小时上限，请稍后再试或联系管理员' }
   const ipKey = String(ip || 'unknown')
   const cutoff = now - 60_000
   const ipHits = (SEND_IP_HITS.get(ipKey) || []).filter(t => t > cutoff)
   if (ipHits.length >= SEND_IP_MIN_RATE) return { error: '该网络发送过于频繁，请稍后再试' }
   SEND_IP_HITS.set(ipKey, [...ipHits, now])
+  SEND_PHONE_DAY.set(dkey, (SEND_PHONE_DAY.get(dkey) ?? 0) + 1)
+  SEND_GLOBAL_HOUR.set(hour, (SEND_GLOBAL_HOUR.get(hour) ?? 0) + 1)
   const code = (process.env.COCKPIT_SMS_MOCK === '1') ? '123456' : String(Math.floor(100000 + Math.random() * 900000)) // dev 测试码 123456；上线走真网关
-  VERIFIES.set(ph, { codeHash: crypto.createHash('sha256').update(code).digest('hex'), expiresAt: Date.now() + CODE_TTL_MS, attempts: 0, lastSendAt: Date.now() })
+  VERIFIES.set(ph, { codeHash: codeHash(ph, code), expiresAt: Date.now() + CODE_TTL_MS, attempts: 0, lastSendAt: Date.now() })
   return { ok: true, mockCode: (process.env.COCKPIT_SMS_MOCK === '1' ? code : undefined) }
 }
 
@@ -504,9 +577,8 @@ export function verifyCode(phone, code) {
   if (!ent) return { error: '请先获取验证码' }
   if (Date.now() > ent.expiresAt) { VERIFIES.delete(ph); return { error: '验证码已过期，请重新获取' } }
   if (ent.attempts >= CODE_MAX_ATTEMPTS) { VERIFIES.delete(ph); return { error: '验证码错误次数过多，请重新获取' } }
-  const h = crypto.createHash('sha256').update(String(code || '')).digest('hex')
-  const devOk = (process.env.COCKPIT_SMS_MOCK === '1' && String(code || '').trim() === '123456')
-  if (h !== ent.codeHash && !devOk) {
+  const h = codeHash(ph, code)
+  if (h !== ent.codeHash) {
     ent.attempts += 1
     VERIFIES.set(ph, ent)
     const left = CODE_MAX_ATTEMPTS - ent.attempts
@@ -528,7 +600,7 @@ export function forgotPasswordByPhone(phone, code, newPassword) {
   if (!vc.ok) return { error: vc.error || '验证码错误或已过期' }
   if (!newPassword || String(newPassword).length < 6) return { error: '新密码至少 6 位' }
   const hit = findByPhone(phone)
-  if (!hit) return { error: '该手机号未注册' }
+  if (!hit) return { error: '手机号未注册或验证码不正确' }
   const uname = hit.username
   const salt = crypto.randomBytes(16).toString('hex')
   const accounts = loadAccounts()
@@ -559,12 +631,24 @@ export function verifyCaptcha(id, answer) {
 }
 
 // ---------- 审计（追加写，真实现：谁、何时、做了什么） ----------
+// 安全加固（2026-09-10）：① 手机号/邮箱脱敏，避免审计日志本身成为 PII 泄露面；
+// ② 写失败不再静默——计数并可经 auditFailures() 观测（原先 catch{} 静默丢日志，破坏不可否认性）。
+function maskPii(v) {
+  return String(v || '')
+    .replace(/(1[3-9]\d)\d{4}(\d{4})/g, '$1****$2')
+    .replace(/([\w.+-])[\w.+-]*@([\w-]+\.[\w.-]+)/g, '$1***@$2')
+}
+let AUDIT_FAILURES = 0
+export function auditFailures() { return AUDIT_FAILURES }
 export function audit(action, username, detail, userId) {
   try {
     const uid = String(userId || '').trim() || COCKPIT_SLOT
-    const line = JSON.stringify({ ts: new Date().toISOString(), username: username || 'anonymous', userId: uid, action, detail: detail || '' })
+    const line = JSON.stringify({ ts: new Date().toISOString(), username: maskPii(username) || 'anonymous', userId: uid, action, detail: maskPii(detail) })
     fs.appendFileSync(AUDIT_FILE, line + '\n')
-  } catch { /* 审计不影响主流程 */ }
+  } catch (e) {
+    AUDIT_FAILURES += 1
+    try { console.error('[cloud-server] audit 写入失败 x' + AUDIT_FAILURES + ': ' + (e && e.message)) } catch { }
+  }
 }
 
 // ===================================================================
