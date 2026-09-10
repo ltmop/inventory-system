@@ -397,6 +397,48 @@ export function ReportsPage() {
   }, [])
   const CL = clearanceData ?? clearance
 
+  // ========== 定价建议（决策层 MVP-2）：亏本在售 / 毛利偏低 / 可降价促动销 → 给区间不给自动价 ==========
+  // 口径只走命令层 buildPricing（IPC `pricing:get` 单一来源）；前端不复制规则，避免出现第二套口径。
+  interface PricingItem {
+    id: number; name: string; category: string; stock: number
+    unitCostYuan: number; refPriceYuan: number; refPriceSource: string; suggestPriceYuan: number | null
+    marginPct: number; tiedCostYuan: number; lastSaleDaysAgo: number | null; recentOut30: number
+    priority: string; action: string; suggestRange: { low: number; high: number } | null
+    tiers: { tier: string; priceYuan: number }[]; reason: string[]; guard: { note: string } | null
+  }
+  interface PricingData {
+    items: PricingItem[]
+    totalCandidate: number
+    byPriority: { P0: number; P1: number; P2: number }
+    avgMarginPct: number | null
+    basis?: string
+    dataWindowOk?: boolean
+    note?: string
+    skipped?: { noCost: number; noPrice: number; clearance: number; guardMove: number; normal: number }
+  }
+  const [pricingData, setPricingData] = useState<PricingData | null>(null)
+  useEffect(() => {
+    const fi = (window as any).fi
+    if (fi && typeof fi.invoke === 'function') {
+      fi.invoke('pricing:get').then((d: any) => { if (d && Array.isArray(d.items)) setPricingData(d) }).catch(() => {})
+    }
+  }, [])
+
+  function exportPricingCSV() {
+    if (!pricingData) return
+    const lines = ['\uFEFF定价建议（P0亏本在售/P1毛利偏低/P2可降价促动销）', '优先级,商品,分类,库存,单位成本(元),参考价(元),参考价来源,毛利率%,建议区间(元),动作,原因']
+    for (const i of pricingData.items) {
+      const range = i.suggestRange ? i.suggestRange.low + '-' + i.suggestRange.high : '-'
+      lines.push([i.priority, csvCell(i.name), csvCell(i.category), i.stock, i.unitCostYuan.toFixed(2), i.refPriceYuan.toFixed(2), csvCell(i.refPriceSource), i.marginPct, range, csvCell(i.action), i.reason.join(';')].join(','))
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = '定价建议_' + dateKey(new Date()) + '.csv'
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
   function exportClearanceCSV() {
     const lines = ['\uFEFF清仓建议（P0紧急清/P1应清/P2观察清）', '优先级,商品,分类,库存,压货成本(元),建议区间(元),动作,原因,护栏']
     for (const i of CL.items) {
@@ -881,6 +923,88 @@ export function ReportsPage() {
               </TableBody>
             </Table>
           )}
+        </CardContent>
+      </Card>
+
+      {/* 定价建议（决策层 MVP-2）：亏本/毛利偏低/可降价 → 给区间不给自动价；近30天有动销不做降价建议 */}
+      <Card>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-base">
+            <CircleDollarSign className="mr-2 inline-block size-4 text-blue-600" />
+            定价建议（谁定低了 / 谁定高了 / 该调到多少）
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            {pricingData && pricingData.totalCandidate > 0 && (
+              <span className="text-sm text-slate-600">
+                亏本 {pricingData.byPriority.P0} · 毛利偏低 {pricingData.byPriority.P1} · 可降价 {pricingData.byPriority.P2}
+                {pricingData.avgMarginPct != null && <>，候选均毛利率 {pricingData.avgMarginPct}%</>}
+              </span>
+            )}
+            {pricingData && pricingData.totalCandidate > 0 && (
+              <button
+                onClick={exportPricingCSV}
+                className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              >
+                <Download className="size-3.5" /> 导出 CSV
+              </button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!pricingData ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              定价建议在桌面端运行（口径取自命令层单一来源，网页版不重复计算）
+            </div>
+          ) : pricingData.totalCandidate === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              没有需要调价的商品：在售商品毛利都在健康区间（15%~60%）
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10">#</TableHead>
+                  <TableHead>商品</TableHead>
+                  <TableHead>优先级</TableHead>
+                  <TableHead className="text-right">单位成本</TableHead>
+                  <TableHead className="text-right">参考价</TableHead>
+                  <TableHead className="text-right">毛利率</TableHead>
+                  <TableHead className="text-right">建议区间</TableHead>
+                  <TableHead>建议动作</TableHead>
+                  <TableHead>原因</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pricingData.items.map((x, i) => (
+                  <TableRow key={x.id}>
+                    <TableCell className="text-xs font-medium text-muted-foreground">{i + 1}</TableCell>
+                    <TableCell>
+                      <span>{x.name}</span>
+                      {x.stock > 0 && <span className="ml-1 text-xs text-muted-foreground">库存 {x.stock}</span>}
+                    </TableCell>
+                    <TableCell>
+                      <span className={'rounded px-1.5 py-0.5 text-xs font-bold ' + (x.priority === 'P0' ? 'bg-red-100 text-red-700' : x.priority === 'P1' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700')}>
+                        {x.priority === 'P0' ? 'P0 亏本' : x.priority === 'P1' ? 'P1 毛利低' : 'P2 偏高'}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-700">{formatPrice(Math.round(x.unitCostYuan * 100))}</TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-700">{formatPrice(Math.round(x.refPriceYuan * 100))}</TableCell>
+                    <TableCell className={'text-right font-medium tabular-nums ' + (x.marginPct < 0 ? 'text-red-600' : x.marginPct < 15 ? 'text-amber-600' : 'text-slate-700')}>{x.marginPct}%</TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-700">
+                      {x.suggestRange ? `${formatPrice(Math.round(x.suggestRange.low * 100))} - ${formatPrice(Math.round(x.suggestRange.high * 100))}` : '-'}
+                    </TableCell>
+                    <TableCell className="text-sm">{x.action}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {x.reason.map((r: string) => <span key={r} className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">{r}</span>)}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+          {pricingData?.note && <div className="mt-2 text-xs text-amber-600">{pricingData.note}</div>}
         </CardContent>
       </Card>
 

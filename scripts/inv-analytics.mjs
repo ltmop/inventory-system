@@ -14,6 +14,7 @@ import { DatabaseSync } from 'node:sqlite'
 import path from 'node:path'
 import os from 'node:os'
 import { buildClearance } from '../electron/commands/clearance.js'
+import { buildPricing } from '../electron/commands/pricing.js'
 
 const DB_PATH = path.join(process.env.APPDATA || os.homedir(), 'fishing-inventory', 'data.db')
 
@@ -322,6 +323,7 @@ try {
     case 'dormant': result = cmdDormant(db, parseInt(flag('slow') || '90', 10), parseInt(flag('dead') || '180', 10)); break
     case 'top': result = cmdTop(db, parseInt(flag('n') || '10', 10)); break
     case 'clearance': result = buildClearance(db); break
+    case 'pricing': result = buildPricing(db); break
     case 'raw': result = cmdRaw(db, flag('sql')); break
     case 'help':
     default:
@@ -335,6 +337,7 @@ try {
   node scripts/inv-analytics.mjs customers          客户欠款排行
   node scripts/inv-analytics.mjs dormant            沉睡资金榜（90/180天无出库 × 占用资金，倒序）
   node scripts/inv-analytics.mjs clearance          清仓建议引擎（P0/P1/P2 + 建议区间 + 护栏，只读）
+  node scripts/inv-analytics.mjs pricing            定价建议引擎（亏本/毛利偏低/可降价 + 建议区间 + 护栏，只读）
   node scripts/inv-analytics.mjs top --n 10         畅销品 Top N
   node scripts/inv-analytics.mjs raw --sql "SELECT ..."  原始只读查询
   --pretty    人类可读输出（默认 JSON）

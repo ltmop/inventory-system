@@ -1,5 +1,23 @@
 # 进销存系统 CHANGELOG
 
+## 未发布 — 定价建议引擎（决策层 MVP-2）+ T1 工作树归位
+
+### 定价建议引擎（MVP-2，2026-09-10）
+- `electron/commands/pricing.js` → `buildPricing(db)`：纯规则·只读·零写入；照清仓引擎（MVP-1）同一模子。
+  判据：毛利率 <15% → P1 毛利偏低（建议提价）；<0 → P0 亏本在售；>60% 且近 30 天无动销 → P2 可降价促动销。
+  **降档护栏**：近 30 天有动销的高毛利品不做降价建议（护住收入）；**清仓品互斥**：已标记清仓的交给清仓引擎，不重复建议；
+  无成本 / 无价不硬出。建议区间 = 单位成本 × {FLOOR[1.05,1.15], RAISE[1.35,1.60], CUT[1.10,1.25]}，**只给区间不给自动价**。
+- 证据强弱如实标注：有带售价成交 → `basis='sales'`（成交中位价，强）；无成交 → 退用商品档案建议价 `basis='catalog'`（弱）；两者都无 → `dataWindowOk=false` 不硬出。
+- 接线：`inv-analytics.mjs pricing`（CLI）/ IPC `pricing:get` / ReportsPage 定价建议卡（口径只走命令层，前端不复制规则）。
+- 断言：`scripts/test-pricing.mjs` **23 条 fixture 全绿**；`test-backend.mjs` **611 条不破**；clearance fixture 8 条不回归。
+- 渲染证据：`scripts/shot-pricing-card.cjs` → `screenshots/pricing-card-mvp2.png`（3 行、P0/P1/P2、零 pageerror）。
+
+### T1 工作树归位（2026-09-10）
+- 修掉一个**严重缺陷**：`electron/main.js` 早已 `import './aiQuota.js'` 与 `'./voiceOrderService.js'`，但这两个文件此前**未入库**
+  → 干净 clone / `git checkout` 后 `ERR_MODULE_NOT_FOUND`，Electron 起不来（已用 HEAD 纯净导出 + node 解析实测证实）。
+- 42 项未提交按功能流归位为 4 个 commit：语音开单 P1-3 / AI 计费额度 P0 / 云端优先恢复 / 手机页 A 线打磨；HEAD 现已自洽。
+- 删除 3 个已被编码事故损坏且零引用的临时脚本（`_qcc-setup.mjs`/`_pwnet.mjs`/`_qcs.mjs`）。
+
 ## v1.0.9 (2026-09-09) — 同步增强 / 幂等键 / 清仓建议引擎
 
 ### 同步（70 -> 90 分，单店场景一分不差）

@@ -146,6 +146,7 @@ const CHANNELS = new Set([
   'onboarding:reset',
   'onboarding:finish',
   'clearance:get',
+  'pricing:get',
   'cloud:status',
   'cloud:pair',
   'cloud:syncNow',

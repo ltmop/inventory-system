@@ -520,6 +520,8 @@ function registerIpc() {
   })
   // 清仓建议（决策层 MVP-1）：只读，走命令层单一来源 buildClearance
   ipcMain.handle('clearance:get', () => { try { return commands.buildClearance(db) } catch (e) { return { dataWindowOk: true, totalCandidate: 0, recoverableCost: 0, byPriority: { P0: 0, P1: 0, P2: 0 }, items: [], error: e.message } } })
+  // 定价建议（决策层 MVP-2）：只读，走命令层单一来源 buildPricing（给区间不自动改价）
+  ipcMain.handle('pricing:get', () => { try { return commands.buildPricing(db) } catch (e) { return { dataWindowOk: true, totalCandidate: 0, byPriority: { P0: 0, P1: 0, P2: 0 }, items: [], error: e.message } } })
   // 云备份通道：配对/快照/备份/恢复/吊销
   ipcMain.handle('cloud:status', () => getCloudState())
   ipcMain.handle('cloud:pair', (_e, p) => pairWithCloud(p?.pairCode ?? ''))
