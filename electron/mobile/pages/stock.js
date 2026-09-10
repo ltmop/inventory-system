@@ -14,7 +14,7 @@ page('stock', function (app) {
   // 切换热销/处理货标记，成功后刷新列表
   async function toggleMark(id, field, value) {
     try {
-      await api('product:mark', { id, [field]: value ? 1 : 0, operator: '手机' })
+      await api('product:mark', { id, [field]: value ? 1 : 0, operator: getOperator() })
       await search(keyword)
     } catch (e) { toast('标记失败: ' + (e.message || '')) }
   }

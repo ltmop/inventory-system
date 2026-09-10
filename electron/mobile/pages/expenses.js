@@ -28,7 +28,7 @@ page('expenses', function (app) {
         method: '现金',
         note: note,
         expense_date: new Date().toLocaleDateString('en-CA'),
-        operator: '手机',
+        operator: getOperator(),
       })
       toast('已记支出 ' + amt.toFixed(2) + ' 元')
       document.getElementById('exp-amt').value = ''

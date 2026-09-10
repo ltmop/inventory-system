@@ -67,7 +67,7 @@ page('waste', function (app) {
       const rounded = Math.round(qty * 10) / 10
       if (!(qty > 0) || (isMeter && Math.abs(rounded - qty) > 1e-9)) { toast(isMeter ? '米数要大于 0，最多 1 位小数' : '数量要是 ≥1 的数'); busy = false; return }
       const reason = prompt('什么原因？（活饵死亡/临期报废/破损...）', '临期报废') || '临期报废'
-      await api('waste:create', { productId: p.id, quantity: isMeter ? rounded : qty, reason, operator: '手机' })
+      await api('waste:create', { productId: p.id, quantity: isMeter ? rounded : qty, reason, operator: getOperator() })
       toast('已登记报损')
       await load()
     } catch (e) { toast('报损失败: ' + e.message) } finally { busy = false }

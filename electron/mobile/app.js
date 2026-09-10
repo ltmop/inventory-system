@@ -30,14 +30,23 @@ let tokenFailed = false
 const REQUEST_TIMEOUT_MS = 15000 // 15 秒超时，不无限等
 
 // 顶部连接横幅：断网/连接失败时大白话提醒，连上后自动隐藏
-function showNetBanner(text, color) {
+function showNetBanner(text, color, onRetry) {
   try {
     const b = document.getElementById('netBanner')
     if (!b) return
-    b.textContent = text
     b.style.background = color || '#fff3cd'
     b.style.color = '#8a6d00'
     b.style.display = 'block'
+    b.innerHTML = ''
+    const sp = document.createElement('span'); sp.textContent = text
+    b.appendChild(sp)
+    if (onRetry) {
+      const btn = document.createElement('button')
+      btn.textContent = '重试'; btn.type = 'button'
+      btn.style.cssText = 'margin-left:10px;padding:3px 12px;border:none;border-radius:6px;background:#8a6d00;color:#fff;font-weight:800;font-size:13px;cursor:pointer'
+      btn.onclick = onRetry
+      b.appendChild(btn)
+    }
   } catch {}
 }
 function hideNetBanner() {
@@ -68,10 +77,10 @@ async function api(channel, payload) {
       signal: controller.signal,
     })
   } catch (e) {
-    // 断网/超时：显示横幅 + 不锁死全局，仅本次失败
-    showNetBanner('连不上电脑：检查手机和电脑是不是连的同一个 WiFi')
+    // 断网/超时：显示断网提示+重试 横幅，不锁死全局，仅本次失败
+    showNetBanner('连不上中心库 / 网络异常，检查网络后重试', '#ffe9d6', () => { hideNetBanner(); renderPage() })
     netDown = true
-    throw new Error(e?.name === 'AbortError' ? '请求超时，请重试' : '连不上电脑，检查店里 WiFi 是否正常')
+    throw new Error(e?.name === 'AbortError' ? '请求超时，请重试' : '连不上中心库，请检查手机网络')
   } finally {
     clearTimeout(timer)
   }
@@ -83,6 +92,13 @@ async function api(channel, payload) {
   }
   return data.result
 }
+
+// —— 操作员身份（T2 统一）：全手机页写操作共用同一个 getOperator()，发货/开单/入库/报损都能追到人 ——
+function getOperator() { try { return localStorage.getItem('fi-operator') || '老板' } catch { return '老板' } }
+function setOperator(n) { try { localStorage.setItem('fi-operator', String(n == null ? '' : n).trim() || '老板') } catch {} }
+// 断网自动提示 + 恢复自动隐藏（T4）
+window.addEventListener('offline', () => showNetBanner('网络已断开，请检查手机网络', '#ffe9d6', () => { hideNetBanner(); renderPage() }))
+window.addEventListener('online', () => { hideNetBanner(); renderPage() })
 
 let currentPage = ''
 function navigate(hash) { location.hash = hash }
@@ -133,8 +149,8 @@ function fmt(cents, nullText) {
 }
 
 function phColor(p) { return COLORS[(p.id || 0) % COLORS.length] }
-function phChar(p) { const name = (p.brand || '') + ' ' + (p.model || '') || p.sku_code || ''; return name[0] || '?' }
-function prodName(p) { return (p.brand || '') + ' ' + (p.model || '') || p.sku_code || '未知' }
+function phChar(p) { const name = (((p.brand || '') + ' ' + (p.model || '')).trim() || p.sku_code || ''); return name[0] || '?' }
+function prodName(p) { const n = ((p.brand || '') + ' ' + (p.model || '')).trim(); return (n || p.sku_code || '未知') }
 
 // ========== 语音识别（40岁+用户：打字慢，按住/点按说话最自然） ==========
 // 链路：手机录音(webm) → 本地转16kHz PCM → 发给PC本地识别(sherpa-onnx)
@@ -452,7 +468,7 @@ function openReceiptPanel() {
         const v = inputs[m].value
         const cents = Math.round(parseFloat(v || '0') * 100)
         if (Number.isFinite(cents) && cents >= 0) {
-          await api('receipt:register', { date: dateEl.value, method: m, amount: cents, operator: '手机' })
+          await api('receipt:register', { date: dateEl.value, method: m, amount: cents, operator: getOperator() })
         }
       }
       toast('已保存，对账已更新')

@@ -134,7 +134,7 @@ page('inbound', function (app) {
         const payload = {
           productId: p.id, quantity: qty,
           costPrice: cost ? Math.round(parseFloat(cost) * 100) : p.cost_price,
-          location: p.location || '', operator: '手机',
+          location: p.location || '', operator: getOperator(),
         }
         if (expiry) payload.expiryDate = expiry
         try {
@@ -204,7 +204,7 @@ page('inbound', function (app) {
           })
           productId = r.id
         }
-        const payload = { productId, quantity: qty, costPrice: cost, location: '', operator: '手机' }
+        const payload = { productId, quantity: qty, costPrice: cost, location: '', operator: getOperator() }
         if (expiry) payload.expiryDate = expiry
         await api('inbound:create', payload)
         okCount++
@@ -340,7 +340,7 @@ page('inbound', function (app) {
         sku_code: code, barcode: code, category: cat, brand: '', model: name,
         cost_price: cost, suggest_price: 0, status: '待盘点', unit: unit,
       })
-      await api('inbound:create', { productId: r.id, quantity: qty, costPrice: cost, location: '', operator: '手机', expiryDate: expiry })
+      await api('inbound:create', { productId: r.id, quantity: qty, costPrice: cost, location: '', operator: getOperator(), expiryDate: expiry })
       showStamp('已入库', name + ' × ' + qty + (unit === '米' ? '米' : ''), true)
       form.classList.remove('show')
       document.getElementById('ai-tag').classList.remove('show')

@@ -57,7 +57,7 @@ page('stocktake', function (app) {
 
   async function submit() {
     if (busy) return; busy = true
-    try { await api('stocktake:submit', { operator: '手机' }); showStamp('已核对', currentLoc, true); currentLoc = ''; load() }
+    try { await api('stocktake:submit', { operator: getOperator() }); showStamp('已核对', currentLoc, true); currentLoc = ''; load() }
     catch (e) { toast('提交失败: ' + e.message); busy = false }
   }
 
