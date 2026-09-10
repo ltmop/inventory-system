@@ -1,5 +1,5 @@
 // 云账号登录门：进入系统先登录/注册云账号（多设备同步），也可跳过进入「只读演示模式」
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { KeyRound, LogIn, UserPlus, Eye } from 'lucide-react'
 import { backend, setGuestMode, setCentralConfig, getCentralConfig } from '@/lib/api'
 import { useAppStore } from '@/store/appStore'
@@ -23,6 +23,12 @@ export function CloudLoginGate() {
   const [centralMode, setCentralMode] = useState<'idle' | 'fill'>('idle')
   const [cenUrl, setCenUrl] = useState(getCentralConfig().url || 'https://app.junchengzn.com')
   const [cenToken, setCenToken] = useState('')
+
+  // 右上角头像菜单可直接叫出「登录云账号 / 注册云账号」：跟随 store 意图切 tab
+  const cloudGateIntent = useAppStore((s) => s.cloudGateIntent)
+  useEffect(() => {
+    if (cloudGateIntent) { setMode(cloudGateIntent); setError(''); setPendingRestore(null) }
+  }, [cloudGateIntent])
 
   // 本地优先：默认不弹门；只有用户主动点「登录」（或登出后）才会打开（cloudAuth === 'none'）
   if (cloudAuth !== 'none') return null
