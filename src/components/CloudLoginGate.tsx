@@ -1,7 +1,7 @@
 // 云账号登录门：进入系统先登录/注册云账号（多设备同步），也可跳过进入「只读演示模式」
 import { useState } from 'react'
 import { KeyRound, LogIn, UserPlus, Eye } from 'lucide-react'
-import { backend, setGuestMode } from '@/lib/api'
+import { backend, setGuestMode, setCentralConfig, getCentralConfig } from '@/lib/api'
 import { useAppStore } from '@/store/appStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,6 +17,12 @@ export function CloudLoginGate() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [showForgot, setShowForgot] = useState(false)
+  // 首登恢复：新电脑登录老账号，云端有备份 → 引导恢复（上传已被主进程挂起）
+  const [pendingRestore, setPendingRestore] = useState<{ date: string; size: number } | null>(null)
+  // P0 数据同步：首启主推「连接中心库」(与手机/网页同账)
+  const [centralMode, setCentralMode] = useState<'idle' | 'fill'>('idle')
+  const [cenUrl, setCenUrl] = useState(getCentralConfig().url || 'https://app.junchengzn.com')
+  const [cenToken, setCenToken] = useState('')
 
   // 本地优先：默认不弹门；只有用户主动点「登录」（或登出后）才会打开（cloudAuth === 'none'）
   if (cloudAuth !== 'none') return null
@@ -36,7 +42,16 @@ export function CloudLoginGate() {
         : await backend!.invoke('cloud:loginAccount', { username: username.trim(), password, deviceName })
       if (r?.ok) {
         setGuestMode(false)
-        setCloud({ paired: true, username: r.username ?? null, viewUrl: r.viewUrl, error: null })
+        setCloud({
+          paired: true, username: r.username ?? null, viewUrl: r.viewUrl, error: null,
+          needsRestore: r.needsRestore === true,
+          pendingBackup: r.latestBackup ?? null,
+        })
+        if (r.needsRestore && r.latestBackup) {
+          // 不直接进门：先让用户选"恢复云端数据"还是"我是新店"
+          setPendingRestore(r.latestBackup)
+          return
+        }
         setCloudAuth('logged')
       } else {
         setError(r?.error || (mode === 'register' ? '注册失败' : '登录失败'))
@@ -54,6 +69,22 @@ export function CloudLoginGate() {
     setCloudAuth('guest')
   }
 
+  // P0 数据同步：连接中心库（与手机/网页同一本账），保存后重载让 api.ts 走中心库模式
+  const connectCentral = async () => {
+    if (busy) return
+    if (!cenUrl.trim() || !cenToken.trim()) { setError('填中心库地址和访问 token'); return }
+    setBusy(true); setError('')
+    try {
+      setCentralConfig(cenUrl.trim(), cenToken.trim())
+      setCloudAuth('logged')
+      setCloud({ paired: true, username: null, viewUrl: null, error: null, needsRestore: false, pendingBackup: null })
+      window.location.reload()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0d1b30]">
       <div className="w-[420px] rounded-2xl bg-white p-8 shadow-2xl">
@@ -67,6 +98,25 @@ export function CloudLoginGate() {
           </p>
         </div>
 
+        {/* P0 数据同步：优先连接中心库（与手机/网页同一本账） */}
+        {centralMode === 'idle' ? (
+          <div className="mb-4 rounded-xl bg-brand-50 p-4">
+            <div className="mb-1 text-sm font-semibold text-slate-800">连接中心库（推荐 · 与手机/网页同一本账）</div>
+            <p className="mb-3 text-xs leading-relaxed text-slate-500">填店里中心库地址 + 访问 token，桌面就读写 app.junchengzn.com 中心库——手机/网页/桌面对同一份实时账，数据不再各存各的。</p>
+            <Button onClick={() => { setCentralMode('fill'); setError('') }} className="w-full bg-brand-600 hover:bg-brand-700">连接中心库</Button>
+            <Button onClick={skip} variant="outline" className="mt-2 w-full">先用本机数据（本地模式）</Button>
+          </div>
+        ) : (
+          <div className="mb-4 space-y-3 rounded-xl bg-slate-50 p-4">
+            <div className="text-sm font-semibold text-slate-800">连接中心库（与手机/网页同账）</div>
+            <Input value={cenUrl} onChange={(e) => setCenUrl(e.target.value)} placeholder="中心库地址" />
+            <Input value={cenToken} onChange={(e) => setCenToken(e.target.value)} placeholder="访问 token（店主提供）" />
+            <Button onClick={connectCentral} disabled={busy} className="w-full bg-brand-600 hover:bg-brand-700">{busy ? '连接中…' : '保存并连接中心库'}</Button>
+            <button onClick={() => { setCentralMode('idle'); setError('') }} className="cursor-pointer text-xs text-brand-600 underline">返回</button>
+            {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+          </div>
+        )}
+        <div className="mb-2 text-center text-xs text-slate-400">或使用旧版云账号多机快照同步：</div>
         {/* 登录 / 注册切换 */}
         <div className="mb-4 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1">
           <button
@@ -83,7 +133,46 @@ export function CloudLoginGate() {
           </button>
         </div>
 
-        {showForgot ? (
+        {pendingRestore ? (
+          <div className="space-y-3">
+            <div className="rounded-xl bg-brand-50 px-4 py-3 text-[13px] leading-relaxed text-slate-700">
+              <div className="mb-1 text-sm font-semibold text-slate-800">这台电脑是新装的？</div>
+              检测到云端有这个账号的数据备份（<b>{pendingRestore.date}</b>，{(pendingRestore.size / 1024).toFixed(0)} KB）。
+              为避免空数据覆盖云端，<b>自动上传已暂停</b>。
+            </div>
+            <Button
+              onClick={async () => {
+                if (!backend || busy) return
+                setBusy(true)
+                try {
+                  // 恢复成功后主进程会自动重启软件
+                  const r = await backend.invoke('cloud:restore', { date: pendingRestore.date })
+                  if (!r?.ok) { setError(r?.error || '恢复失败'); setBusy(false) }
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : String(e))
+                  setBusy(false)
+                }
+              }}
+              disabled={busy}
+              className="w-full bg-brand-600 hover:bg-brand-700"
+            >
+              {busy ? '正在恢复云端数据...' : `恢复 ${pendingRestore.date} 的数据到本机（推荐）`}
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!backend) return
+                await backend.invoke('cloud:dismissRestore').catch(() => {})
+                setCloud({ needsRestore: false, pendingBackup: null })
+                setCloudAuth('logged')
+              }}
+              variant="outline"
+              className="w-full"
+            >
+              我是新店，从零开始（不用恢复）
+            </Button>
+            {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+          </div>
+        ) : showForgot ? (
           <div className="space-y-3">
             <div className="rounded-xl bg-lake-50 px-4 py-3 text-[13px] leading-relaxed text-slate-600">
               <div className="mb-1 text-sm font-semibold text-slate-800">忘记密码？数据不会丢</div>

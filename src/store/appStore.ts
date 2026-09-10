@@ -216,8 +216,8 @@ interface AppState {
   setLicense: (s: { activated: boolean; level: 'free' | 'pro' | 'max'; expiresAt: string | null; machineId: string; daysLeft: number | null }) => void
 
   /** 云备份状态（cloud:status IPC） */
-  cloud: { paired: boolean; username: string | null; lastSyncAt: string | null; lastBackupAt: string | null; syncing: boolean; error: string | null; viewUrl: string | null }
-  setCloud: (s: Partial<{ paired: boolean; username: string | null; lastSyncAt: string | null; lastBackupAt: string | null; syncing: boolean; error: string | null; viewUrl: string | null }>) => void
+  cloud: { paired: boolean; username: string | null; lastSyncAt: string | null; lastBackupAt: string | null; syncing: boolean; error: string | null; viewUrl: string | null; needsRestore?: boolean; pendingBackup?: { date: string; size: number } | null }
+  setCloud: (s: Partial<{ paired: boolean; username: string | null; lastSyncAt: string | null; lastBackupAt: string | null; syncing: boolean; error: string | null; viewUrl: string | null; needsRestore?: boolean; pendingBackup?: { date: string; size: number } | null }>) => void
 
   /** Electron 环境启动时调用一次：从 SQLite 拉全量数据进 store */
   loadAll: () => Promise<void>

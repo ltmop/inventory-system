@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
 import { Cloud, Copy, RefreshCw, Download, Key, CheckCircle, XCircle, AlertTriangle } from 'lucide-react'
-import { backend, isGuestMode, setGuestMode } from '@/lib/api'
+import { backend, isGuestMode, setGuestMode, getCentralConfig } from '@/lib/api'
 import { useAppStore } from '@/store/appStore'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -13,6 +13,8 @@ export function CloudCard() {
   // 游客模式（跳过登录）：强制显示登录表单，允许随时登录/切换账号
   // 每次渲染读取 localStorage 标记（登录后 setCloud 触发重渲染，自动退出游客界面）
   const guestMode = isGuestMode()
+  // P0 数据同步：已连中心库时，多端同账由中心库负责；此卡①为本地备份/远程看店
+  const centralOn = !!getCentralConfig().url
 
   const [pairCode, setPairCode] = useState('')
   const [pairing, setPairing] = useState(false)
@@ -73,7 +75,12 @@ export function CloudCard() {
       if (r?.ok) {
         setGuestMode(false) // 清除 localStorage 游客标记
         useAppStore.setState({ cloudAuth: 'logged' }) // 退出游客模式
-        setCloud({ paired: true, username: r.username ?? null, viewUrl: r.viewUrl, error: null })
+        setCloud({
+          paired: true, username: r.username ?? null, viewUrl: r.viewUrl, error: null,
+          // 新电脑登录老账号：云端有备份 → 挂起上传，展示恢复引导
+          needsRestore: r.needsRestore === true,
+          pendingBackup: r.latestBackup ?? null,
+        })
         setAcctPassword('')
       } else {
         setCloud({ error: r?.error || (acctMode === 'register' ? '注册失败' : '登录失败') })
@@ -127,8 +134,14 @@ export function CloudCard() {
     if (!backend) return
     setBackupsLoading(true)
     try {
-      const r = await backend.invoke('cloud:listBackups')
-      if (r?.ok && r.files) setBackups(r.files)
+      if (centralOn) {
+        // P0 数据同步：中心库模式 → 中心库服务端每日备份（backup:list 通道）
+        const r = await backend.invoke('backup:list')
+        if (Array.isArray(r)) setBackups(r)
+      } else {
+        const r = await backend.invoke('cloud:listBackups')
+        if (r?.ok && r.files) setBackups(r.files)
+      }
     } catch { return }
     finally { setBackupsLoading(false) }
   }
@@ -185,6 +198,11 @@ export function CloudCard() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {centralOn && (
+            <div className="rounded-lg bg-emerald-50 px-3 py-2 text-xs leading-relaxed text-emerald-700">
+              <b>已连接中心库：</b>桌面/手机/网页已同一本账（app.junchengzn.com），此处为本地模式备份/远程看店（旧①）。
+            </div>
+          )}
           {/* 未配对 或 游客模式：显示账户登录（多设备）或配对码 */}
           {(!cloud.paired || guestMode) && (
             <div className="space-y-4">
@@ -254,6 +272,40 @@ export function CloudCard() {
           {/* 已配对（且非游客）：管理 */}
           {cloud.paired && !guestMode && (
             <div className="space-y-4">
+              {/* 首登恢复引导：新电脑登录老账号，云端有备份 → 上传已挂起，必须先做选择 */}
+              {cloud.needsRestore && cloud.pendingBackup && (
+                <div className="rounded-lg border-2 border-brand-300 bg-brand-50 px-4 py-3 space-y-2">
+                  <div className="text-sm font-bold text-brand-800">
+                    检测到云端有这个账号的数据备份（{cloud.pendingBackup.date}，{(cloud.pendingBackup.size / 1024).toFixed(0)} KB）
+                  </div>
+                  <div className="text-xs leading-relaxed text-brand-700">
+                    这台电脑看起来是新装的。为避免空数据覆盖云端，<b>自动上传已暂停</b>。请二选一：
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      onClick={() => setRestoreDate(cloud.pendingBackup!.date)}
+                      size="sm"
+                      className="bg-brand-600 hover:bg-brand-700"
+                    >
+                      <Download className="size-4" />
+                      恢复云端数据到本机（推荐）
+                    </Button>
+                    <Button
+                      onClick={async () => {
+                        if (!backend) return
+                        await backend.invoke('cloud:dismissRestore').catch(() => {})
+                        const s = await backend.invoke('cloud:status').catch(() => null)
+                        if (s) setCloud(s)
+                        else setCloud({ needsRestore: false, pendingBackup: null })
+                      }}
+                      size="sm"
+                      variant="outline"
+                    >
+                      我是新店，直接开始用
+                    </Button>
+                  </div>
+                </div>
+              )}
               {/* 当前登录账号 */}
               <div className="flex items-center gap-2 rounded-lg border border-lake-100 bg-lake-50/70 px-3 py-2.5">
                 <CheckCircle className="size-4 shrink-0 text-lake-600" />

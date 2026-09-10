@@ -38,7 +38,7 @@ const WRITE_CHANNELS = new Set([
   'update:downloadAndInstall', 'license:activate',
   'onboarding:finish', 'onboarding:reset',
   // 云同步写操作（游客不允许上传/改配）
-  'cloud:syncNow', 'cloud:backupNow', 'cloud:restore', 'cloud:regenViewLink', 'cloud:pair', 'cloud:logout',
+  'cloud:syncNow', 'cloud:backupNow', 'cloud:restore', 'cloud:regenViewLink', 'cloud:pair', 'cloud:logout', 'cloud:dismissRestore',
 ])
 
 // 云账号登录相关通道始终放行（游客也要能登录/注册）

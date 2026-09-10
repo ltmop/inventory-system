@@ -31,6 +31,10 @@ let cloudState = {
   syncing: false,
   error: null,
   viewUrl: null,
+  // 首登恢复挂起：新电脑登录老账号，云端有备份而本机全新 → 暂停上传，等用户选"恢复云端"或"我是新店"
+  // 防止空库/演示库把云端好数据顶掉（快照乐观锁能挡 snapshot，但每日备份按日期覆盖，挡不住）
+  needsRestore: false,
+  pendingBackup: null, // { date, size } 云端最新备份信息，供恢复弹窗展示
 }
 
 const CLOUD_CONFIG = 'cloud.json'
@@ -75,6 +79,9 @@ function loadLocalConfig() {
           keyK: cfg.keyK,
           pairedAt: cfg.pairedAt ?? null,
           lastServerAt: cfg.lastServerAt ?? null,
+          // 首登恢复挂起持久化：重启后仍挂着，直到用户做选择
+          needsRestore: cfg.needsRestore === true,
+          pendingBackup: cfg.pendingBackup ?? null,
           paired: true,
           viewUrl: buildViewUrl(cfg.viewToken, cfg.keyK),
         }
@@ -102,6 +109,8 @@ function saveLocalConfig() {
         keyK: cloudState.keyK,
         pairedAt: cloudState.pairedAt,
         lastServerAt: cloudState.lastServerAt,
+        needsRestore: cloudState.needsRestore,
+        pendingBackup: cloudState.pendingBackup,
       }),
       'utf8',
     )
@@ -212,6 +221,8 @@ export async function syncSnapshot(storeName) {
   if (!db || cloudState.syncing) return
   // B1: Pro 门控——付费才能上传，到期即停
   if (!checkPro()) return
+  // 首登恢复挂起：本机疑似全新（云端有备份待恢复），暂停一切上传，防止空库/演示库顶掉云端数据
+  if (cloudState.needsRestore) return
   cloudState.syncing = true
   try {
     if (!cloudState.userId || !cloudState.uploadToken) return
@@ -272,6 +283,8 @@ export async function resolveConflict() {
 export async function uploadBackup() {
   if (!db || !dbPath || !cloudState.userId) return
   if (!checkPro()) return
+  // 首登恢复挂起：每日备份按日期覆盖，空库上传会顶掉云端好备份，必须拦住
+  if (cloudState.needsRestore) return
   try {
     db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
     const raw = fs.readFileSync(dbPath)
@@ -353,6 +366,9 @@ export async function restoreFromCloud(date) {
     const { backupNow } = await import('./backup.js')
     try { backupNow(db, dbPath, backupDir) } catch { return }
 
+    // 恢复即用户已做选择：解除首登挂起（重启动后新库正常参与同步）
+    clearRestoreHold()
+
     // WAL checkpoint + 关闭主库连接
     db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
     db.close()
@@ -390,6 +406,52 @@ export async function regenViewLink() {
   } catch (e) {
     return { ok: false, error: e.message }
   }
+}
+
+// ---------- 首登恢复检测（新电脑登录老账号） ----------
+
+/**
+ * 本机是否"全新"：新手引导未完成（fi-onboarded != '1'）视为全新。
+ * 注意不能用流水数判断——新装机会种演示数据（含演示流水），流水数不可靠。
+ */
+function isLocalFresh() {
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'fi-onboarded'").get()
+    return row?.value !== '1'
+  } catch { return false }
+}
+
+/**
+ * 登录成功后调用：本机全新 + 云端有备份 → 挂起上传，返回最新备份信息让前端弹恢复窗。
+ * 返回 { date, size } 或 null
+ */
+async function detectFirstRunRestore() {
+  try {
+    if (!isLocalFresh()) return null
+    const r = await listCloudBackups()
+    if (!r?.ok || !Array.isArray(r.files) || r.files.length === 0) return null
+    const latest = [...r.files].sort((a, b) => String(b.date).localeCompare(String(a.date)))[0]
+    cloudState.needsRestore = true
+    cloudState.pendingBackup = { date: latest.date, size: latest.size }
+    saveLocalConfig() // 持久化挂起态：用户没做选择就重启，下次启动仍挂着
+    return cloudState.pendingBackup
+  } catch { return null }
+}
+
+/** 用户确认"我是新店/不用恢复"：解除挂起，立即补一次快照同步 */
+export async function dismissRestoreHold() {
+  cloudState.needsRestore = false
+  cloudState.pendingBackup = null
+  saveLocalConfig()
+  await syncSnapshot()
+  return { ok: true }
+}
+
+/** 恢复成功前清挂起（restoreFromCloud 会关库重启，这里只清状态并持久化） */
+export function clearRestoreHold() {
+  cloudState.needsRestore = false
+  cloudState.pendingBackup = null
+  saveLocalConfig()
 }
 
 // ---------- 账户登录（多设备）：注册/登录 + 绑定本机为设备 ----------
@@ -451,6 +513,11 @@ export async function loginAccount(username, password, deviceName = '') {
     cloudState.pairedAt = new Date().toISOString()
     cloudState.error = null
     saveLocalConfig()
+    // 新电脑登录老账号：本机全新 + 云端有备份 → 挂起上传并提示恢复（防止空库顶掉云端数据）
+    const pending = await detectFirstRunRestore()
+    if (pending) {
+      return { ok: true, viewUrl: cloudState.viewUrl, username: data.username, needsRestore: true, latestBackup: pending }
+    }
     // 登录成功立即上传快照（不等调度器）
     syncSnapshot().catch(() => {})
     return { ok: true, viewUrl: cloudState.viewUrl, username: data.username }
@@ -478,6 +545,8 @@ export function logoutAccount() {
     syncing: false,
     error: null,
     viewUrl: null,
+    needsRestore: false,
+    pendingBackup: null,
   }
   return { ok: true }
 }

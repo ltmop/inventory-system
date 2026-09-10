@@ -11,7 +11,7 @@ import { CloudLoginGate } from '@/components/CloudLoginGate'
 import { LowStockAlert } from '@/components/LowStockAlert'
 import { useAppStore } from '@/store/appStore'
 import { useWallpaper } from '@/lib/wallpaper'
-import { backend, setGuestMode } from '@/lib/api'
+import { backend, setGuestMode, isGuestMode, getCentralConfig } from '@/lib/api'
 
 export function Layout() {
   const [collapsed, setCollapsed] = useState(false)
@@ -34,6 +34,13 @@ export function Layout() {
   useEffect(() => {
     if (cloudPaired && cloudAuth !== 'logged') setCloudAuth('logged')
   }, [cloudPaired, cloudAuth, setCloudAuth])
+
+  // P0 数据同步：首启（未连中心库、且未选择本地跳过）默认弹「连接中心库」门，引导桌面与手机/网页同一本账
+  useEffect(() => {
+    if (cloudAuth === 'local' && !isGuestMode() && !getCentralConfig().url) {
+      setCloudAuth('none')
+    }
+  }, [cloudAuth, setCloudAuth])
 
   return (
     <div className="flex h-screen overflow-hidden bg-gradient-to-br from-[#f2f6f9] via-[#eef3f8] to-[#e6eef5] dark:from-[#0a1628] dark:via-[#0c1a2e] dark:to-[#0a1628]">
