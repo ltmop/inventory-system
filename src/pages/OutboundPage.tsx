@@ -5,6 +5,8 @@ import { GuestBlockCard } from '@/components/GuestBlockCard'
 import { ReceiptDialog, makeReceiptNo, type ReceiptData } from '@/components/Receipt'
 import { ScanHero } from '@/components/scan/ScanHero'
 import { VoiceSearchButton } from '@/components/voice/VoiceSearchButton'
+import { VoiceOrderButton } from '@/components/voice/VoiceOrderButton'
+import { VoiceOrderConfirmCard, type VoiceOrderLine, type VoiceOrderPay, type VoiceOrderResult } from '@/components/voice/VoiceOrderConfirmCard'
 import { useAppStore, priceForCustomer } from '@/store/appStore'
 // 1.0：AI 兜底（本地优先）——扫码 miss 时自动纠错找商品
 import { backend } from '@/lib/api'
@@ -75,6 +77,9 @@ export function OutboundPage() {
 
   // 购物清单（一单多商品收银台）：扫码/搜索 → 加入清单 → 去开单统一收款
   const [cart, setCart] = useState<CartItem[]>([])
+  // P1-3 语音开单：草稿 + 确认卡开关
+  const [voiceDraft, setVoiceDraft] = useState<VoiceOrderResult | null>(null)
+  const [voiceCardOpen, setVoiceCardOpen] = useState(false)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [checkoutExecuting, setCheckoutExecuting] = useState(false)
 
@@ -496,6 +501,26 @@ export function OutboundPage() {
   const cartRemove = (productId: number) => setCart((c) => c.filter((i) => i.product.id !== productId))
   const cartClear = () => setCart([])
 
+  // P1-3 语音开单：确认卡通过 → 灌入购物车 → 预填收款 → 打开既有结算弹窗（落库走 confirmCheckout，口径不变）
+  const applyVoiceOrder = (lines: VoiceOrderLine[], pay: VoiceOrderPay) => {
+    setCart((prev) => {
+      const next = [...prev]
+      for (const l of lines) {
+        const i = next.findIndex((x) => x.product.id === l.product.id)
+        if (i >= 0) next[i] = { ...next[i], quantity: next[i].quantity + l.quantity }
+        else next.push({ product: l.product, quantity: l.quantity, priceCents: l.priceCents })
+      }
+      return next
+    })
+    if (pay.credit) setPayMode('credit')
+    else {
+      if (pay.payMethod) setPayMethod(pay.payMethod)
+      if (pay.paidYuan) { setPayMode('partial'); setPaidYuan(pay.paidYuan) }
+    }
+    setConfirmError('')
+    setCheckoutOpen(true)
+  }
+
   const cartTotal = cart.reduce((s, i) => s + i.quantity * i.priceCents, 0)
 
   // 打开开单确认框：默认散客全额收款，实收默认填清单合计
@@ -886,12 +911,24 @@ export function OutboundPage() {
           if (selected) setSelected(null)
         }}
         action={
-          <VoiceSearchButton
-            onText={(text) => {
-              setKeyword(text)
-              setSelected(null)
-            }}
-          />
+          <>
+            <VoiceSearchButton
+              onText={(text) => {
+                setKeyword(text)
+                setSelected(null)
+              }}
+            />
+            <VoiceOrderButton
+              onDraft={(r) => {
+                setVoiceDraft(r)
+                setVoiceCardOpen(true)
+              }}
+              onFallbackText={(t) => {
+                setKeyword(t)
+                setSelected(null)
+              }}
+            />
+          </>
         }
         onSubmit={() => {
           if (candidates.length > 0) {
@@ -1120,6 +1157,15 @@ export function OutboundPage() {
         customers={customers}
         executing={checkoutExecuting}
         onExecute={handleCheckoutExecute}
+      />
+
+      {/* P1-3 语音开单确认卡：逐项确认后才允许灌入购物车 */}
+      <VoiceOrderConfirmCard
+        open={voiceCardOpen}
+        onOpenChange={setVoiceCardOpen}
+        draft={voiceDraft}
+        products={products}
+        onConfirm={applyVoiceOrder}
       />
 
       {/* 「+ 新客户」快捷建档 Dialog：只填姓名电话，建完自动选中 */}
