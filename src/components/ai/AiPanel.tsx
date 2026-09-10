@@ -203,10 +203,13 @@ export function AiPanel() {
         // 语音播报开关开着时，把最终答复读出来（tool 中间步骤不进 messages，天然不播）
         if (ttsOn) speak(r.content)
       } else {
+        // P0：402 余额不足 → 明确的充值引导（区别于普通网络错误）
         const reason =
-          r?.reason === 'timeout' ? 'AI 响应超时，请再试一次'
-          : r?.reason?.startsWith('http-4') ? 'API Key 可能失效或余额不足，请到设置页检查'
-          : 'AI 暂时不可用，请稍后再试（网络或额度问题）'
+          r?.code === 402 || r?.reason === 'quota-exceeded'
+            ? '官方 AI 额度已用完。请到「AI 智能」页充值，或在设置里切换自备 Key 继续使用。'
+            : r?.reason === 'timeout' ? 'AI 响应超时，请再试一次'
+            : r?.reason?.startsWith('http-4') ? 'API Key 可能失效或余额不足，请到设置页检查'
+            : 'AI 暂时不可用，请稍后再试（网络或额度问题）'
         setMessages([...history, { role: 'assistant', content: reason }])
       }
     } catch {

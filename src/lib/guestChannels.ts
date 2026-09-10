@@ -28,6 +28,7 @@ const WRITE_CHANNELS = new Set([
   'photo:save', 'photo:delete', 'payment:saveQr', 'payment:deleteQr',
   // AI/知识库
   'ai:setProvider', 'ai:setKey', 'ai:clearKey', 'ai:chat', 'ai:parseInboundNote', 'ai:transcribe',
+  'ai:bindLicense',
   'voice:parseOrder', 'voice:parseOrderAudio',
   'knowledge:save', 'knowledge:update', 'knowledge:delete',
   'doubao:setKey', 'doubao:clearKey', 'doubao:analyzeImage', 'doubao:chat',

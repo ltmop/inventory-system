@@ -8,6 +8,7 @@ import { useVoiceModel, useTtsModel, useKwsModel } from '@/lib/useModelDownload'
 import { useOnline } from '@/lib/useOnline'
 import { AiAssistantCard } from './settings/AiAssistantCard'
 import { AiQuotaCard } from './settings/AiQuotaCard'
+import { GatewayQuotaCard } from './settings/GatewayQuotaCard'
 import { ModelDownloadCard } from './settings/ModelDownloadCard'
 import { WakeWordCard } from './settings/WakeWordCard'
 
@@ -126,6 +127,9 @@ export default function AiHubPage() {
 
       {/* AI 视觉识别额度（v3.0） */}
       <AiQuotaCard />
+
+      {/* 官方 AI 额度（P0 计费阀门）：余额/流水/充值/补绑激活码 */}
+      <GatewayQuotaCard />
 
       {/* 语音识别模型（本地离线识别，阿里 SenseVoiceSmall 约228MB） */}
       <ModelDownloadCard

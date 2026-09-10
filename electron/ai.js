@@ -9,6 +9,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { saveAiMessage, listAiMessages, saveInsight, listInsights, searchInsights, buildInsightsContext } from './db.js'
 import { analyzeImageBase64 as doubaoVision } from './doubao.js'
+// P0 计费阀门：官方网关调用改经 aiQuota 统一入口（代理记账 + 402 阻断），BYOK 只记本地用量
+import { consumeViaGateway, recordLocalUsage, FEATURES } from './aiQuota.js'
 
 const TIMEOUT_MS = 30_000
 const MAX_AGENT_ROUNDS = 5
@@ -18,7 +20,7 @@ const MAX_AGENT_ROUNDS = 5
 // 用户在某提供商页填 Key 后，切换它作为主力模型即可（如 Kimi 慢/贵，切豆包或 GLM）。
 // gateway = 阿东官方 AI 服务（v0.1）：内置连接码，新装默认选它，开箱即用不用配 Key；
 // 走官方网关的用量按版本每日限额（普通版免费试用），自备 Key 的厂商不限次。
-const OFFICIAL_GATEWAY_URL = 'http://43.128.20.39:17533'
+export const OFFICIAL_GATEWAY_URL = 'http://43.128.20.39:17533'
 const OFFICIAL_GATEWAY_TOKEN = 'adu-desktop-0.1'
 const PROVIDERS = {
   gateway: {
@@ -183,13 +185,30 @@ function readApiKey() {
   }
 }
 
-/** 原始请求：返回完整 message（含 tool_calls），失败统一吞成 { ok:false, reason } */
-async function chatRaw(messages, { tools = undefined, maxTokens = 300, model } = {}) {
+/**
+ * 原始请求：返回完整 message（含 tool_calls），失败统一吞成 { ok:false, reason }
+ * P0 计费注入：feature 用 aiQuota.FEATURES 常量标记调用来源（计费/流水/占比统计用）。
+ * - gateway（官方服务）：改经 aiQuota.consumeViaGateway → 网关代理记账，
+ *   token 数以网关实读 usage 为准（客户端自报不采信）；余额不足返回 { ok:false, reason:'quota-exceeded', code:402 }
+ * - BYOK：直连厂商不变，成功后只记本地用量（recordLocalUsage，不扣费）
+ */
+async function chatRaw(messages, { tools = undefined, maxTokens = 300, model, feature = FEATURES.AGENT_CHAT } = {}) {
+  // ---- 官方网关分支：统一走计费阀门 ----
+  if (currentProviderName === 'gateway') {
+    const g = await consumeViaGateway(feature, messages, { tools, maxTokens })
+    if (!g.ok) {
+      if (g.code === 402) return { ok: false, reason: 'quota-exceeded', code: 402, remaining: g.remaining ?? 0 }
+      return { ok: false, reason: g.reason || 'gateway-error', code: g.code }
+    }
+    try { recordLocalUsage(db, feature, g.usage, 'gateway') } catch { /* 记录失败不影响主流程 */ }
+    return { ok: true, message: g.message, usage: g.usage, remaining: g.remaining }
+  }
+
+  // ---- BYOK 分支：直连厂商（原逻辑不变，成功后加本地用量记录钩子） ----
   const key = readApiKey()
   if (!key) return { ok: false, reason: 'no-key' }
   const p = currentProvider()
   const useModel = model ?? p.model
-  // 官方网关用自定义端点（/v1/chat/completions）+ x-token 鉴权；标准 OpenAI 厂商走 /chat/completions + Bearer
   const url = `${p.baseUrl}${p.chatPath ?? '/chat/completions'}`
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
@@ -215,7 +234,8 @@ async function chatRaw(messages, { tools = undefined, maxTokens = 300, model } =
     const data = await res.json()
     const message = data.choices?.[0]?.message
     if (!message) return { ok: false, reason: 'empty' }
-    return { ok: true, message }
+    try { recordLocalUsage(db, feature, data.usage ? { ...data.usage, model: useModel } : { model: useModel }, 'byok') } catch { /* 记录失败不影响主流程 */ }
+    return { ok: true, message, usage: data.usage ?? null }
   } catch (e) {
     return { ok: false, reason: e?.name === 'AbortError' ? 'timeout' : 'network', detail: String(e) }
   } finally {
@@ -223,17 +243,25 @@ async function chatRaw(messages, { tools = undefined, maxTokens = 300, model } =
   }
 }
 
-/** 简单问答（日报、连通性测试用），只取文本 */
+/** 简单问答（日报、连通性测试用），只取文本；usage/remaining 透传给计费展示 */
 async function chat(messages, opts = {}) {
   const r = await chatRaw(messages, opts)
   if (!r.ok) return r
   const content = r.message.content?.trim()
-  return content ? { ok: true, content } : { ok: false, reason: 'empty' }
+  return content ? { ok: true, content, usage: r.usage ?? null, remaining: r.remaining } : { ok: false, reason: 'empty' }
+}
+
+/**
+ * P1-3 等功能的简单 LLM 问答出口：按当前通道自动走 官方网关（计费）/ BYOK（只记本地用量）。
+ * 返回 { ok:true, content, usage, remaining } 或 { ok:false, reason, code? }（402 时 code=402）
+ */
+export async function chatForFeature(messages, { maxTokens = 300, feature = FEATURES.AGENT_CHAT } = {}) {
+  return chat(messages, { maxTokens, feature })
 }
 
 /** 设置页"保存并验证"用：发一个最小请求确认 Key 可用 */
 export async function testConnection() {
-  const r = await chat([{ role: 'user', content: '回复一个字：好' }], { maxTokens: 8 })
+  const r = await chat([{ role: 'user', content: '回复一个字：好' }], { maxTokens: 8, feature: FEATURES.CONNECTION_TEST })
   return r.ok ? { ok: true } : r
 }
 
@@ -269,7 +297,7 @@ export async function dailySummary(stats) {
       },
       { role: 'user', content: lines.join('\n') },
     ],
-    { maxTokens: 220 },
+    { maxTokens: 220, feature: FEATURES.DAILY_SUMMARY },
   )
 }
 
@@ -784,7 +812,7 @@ export async function agentChat(messages) {
   const trace = []
 
   for (let round = 0; round < MAX_AGENT_ROUNDS; round++) {
-    const r = await chatRaw(convo, { tools: TOOLS, maxTokens: 600 })
+    const r = await chatRaw(convo, { tools: TOOLS, maxTokens: 600, feature: FEATURES.AGENT_CHAT })
     if (!r.ok) return r
     const msg = r.message
 
@@ -943,7 +971,7 @@ export async function correctSearchTerm(rawText) {
       role: 'user',
       content: `顾客说的词：${text}\n\n店里商品清单（每行一个）：\n${productNames.join('\n')}`,
     },
-  ], { maxTokens: 30 })
+  ], { maxTokens: 30, feature: FEATURES.CORRECT_TERM })
   if (!r.ok) return { ok: false, reason: r.reason }
 
   const corrected = (r.message.content ?? '').trim().replace(/[。，、""]/g, '')

@@ -347,6 +347,18 @@ CREATE TABLE IF NOT EXISTS ai_usage (
     count INTEGER NOT NULL DEFAULT 0,
     UNIQUE(usage_date, feature)
 );
+
+-- P0 计费阀门：AI 逐笔 token 流水（纯追加）。与上面 ai_usage（按日计次）语义不同，互不影响。
+-- channel: gateway=官方网关（网关侧已扣费，这里只做展示记录）/ byok=自备 Key（只记不扣）
+CREATE TABLE IF NOT EXISTS ai_usage_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    feature TEXT NOT NULL,
+    model TEXT,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    channel TEXT NOT NULL DEFAULT 'gateway' CHECK (channel IN ('gateway','byok')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 `
 
 /**
@@ -946,5 +958,53 @@ function seedDatabase(db) {
   } catch (e) {
     db.exec('ROLLBACK')
     throw e
+  }
+}
+
+// ---------- P0 计费阀门：AI 逐笔 token 流水（纯追加，展示用；不承载扣费逻辑，扣费在网关） ----------
+
+/** 记一笔 AI 用量（feature 用 aiQuota.js 的 FEATURES 常量；channel: gateway|byok） */
+export function recordAiUsageLog(db, { feature, model = null, inputTokens = 0, outputTokens = 0, channel = 'gateway' } = {}) {
+  db.prepare(
+    'INSERT INTO ai_usage_log (feature, model, input_tokens, output_tokens, channel) VALUES (?, ?, ?, ?, ?)',
+  ).run(
+    String(feature ?? ''),
+    model,
+    Math.max(0, Math.round(Number(inputTokens) || 0)),
+    Math.max(0, Math.round(Number(outputTokens) || 0)),
+    channel === 'byok' ? 'byok' : 'gateway',
+  )
+}
+
+/** 最近 N 条流水（倒序，额度卡"最近流水"用） */
+export function listAiUsageLog(db, limit = 20) {
+  const n = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 200)
+  return db
+    .prepare(
+      `SELECT id, feature, model, input_tokens AS inputTokens, output_tokens AS outputTokens,
+              (input_tokens + output_tokens) AS totalTokens, channel, created_at AS createdAt
+       FROM ai_usage_log ORDER BY id DESC LIMIT ?`,
+    )
+    .all(n)
+}
+
+/** 本月用量统计：总 token + 分功能/分通道占比（额度卡"本月已用/占比"用） */
+export function aiUsageStats(db) {
+  const monthStart = new Date()
+  monthStart.setDate(1)
+  monthStart.setHours(0, 0, 0, 0)
+  const since = monthStart.toISOString().replace('T', ' ').slice(0, 19) // created_at 是 UTC 'YYYY-MM-DD HH:MM:SS'
+  const rows = db
+    .prepare(
+      `SELECT feature, channel, COUNT(*) AS calls,
+              SUM(input_tokens) AS inputTokens, SUM(output_tokens) AS outputTokens,
+              SUM(input_tokens + output_tokens) AS totalTokens
+       FROM ai_usage_log WHERE created_at >= ? GROUP BY feature, channel`,
+    )
+    .all(since)
+  return {
+    since,
+    monthTotalTokens: rows.reduce((s, r) => s + (r.totalTokens || 0), 0),
+    byFeature: rows,
   }
 }
