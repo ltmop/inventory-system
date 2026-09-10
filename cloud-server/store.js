@@ -9,12 +9,16 @@ const USERS_DIR = path.join(DATA_ROOT, 'users')
 
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  // 安全加固（2026-09-10）：数据目录仅服务属主可进入（Linux 生效；Windows 上 chmod 语义有限，失败忽略）
+  try { fs.chmodSync(dir, 0o700) } catch { }
 }
 
 function atomicWrite(filePath, data) {
   const tmp = filePath + '.tmp'
   fs.writeFileSync(tmp, data, 'utf8')
   fs.renameSync(tmp, filePath)
+  // 安全加固（2026-09-10）：凭据/快照/slot.key 一律 0600，替代 umask 默认的 0644
+  try { fs.chmodSync(filePath, 0o600) } catch { }
 }
 
 // ---------- 用户目录 ----------
@@ -495,7 +499,10 @@ export function listMembers() {
 
 // ---------- 共享槽密钥（服务端代管，登录后经 HTTPS 下发；与 cloudCrypto.generateKey 同格式 32字节 base64url） ----------
 export function getOrCreateSlotKey(userId = '') {
-  const uid = String(userId || '').trim() || COCKPIT_SLOT
+  // 安全加固（2026-09-10）：原实现在 userId 为空时静默回落到旧共享槽 COCKPIT_SLOT，
+  // 任何漏传 userId 的调用都会拿到「全租户共享密钥」。现改为显式抛错（fail-closed）。
+  const uid = String(userId || '').trim()
+  if (!uid) throw new Error('getOrCreateSlotKey: 缺少 userId（拒绝回落到共享槽）')
   const dir = userDir(uid)
   ensureDir(dir)
   const keyFile = path.join(dir, 'slot.key')
@@ -510,8 +517,9 @@ const sessions = new Map() // token -> { username, userId, expiresAt }
 
 export function createSession(token, username, ttlMs) {
   const acc = loadAccounts()[String(username || '').trim().toLowerCase()]
-  const userId = (acc && acc.userId) || COCKPIT_SLOT
-  sessions.set(token, { username, userId, expiresAt: Date.now() + (ttlMs || 12 * 60 * 60 * 1000) })
+  // 安全加固（2026-09-10）：账号查不到时不再回落到共享槽，否则会话会读写全租户共享数据
+  if (!acc || !acc.userId) throw new Error('createSession: 账号不存在，拒绝建立会话')
+  sessions.set(token, { username, userId: acc.userId, expiresAt: Date.now() + (ttlMs || 12 * 60 * 60 * 1000) })
 }
 
 export function validateSession(token) {
@@ -642,7 +650,7 @@ let AUDIT_FAILURES = 0
 export function auditFailures() { return AUDIT_FAILURES }
 export function audit(action, username, detail, userId) {
   try {
-    const uid = String(userId || '').trim() || COCKPIT_SLOT
+    const uid = String(userId || '').trim() || 'unknown'
     const line = JSON.stringify({ ts: new Date().toISOString(), username: maskPii(username) || 'anonymous', userId: uid, action, detail: maskPii(detail) })
     fs.appendFileSync(AUDIT_FILE, line + '\n')
   } catch (e) {

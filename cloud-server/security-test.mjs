@@ -2,7 +2,7 @@
 // 运行：node security-test.mjs     （零依赖，仅用 node:child_process + fetch）
 // 覆盖：R1 发码配额 / R2 真实 IP 与限流桶 / R3 注册强制手机号 / R4 cockpit 登录限速 /
 //       R5 ADMIN_KEY 加固 / R10 生产 mock 防呆 / R11 审计脱敏 / 多租户隔离 / 进销存端点回归
-import { spawn } from 'node:child_process'
+import { spawn, execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -226,6 +226,63 @@ if (await waitReady(D)) {
   ok('D 伪造 XFF 无法绕过限流（抗伪造默认开）', statuses.includes(429), JSON.stringify(statuses))
   stop(D)
 } else { ok('D 服务启动', false, 'not ready') }
+
+// ============================== 共享槽回落脚枪 ==============================
+console.log('\n[E] 共享槽回落脚枪与文件权限')
+const unitCode = [
+  "import * as store from './store.js'",
+  "import fs from 'node:fs'",
+  "const out = []",
+  "let a = false",
+  "try { store.getOrCreateSlotKey('') } catch (e) { a = true }",
+  "out.push('emptyUserIdThrows=' + a)",
+  "let b = false",
+  "try { store.createSession('t1', 'no-such-account') } catch (e) { b = true }",
+  "out.push('unknownAccountSessionThrows=' + b)",
+  "const k = store.getOrCreateSlotKey('userXYZ')",
+  "out.push('keyLen=' + k.length)",
+  "const st = fs.statSync(process.env.CLOUD_DATA_ROOT + '/users/userXYZ/slot.key')",
+  "out.push('mode=' + (st.mode & 0o777).toString(8))",
+  "console.log(out.join(' '))",
+].join('\n')
+const eRoot = tmpRoot('unit')
+let eOut = ''
+try {
+  eOut = execFileSync(process.execPath, ['--input-type=module', '-e', unitCode], { cwd: DIR, env: { ...process.env, CLOUD_DATA_ROOT: eRoot }, encoding: 'utf8' })
+} catch (e) { eOut = 'EXEC-ERR ' + (e && e.message) }
+ok('E getOrCreateSlotKey 空 userId 抛错（不再回落共享槽）', /emptyUserIdThrows=true/.test(eOut), eOut.trim().slice(0, 200))
+ok('E createSession 未知账号抛错（不再回落共享槽）', /unknownAccountSessionThrows=true/.test(eOut), eOut.trim().slice(0, 200))
+ok('E 正常 userId 仍可生成 32 字节密钥', /keyLen=43/.test(eOut), eOut.trim().slice(0, 200))
+if (process.platform === 'win32') console.log('  SKIP  slot.key 0600 权限断言（Windows 语义有限，由 Linux 生产验证）')
+else ok('E slot.key 权限为 0600', /mode=600/.test(eOut), eOut.trim().slice(0, 200))
+
+// ============================== 旧共享槽归档脚本 ==============================
+console.log('\n[F] 旧共享槽归档脚本（默认 dry-run，只移动不删除）')
+const fRoot = tmpRoot('archive')
+const sharedDir = path.join(fRoot, 'users', 'cockpit')
+fs.mkdirSync(path.join(sharedDir, 'backups'), { recursive: true })
+fs.writeFileSync(path.join(sharedDir, 'slot.key'), 'OLD-SHARED-KEY', 'utf8')
+fs.writeFileSync(path.join(sharedDir, 'snapshot.enc'), '{\"iv\":\"a\",\"data\":\"b\"}', 'utf8')
+fs.writeFileSync(path.join(sharedDir, 'backups', '2026-01-01.enc'), 'bak', 'utf8')
+fs.mkdirSync(path.join(fRoot, 'users', 'owneruid'), { recursive: true })
+fs.writeFileSync(path.join(fRoot, 'users', 'owneruid', 'snapshot.enc'), '{}', 'utf8')
+fs.writeFileSync(path.join(fRoot, 'cockpit-accounts.json'), JSON.stringify({ '13900000001': { phone: '13900000001', name: 'boss', userId: 'owneruid', isOwner: true } }), 'utf8')
+const runArchive = (root, args) => {
+  try { return { out: execFileSync(process.execPath, ['archive-shared-slot.mjs', ...args], { cwd: DIR, env: { ...process.env, CLOUD_DATA_ROOT: root }, encoding: 'utf8' }), code: 0 } }
+  catch (e) { return { out: String(e.stdout || '') + String(e.stderr || ''), code: e.status } }
+}
+const a1 = runArchive(fRoot, [])
+ok('F 默认 dry-run 不移动任何文件', fs.existsSync(sharedDir) && /DRY-RUN/.test(a1.out), a1.out.slice(0, 150))
+ok('F dry-run 列出待归档文件与校验值', /slot\.key/.test(a1.out) && /snapshot\.enc/.test(a1.out), a1.out.slice(0, 150))
+const a2 = runArchive(fRoot, ['--apply'])
+ok('F --apply 只移动不删除并写入清单', !fs.existsSync(sharedDir) && fs.existsSync(path.join(fRoot, 'archive')) && /ARCHIVE-MANIFEST/.test(a2.out), a2.out.slice(0, 200))
+ok('F 归档后给出回滚命令', /回滚/.test(a2.out), a2.out.slice(-200))
+const fRoot2 = tmpRoot('archive2')
+fs.mkdirSync(path.join(fRoot2, 'users', 'cockpit'), { recursive: true })
+fs.writeFileSync(path.join(fRoot2, 'cockpit-accounts.json'), JSON.stringify({ x: { phone: '13900000002', userId: 'u2' } }), 'utf8')
+const a3 = runArchive(fRoot2, ['--apply'])
+ok('F 无店主账号时拒绝归档（防误移）', a3.code === 2 && /ABORT/.test(a3.out), a3.out.slice(0, 150))
+ok('F 拒绝后共享槽原样保留', fs.existsSync(path.join(fRoot2, 'users', 'cockpit')))
 
 // ============================== 汇总 ==============================
 console.log('\n================ 结果 ================')
