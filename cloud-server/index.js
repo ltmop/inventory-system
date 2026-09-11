@@ -479,7 +479,7 @@ const server = http.createServer(async (req, res) => {
       store.createCockpitSession(token, r.account, 12 * 60 * 60 * 1000)
       const slotKey = store.getCockpitSlotKey(r.account.userId)
       store.audit('cockpit.register', r.account.name, r.account.phone, r.account.userId)
-      return json(res, 201, { ok: true, phone: r.account.phone, name: r.account.name, isOwner: r.account.isOwner, userId: r.account.userId, token, slotKey, expiresIn: 12 * 60 * 60 })
+      return json(res, 201, { ok: true, phone: r.account.phone, name: r.account.name, isOwner: r.account.isOwner, userId: r.account.userId, token, slotKey, expiresIn: 12 * 60 * 60, recoveryCode: r.recoveryCode })
     }
 
     // ======== POST /api/cockpit/login（手机号或账号名 + 密码；失败锁定限流） ========
@@ -542,8 +542,9 @@ const server = http.createServer(async (req, res) => {
       }
       store.migrateSharedSlotToOwner(acc.userId)
       store.getCockpitSlotKey(acc.userId)
+      const rcOwner = store.issueRecoveryCode('owner', acc.phone)
       store.audit('cockpit.owner.set', acc.name, acc.phone, acc.userId)
-      return json(res, 200, { ok: true, phone: acc.phone, isOwner: true, userId: acc.userId, message: '已设为店主，KB 槽位归属该账号' })
+      return json(res, 200, { ok: true, phone: acc.phone, isOwner: true, userId: acc.userId, recoveryCode: rcOwner.recoveryCode, message: '已设为店主，KB 槽位归属该账号；恢复码仅显示这一次' })
     }
 
     // ======== POST /api/cockpit/logout（撤销会话令牌） ========
@@ -630,7 +631,7 @@ const server = http.createServer(async (req, res) => {
       store.createTenantMemberSession(token, lg.member, lg.tenant)
       const slotKey = store.getCockpitSlotKey(lg.tenant.userId)
       store.audit('cockpit.member.accept', lg.member.name, '', lg.member.tenantUserId)
-      return json(res, 200, { ok: true, memberId: lg.member.memberId, role: lg.member.role, name: lg.member.name, phone: lg.member.phone, userId: lg.tenant.userId, isOwner: false, token, slotKey, expiresIn: 12 * 60 * 60 })
+      return json(res, 200, { ok: true, memberId: lg.member.memberId, role: lg.member.role, name: lg.member.name, phone: lg.member.phone, userId: lg.tenant.userId, isOwner: false, token, slotKey, expiresIn: 12 * 60 * 60, recoveryCode: rt.recoveryCode })
     }
 
     // POST /api/cockpit/members/login（成员登录：手机号 + 密码）
@@ -665,6 +666,42 @@ const server = http.createServer(async (req, res) => {
       if (rt.error) return json(res, 400, { ok: false, error: rt.error })
       store.audit('cockpit.member.disable', sess.name, '', sess.userId)
       return json(res, 200, { ok: true, member: rt.member })
+    }
+    // ======== POST /api/cockpit/password/change（已登录改密；同时换发新恢复码） ========
+    if (req.method === 'POST' && pathname === '/api/cockpit/password/change') {
+      const sess = store.validateCockpitSession(req.headers['x-token'])
+      if (!sess) return json(res, 401, { ok: false, error: '未登录或会话已过期' })
+      const body = JSON.parse((await readBody(req)).toString())
+      const kind = sess.kind === 'member' ? 'member' : 'owner'
+      const rt = store.changeOwnPassword({ kind, phone: sess.phone, oldPassword: body.old_password || body.oldPassword, newPassword: body.new_password || body.newPassword })
+      if (rt.error) return json(res, 400, { ok: false, error: rt.error })
+      store.audit('cockpit.password.change', sess.name, '', sess.userId)
+      return json(res, 200, { ok: true, recoveryCode: rt.recoveryCode, message: '密码已修改。请立即抄走新的恢复码（旧码已作废，仅显示这一次）' })
+    }
+
+    // ======== POST /api/cockpit/recover（用恢复码重置密码；不需要短信网关） ========
+    if (req.method === 'POST' && pathname === '/api/cockpit/recover') {
+      const body = JSON.parse((await readBody(req)).toString())
+      const ip = clientIp(req)
+      const limKey = 'recover:' + String(body.phone || '').trim()
+      const allow = store.checkLoginAllowed(ip, limKey)
+      if (!allow.allowed) return json(res, 429, { ok: false, error: allow.error })
+      const rt = store.recoverByCode(body.phone, body.recovery_code || body.recoveryCode || body.code, body.new_password || body.newPassword)
+      if (rt.error) { store.reportLoginResult(ip, limKey, false); return json(res, 400, { ok: false, error: rt.error }) }
+      store.reportLoginResult(ip, limKey, true)
+      store.audit('cockpit.recover', 'anonymous', '', '')
+      return json(res, 200, { ok: true, recoveryCode: rt.recoveryCode, message: '密码已重置。请立即抄走新的恢复码（旧码已作废，仅显示这一次）' })
+    }
+
+    // ======== POST /api/cockpit/admin/reset-password（ADMIN_KEY 兜底重置；账号与成员都支持） ========
+    if (req.method === 'POST' && pathname === '/api/cockpit/admin/reset-password') {
+      const body = JSON.parse((await readBody(req)).toString())
+      const ak = checkAdminKey(req, body, url)
+      if (!ak.ok) return json(res, ak.status, { ok: false, error: ak.error })
+      const rt = store.adminResetCockpitPassword(body.phone, body.new_password || body.newPassword)
+      if (rt.error) return json(res, 400, { ok: false, error: rt.error })
+      store.audit('cockpit.admin.reset', 'admin', '', '')
+      return json(res, 200, { ok: true, target: rt.target, phone: rt.phone, recoveryCode: rt.recoveryCode, message: '已重置。新恢复码仅显示这一次，请转交本人' })
     }
     // ======== POST /api/tenant/sync（进销存业务数据：按记录增量同步；服务端只存密文） ========
     if (req.method === 'POST' && pathname === '/api/tenant/sync') {

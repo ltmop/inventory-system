@@ -714,7 +714,9 @@ export function createCockpitAcc({ phone, name, password, isOwner = false }) {
   const salt = crypto.randomBytes(16).toString('hex')
   accs[ph] = { phone: ph, name: nm || ph.slice(-4), userId, salt, passHash: cockpitScryptHash(password, salt), isOwner: !!isOwner, enabled: true, createdAt: new Date().toISOString(), lastLoginAt: null, lastSeenAt: null }
   saveCockpitAccs(accs)
-  return { ok: true, account: accs[ph] }
+  // ADR-001：建号即签发一次性恢复码（明文只在响应里出现这一次）
+  const rc = issueRecoveryCode('owner', ph)
+  return { ok: true, account: accs[ph], recoveryCode: rc.recoveryCode }
 }
 
 export function updateCockpitAcc(phone, patch) {
@@ -890,7 +892,9 @@ export function acceptTenantInvite({ phone, inviteCode, password }) {
     invitedBy: ent.invitedBy, createdAt: new Date().toISOString(), lastLoginAt: null,
   }
   saveTenantMembers(members)
-  return { ok: true, member: publicTenantMember(members[ph]) }
+  // ADR-001：成员入伙即签发一次性恢复码（明文只在响应里出现这一次）
+  const rc = issueRecoveryCode('member', ph)
+  return { ok: true, member: publicTenantMember(members[ph]), recoveryCode: rc.recoveryCode }
 }
 
 /** 成员登录：手机号 + 密码 -> { member, tenant }（tenant 决定数据槽） */
@@ -926,6 +930,112 @@ export function createTenantMemberSession(token, member, tenant, ttlMs = 12 * 60
   })
 }
 export function pendingTenantInvites() { return INVITES.size }
+
+// ===================================================================
+// 密码找回兜底（无短信网关场景）——恢复码 / 管理员重置 / 已登录改密
+// 设计依据：ADR-001「注册/改密流程强制加恢复码（一次性、离线保存）」，
+// 它同时是方案 A（客户端持钥）的前置：持钥后忘记密码 = 数据永久丢失，没有恢复码不能上线。
+// 铁律：恢复码只存 scrypt 哈希，明文仅在签发那一次返回；用后立即作废并换发新码。
+// ===================================================================
+export function setTenantMember(phone, patch) {
+  const ph = String(phone || '').trim()
+  const members = loadTenantMembers()
+  if (!members[ph]) return null
+  members[ph] = Object.assign({}, members[ph], patch)
+  saveTenantMembers(members)
+  return members[ph]
+}
+
+const REC_ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // 去掉易混 I/O/0/1
+function genRecoveryCode() {
+  const b = crypto.randomBytes(20)
+  let s = ''
+  for (let i = 0; i < b.length; i++) s += REC_ALPHA[b[i] % 32]
+  return s.slice(0, 4) + '-' + s.slice(4, 8) + '-' + s.slice(8, 12) + '-' + s.slice(12, 16)
+}
+export function normalizeRecoveryCode(c) { return String(c || '').toUpperCase().replace(/[^A-Z2-9]/g, '') }
+
+/** 签发新恢复码（旧的自动作废）。返回明文，**仅此一次**。 */
+export function issueRecoveryCode(kind, phone) {
+  const ph = String(phone || '').trim()
+  const code = genRecoveryCode()
+  const salt = crypto.randomBytes(16).toString('hex')
+  const hash = cockpitScryptHash(normalizeRecoveryCode(code), salt)
+  if (kind === 'member') {
+    if (!setTenantMember(ph, { recSalt: salt, recHash: hash, recIssuedAt: new Date().toISOString() })) return { error: '成员不存在' }
+  } else {
+    if (!findCockpitAccByPhone(ph)) return { error: '账号不存在' }
+    updateCockpitAcc(ph, { recSalt: salt, recHash: hash, recIssuedAt: new Date().toISOString() })
+  }
+  return { ok: true, recoveryCode: code }
+}
+
+/** 已登录改密：验原密码 -> 换新密码 -> 顺带换发恢复码（旧码作废） */
+export function changeOwnPassword({ kind, phone, oldPassword, newPassword }) {
+  if (!newPassword || String(newPassword).length < 6) return { error: '新密码至少 6 位' }
+  const ph = String(phone || '').trim()
+  if (kind === 'member') {
+    const m = findTenantMemberByPhone(ph)
+    if (!m) return { error: '成员不存在' }
+    if (!m.enabled) return { error: '该成员已被停用' }
+    if (!cockpitVerifyScrypt(oldPassword, m.passHash, m.salt)) return { error: '原密码不正确' }
+    const salt = crypto.randomBytes(16).toString('hex')
+    setTenantMember(ph, { salt, passHash: cockpitScryptHash(newPassword, salt) })
+  } else {
+    const a = findCockpitAccByPhone(ph)
+    if (!a) return { error: '账号不存在' }
+    if (!cockpitVerifyScrypt(oldPassword, a.passHash, a.salt)) return { error: '原密码不正确' }
+    const salt = crypto.randomBytes(16).toString('hex')
+    updateCockpitAcc(ph, { salt, passHash: cockpitScryptHash(newPassword, salt) })
+  }
+  const rc = issueRecoveryCode(kind, ph)
+  return { ok: true, recoveryCode: rc.recoveryCode }
+}
+
+/** 管理员重置（路由层用 ADMIN_KEY 门禁）：账号或成员都支持，并换发恢复码 */
+export function adminResetCockpitPassword(phone, newPassword) {
+  const ph = String(phone || '').trim()
+  if (!newPassword || String(newPassword).length < 6) return { error: '新密码至少 6 位' }
+  const a = findCockpitAccByPhone(ph)
+  if (a) {
+    const salt = crypto.randomBytes(16).toString('hex')
+    updateCockpitAcc(ph, { salt, passHash: cockpitScryptHash(newPassword, salt), enabled: true })
+    clearCockpitFail(ph)
+    const rc = issueRecoveryCode('owner', ph)
+    return { ok: true, target: 'owner', phone: ph, recoveryCode: rc.recoveryCode }
+  }
+  const m = findTenantMemberByPhone(ph)
+  if (m) {
+    const salt = crypto.randomBytes(16).toString('hex')
+    setTenantMember(ph, { salt, passHash: cockpitScryptHash(newPassword, salt) })
+    clearCockpitFail(ph)
+    const rc = issueRecoveryCode('member', ph)
+    return { ok: true, target: 'member', phone: ph, recoveryCode: rc.recoveryCode }
+  }
+  return { error: '该手机号既不是账号也不是成员' }
+}
+
+/** 用恢复码重置密码（无需短信）。成功即作废旧码并换发新码。错误文案不区分存在性。 */
+export function recoverByCode(phone, code, newPassword) {
+  const ph = String(phone || '').trim()
+  if (!newPassword || String(newPassword).length < 6) return { error: '新密码至少 6 位' }
+  const norm = normalizeRecoveryCode(code)
+  if (!norm) return { error: '请输入恢复码' }
+  const acc = findCockpitAccByPhone(ph)
+  const mem = acc ? null : findTenantMemberByPhone(ph)
+  const target = acc || mem
+  if (!target) return { error: '手机号或恢复码不正确' }
+  if (!target.recHash || !target.recSalt) return { error: '该手机号尚未生成恢复码，请联系管理员重置' }
+  if (!cockpitVerifyScrypt(norm, target.recHash, target.recSalt)) return { error: '手机号或恢复码不正确' }
+  const salt = crypto.randomBytes(16).toString('hex')
+  const passHash = cockpitScryptHash(newPassword, salt)
+  const kind = acc ? 'owner' : 'member'
+  if (kind === 'member') setTenantMember(ph, { salt, passHash })
+  else updateCockpitAcc(ph, { salt, passHash })
+  clearCockpitFail(ph)
+  const rc = issueRecoveryCode(kind, ph)
+  return { ok: true, kind, recoveryCode: rc.recoveryCode }
+}
 
 // ===================================================================
 // 进销存业务数据 · 按记录增量同步（契约 v1.1 /api/tenant/*）

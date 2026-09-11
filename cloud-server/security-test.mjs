@@ -368,6 +368,59 @@ if (await waitReady(H)) {
   stop(H)
 } else { ok('H 增量同步服务启动', false, 'not ready') }
 
+// ============================== 密码兜底通道（无需短信网关） ==============================
+console.log('\n[I] 恢复码 / 已登录改密 / 管理员重置 —— 全部不依赖短信')
+const I = await startServer({ TRUST_PROXY: '1', ADMIN_KEY, COCKPIT_SMS_MOCK: '1', NODE_ENV: 'test' }, 3205, 'pwd')
+if (await waitReady(I)) {
+  const AKH = { 'x-admin-key': ADMIN_KEY }
+  const FMT = /^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/
+  let n = 1
+  const c2 = (p, body, h, m) => call(I, m || 'POST', p, { ip: '203.0.113.' + ((n++ % 200) + 10), headers: h, body })
+  const PH = '13800007001'
+  let i1 = await c2('/api/cockpit/register', { phone: PH, name: '老板', password: 'pass123456', isOwner: true }, AKH)
+  const rc1 = i1.body.recoveryCode, tok = i1.body.token
+  ok('I 建号即签发一次性恢复码', FMT.test(String(rc1)), JSON.stringify(i1.body && i1.body.recoveryCode))
+  let i9 = await c2('/api/cockpit/password/change', { old_password: 'WRONG', new_password: 'newpass111' }, { 'x-token': tok })
+  ok('I 改密：原密码错误被拒', i9.status === 400, JSON.stringify(i9.body))
+  i9 = await c2('/api/cockpit/password/change', { old_password: 'pass123456', new_password: '123' }, { 'x-token': tok })
+  ok('I 改密：新密码过短被拒', i9.status === 400, JSON.stringify(i9.body))
+  i9 = await c2('/api/cockpit/password/change', { old_password: 'pass123456', new_password: 'newpass111' }, { 'x-token': tok })
+  const rc2 = i9.body.recoveryCode
+  ok('I 改密成功并换发新恢复码', i9.status === 200 && FMT.test(String(rc2)) && rc2 !== rc1, JSON.stringify(i9.body))
+  ok('I 改密需要登录（无 token 401）', (await c2('/api/cockpit/password/change', { old_password: 'pass123456', new_password: 'zzz999999' })).status === 401)
+  ok('I 改密后旧密码失效', (await c2('/api/cockpit/login', { phone: PH, password: 'pass123456' })).status === 401)
+  ok('I 改密后新密码可登录', (await c2('/api/cockpit/login', { phone: PH, password: 'newpass111' })).status === 200)
+  i9 = await c2('/api/cockpit/recover', { phone: PH, recovery_code: 'AAAA-BBBB-CCCC-DDDD', new_password: 'recpass222' })
+  ok('I 恢复码错误被拒且不泄露存在性', i9.status === 400 && !/不存在/.test(String(i9.body.error)), JSON.stringify(i9.body))
+  ok('I 换发后旧恢复码作废', (await c2('/api/cockpit/recover', { phone: PH, recovery_code: rc1, new_password: 'recpass222' })).status === 400)
+  i9 = await c2('/api/cockpit/recover', { phone: PH, recovery_code: rc2, new_password: 'recpass222' })
+  const rc3 = i9.body.recoveryCode
+  ok('I 恢复码可重置密码（无需短信）', i9.status === 200 && FMT.test(String(rc3)), JSON.stringify(i9.body))
+  ok('I 重置后新密码可登录', (await c2('/api/cockpit/login', { phone: PH, password: 'recpass222' })).status === 200)
+  ok('I 恢复码用后即焚（不可重放）', (await c2('/api/cockpit/recover', { phone: PH, recovery_code: rc2, new_password: 'again333' })).status === 400)
+  ok('I 管理员重置：无 ADMIN_KEY 被拒', (await c2('/api/cockpit/admin/reset-password', { phone: PH, new_password: 'admin99999' })).status === 401)
+  i9 = await c2('/api/cockpit/admin/reset-password', { phone: PH, new_password: 'admin99999' }, AKH)
+  const rc4 = i9.body.recoveryCode
+  ok('I 管理员重置账号成功并换发恢复码', i9.status === 200 && i9.body.target === 'owner' && FMT.test(String(rc4)), JSON.stringify(i9.body))
+  ok('I 管理员重置后密码可登录', (await c2('/api/cockpit/login', { phone: PH, password: 'admin99999' })).status === 200)
+  const MEM = '13800007002'
+  const im = await c2('/api/cockpit/members', { phone: MEM, name: '收银', role: 'cashier' }, { 'x-token': tok })
+  const ac = await c2('/api/cockpit/members/accept', { phone: MEM, inviteCode: im.body.inviteCode, password: 'mem123456' })
+  const rcM = ac.body.recoveryCode
+  ok('I 成员入伙签发恢复码', ac.status === 200 && FMT.test(String(rcM)), JSON.stringify(ac.body))
+  i9 = await c2('/api/cockpit/password/change', { old_password: 'mem123456', new_password: 'mem654321' }, { 'x-token': ac.body.token })
+  ok('I 成员可自己改密（成员会话识别）', i9.status === 200 && FMT.test(String(i9.body.recoveryCode)), JSON.stringify(i9.body))
+  i9 = await c2('/api/cockpit/admin/reset-password', { phone: MEM, new_password: 'memadmin11' }, AKH)
+  ok('I 管理员可重置成员密码', i9.status === 200 && i9.body.target === 'member', JSON.stringify(i9.body))
+  ok('I 非账号非成员手机号被拒', (await c2('/api/cockpit/admin/reset-password', { phone: '13800007009', new_password: 'nobody123' }, AKH)).status === 400)
+  let a1 = '', a2 = ''
+  try { a1 = fs.readFileSync(path.join(I.dataRoot, 'cockpit-accounts.json'), 'utf8') } catch (e) {}
+  try { a2 = fs.readFileSync(path.join(I.dataRoot, 'tenant-members.json'), 'utf8') } catch (e) {}
+  ok('I 账号/成员文件只存恢复码哈希', /"recHash"/.test(a1) && /"recHash"/.test(a2), a1.slice(0, 60))
+  ok('I 恢复码明文均未落盘', [rc1, rc2, rc3, rc4, rcM].every((c) => !c || (a1 + a2).indexOf(String(c)) < 0))
+  stop(I)
+} else { ok('I 密码兜底服务启动', false, 'not ready') }
+
 // ============================== 汇总 ==============================
 console.log('\n================ 结果 ================')
 console.log('PASS ' + pass + '   FAIL ' + fail)
