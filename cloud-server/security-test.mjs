@@ -284,6 +284,90 @@ const a3 = runArchive(fRoot2, ['--apply'])
 ok('F 无店主账号时拒绝归档（防误移）', a3.code === 2 && /ABORT/.test(a3.out), a3.out.slice(0, 150))
 ok('F 拒绝后共享槽原样保留', fs.existsSync(path.join(fRoot2, 'users', 'cockpit')))
 
+// ============================== 租户成员（契约 v1.1） ==============================
+console.log('\n[G] 租户成员：店主加员工 -> 员工登录 -> 数据同源、权限不同')
+const G = await startServer({ TRUST_PROXY: '1', ADMIN_KEY, COCKPIT_SMS_MOCK: '1', NODE_ENV: 'test' }, 3203, 'members')
+if (await waitReady(G)) {
+  const AKH = { 'x-admin-key': ADMIN_KEY }
+  const ownerPh = '13800009001', empPh = '13800009002'
+  const g1 = await call(G, 'POST', '/api/cockpit/register', { ip: '203.0.113.70', headers: AKH, body: { phone: ownerPh, name: '老板', password: 'ownerpass123', isOwner: true } })
+  ok('G 店主租户建立', g1.status === 201 && !!g1.body.token, JSON.stringify(g1.body))
+  const ownerTok = g1.body.token, ownerUid = g1.body.userId
+  const g2 = await call(G, 'POST', '/api/cockpit/members', { ip: '203.0.113.70', headers: { 'x-token': ownerTok }, body: { phone: empPh, name: '收银小张', role: 'cashier' } })
+  ok('G 店主添加成员拿到邀请码', g2.status === 200 && /^\d{6}$/.test(String(g2.body.inviteCode)), JSON.stringify(g2.body))
+  const g3 = await call(G, 'POST', '/api/cockpit/members/accept', { ip: '203.0.113.71', body: { phone: empPh, inviteCode: '000000', password: 'emppass1234' } })
+  ok('G 错误邀请码被拒', g3.status === 400, JSON.stringify(g3.body))
+  const g4 = await call(G, 'POST', '/api/cockpit/members/accept', { ip: '203.0.113.71', body: { phone: empPh, inviteCode: g2.body.inviteCode, password: 'emppass1234' } })
+  ok('G 员工凭邀请码加入并拿到会话', g4.status === 200 && g4.body.role === 'cashier' && !!g4.body.token, JSON.stringify(g4.body))
+  const empTok = g4.body.token
+  ok('G 成员与店主共用同一数据槽（数据同源）', g4.body.userId === ownerUid, g4.body.userId + ' vs ' + ownerUid)
+  const g5 = await call(G, 'GET', '/api/cockpit/permissions', { ip: '203.0.113.71', headers: { 'x-token': empTok } })
+  ok('G 权限矩阵：收银可开单、不可改价', g5.status === 200 && g5.body.actions.indexOf('pos.sell') >= 0 && g5.body.actions.indexOf('price.change') < 0, JSON.stringify(g5.body.actions))
+  await call(G, 'POST', '/api/cockpit/snapshot', { ip: '203.0.113.71', headers: { 'x-token': empTok }, body: { iv: 'AAAA', data: 'CASHIER-ORDER' } })
+  const g6 = await call(G, 'GET', '/api/cockpit/snapshot/fetch', { ip: '203.0.113.70', headers: { 'x-token': ownerTok } })
+  ok('G 店主能立刻读到员工上传的数据（同源）', g6.status === 200 && g6.body.data === 'CASHIER-ORDER', JSON.stringify(g6.body))
+  const g7 = await call(G, 'POST', '/api/cockpit/members', { ip: '203.0.113.71', headers: { 'x-token': empTok }, body: { phone: '13800009003', name: 'x', role: 'manager' } })
+  ok('G 员工不能添加成员（403）', g7.status === 403, 'status=' + g7.status)
+  const g8 = await call(G, 'GET', '/api/cockpit/stats', { ip: '203.0.113.71', headers: { 'x-token': empTok } })
+  ok('G 员工不能看经营统计（403）', g8.status === 403, 'status=' + g8.status)
+  const g9 = await call(G, 'POST', '/api/cockpit/register', { ip: '203.0.113.80', headers: AKH, body: { phone: '13800009009', name: '另一家', password: 'otherpass123', isOwner: true } })
+  const g10 = await call(G, 'POST', '/api/cockpit/members/disable', { ip: '203.0.113.80', headers: { 'x-token': g9.body.token }, body: { phone: empPh } })
+  ok('G 跨租户停用被拒（403）', g10.status === 403, 'status=' + g10.status)
+  const g11 = await call(G, 'POST', '/api/cockpit/members/disable', { ip: '203.0.113.70', headers: { 'x-token': ownerTok }, body: { phone: empPh } })
+  ok('G 店主停用成员', g11.status === 200 && g11.body.member.enabled === false, JSON.stringify(g11.body))
+  const g12 = await call(G, 'GET', '/api/cockpit/snapshot/fetch', { ip: '203.0.113.71', headers: { 'x-token': empTok } })
+  ok('G 停用后成员会话立即失效（401）', g12.status === 401, 'status=' + g12.status)
+  const g13 = await call(G, 'POST', '/api/cockpit/members/login', { ip: '203.0.113.72', body: { phone: empPh, password: 'emppass1234' } })
+  ok('G 停用后成员登录被拒且文案明确', g13.status === 401 && /停用/.test(String(g13.body.error)), JSON.stringify(g13.body))
+  stop(G)
+} else { ok('G 成员服务启动', false, 'not ready') }
+
+// ============================== 按单据增量同步（契约 v1.1） ==============================
+console.log('\n[H] 进销存业务数据：按单据增量同步（替代整库覆盖，杜绝静默丢单）')
+const H = await startServer({ TRUST_PROXY: '1', ADMIN_KEY, COCKPIT_SMS_MOCK: '1', NODE_ENV: 'test' }, 3204, 'tenantsync')
+if (await waitReady(H)) {
+  const AKH = { 'x-admin-key': ADMIN_KEY }
+  const h1 = await call(H, 'POST', '/api/cockpit/register', { ip: '198.51.100.10', headers: AKH, body: { phone: '13800008001', name: '渔具店', password: 'pass123456', isOwner: true } })
+  const ownerTok = h1.body.token, ownerUid = h1.body.userId
+  const im = await call(H, 'POST', '/api/cockpit/members', { ip: '198.51.100.10', headers: { 'x-token': ownerTok }, body: { phone: '13800008002', name: '收银', role: 'cashier' } })
+  const emp = await call(H, 'POST', '/api/cockpit/members/accept', { ip: '198.51.100.11', body: { phone: '13800008002', inviteCode: im.body.inviteCode, password: 'emppass1234' } })
+  const empTok = emp.body.token
+  let h = await call(H, 'POST', '/api/tenant/sync', { ip: '198.51.100.10', body: { cursor: 0, changes: [] } })
+  ok('H 未登录同步被拒（401）', h.status === 401, 'status=' + h.status)
+  h = await call(H, 'POST', '/api/tenant/sync', { ip: '198.51.100.10', headers: { 'x-token': ownerTok }, body: { cursor: 0, changes: [{ kind: 'order', id: 'X', updatedAt: '2026-09-10T00:00:00Z' }] } })
+  ok('H 非法记录类型被拒（400）', h.status === 400, JSON.stringify(h.body))
+  h = await call(H, 'POST', '/api/tenant/sync', { ip: '198.51.100.10', headers: { 'x-token': ownerTok }, body: { cursor: 0, changes: [
+    { kind: 'transaction', id: 'T001', updatedAt: '2026-09-10T10:00:00Z', iv: 'IV-A', data: 'CIPHER-001' },
+    { kind: 'transaction', id: 'T002', updatedAt: '2026-09-10T10:01:00Z', iv: 'IV-B', data: 'CIPHER-002' },
+  ] } })
+  ok('H 店主推送 2 条单据被接受', h.status === 200 && h.body.applied.length === 2 && h.body.cursor === 2, JSON.stringify(h.body))
+  const c2 = h.body.cursor
+  h = await call(H, 'POST', '/api/tenant/sync', { ip: '198.51.100.11', headers: { 'x-token': empTok }, body: { cursor: 0, changes: [] } })
+  ok('H 员工能拉到店主的单据（数据同源）', h.status === 200 && h.body.changes.length === 2, JSON.stringify(h.body.changes && h.body.changes.length))
+  h = await call(H, 'POST', '/api/tenant/sync', { ip: '198.51.100.11', headers: { 'x-token': empTok }, body: { cursor: c2, changes: [{ kind: 'transaction', id: 'T003', updatedAt: '2026-09-10T10:02:00Z', iv: 'IV-C', data: 'CIPHER-003' }] } })
+  ok('H 员工能新增自己的单据', h.status === 200 && h.body.applied.length === 1 && h.body.cursor === 3, JSON.stringify(h.body))
+  h = await call(H, 'POST', '/api/tenant/sync', { ip: '198.51.100.10', headers: { 'x-token': ownerTok }, body: { cursor: 0, changes: [{ kind: 'transaction', id: 'T001', updatedAt: '2026-09-10T09:00:00Z', iv: 'IV-OLD', data: 'STALE' }] } })
+  ok('H 更旧版本判为冲突且不覆盖', h.status === 200 && h.body.applied.length === 0 && h.body.conflicts.length === 1, JSON.stringify(h.body))
+  ok('H 冲突回传服务端版本（不静默丢单）', h.body.conflicts[0].server.data === 'CIPHER-001', JSON.stringify(h.body.conflicts[0]))
+  h = await call(H, 'POST', '/api/tenant/sync', { ip: '198.51.100.10', headers: { 'x-token': ownerTok }, body: { cursor: 0, changes: [{ kind: 'transaction', id: 'T001', updatedAt: '2026-09-10T11:00:00Z', iv: 'IV-N', data: 'CORRECTED-001' }] } })
+  ok('H 更新版本正常覆盖', h.status === 200 && h.body.applied.length === 1, JSON.stringify(h.body))
+  await call(H, 'POST', '/api/tenant/sync', { ip: '198.51.100.10', headers: { 'x-token': ownerTok }, body: { cursor: 0, changes: [{ kind: 'transaction', id: 'T002', updatedAt: '2026-09-10T12:00:00Z', deleted: true }] } })
+  h = await call(H, 'POST', '/api/tenant/sync', { ip: '198.51.100.11', headers: { 'x-token': empTok }, body: { cursor: 0, changes: [] } })
+  const tomb = (h.body.changes || []).filter((x) => x.id === 'T002')[0]
+  ok('H 删除墓碑会传播且密文清空', !!tomb && tomb.deleted === true && tomb.data === '', JSON.stringify(tomb))
+  h = await call(H, 'POST', '/api/tenant/sync', { ip: '198.51.100.10', headers: { 'x-token': ownerTok }, body: { cursor: 0, changes: [], limit: 1 } })
+  ok('H 分页 limit=1 且 hasMore=true', h.status === 200 && h.body.changes.length === 1 && h.body.hasMore === true, JSON.stringify({ n: h.body.changes.length, more: h.body.hasMore }))
+  const h2 = await call(H, 'POST', '/api/cockpit/register', { ip: '198.51.100.12', headers: AKH, body: { phone: '13800008009', name: '另一家', password: 'pass123456', isOwner: true } })
+  h = await call(H, 'POST', '/api/tenant/sync', { ip: '198.51.100.12', headers: { 'x-token': h2.body.token }, body: { cursor: 0, changes: [] } })
+  ok('H 跨租户业务数据隔离', h.status === 200 && h.body.changes.length === 0 && h.body.cursor === 0, JSON.stringify(h.body))
+  h = await call(H, 'GET', '/api/tenant/status', { ip: '198.51.100.10', headers: { 'x-token': ownerTok } })
+  ok('H 水位接口分类计数正确', h.status === 200 && h.body.totalRecords === 3 && h.body.byKind.transaction === 3, JSON.stringify(h.body))
+  let bd = ''
+  try { bd = fs.readFileSync(path.join(H.dataRoot, 'users', ownerUid, 'bizlog.json'), 'utf8') } catch (e) { bd = '' }
+  ok('H 业务数据只存密文（明文不落盘）', bd.length > 0 && bd.indexOf('CORRECTED-001') >= 0 && bd.indexOf('渔具店') < 0 && bd.indexOf('收银') < 0, bd.slice(0, 120))
+  stop(H)
+} else { ok('H 增量同步服务启动', false, 'not ready') }
+
 // ============================== 汇总 ==============================
 console.log('\n================ 结果 ================')
 console.log('PASS ' + pass + '   FAIL ' + fail)

@@ -693,6 +693,12 @@ export function findCockpitAccByName(name) {
   for (const a of Object.values(loadCockpitAccs())) if (a.name === n) return a
   return null
 }
+export function findCockpitAccByUserId(userId) {
+  const id = String(userId || '').trim()
+  if (!id) return null
+  for (const a of Object.values(loadCockpitAccs())) if (a.userId === id) return a
+  return null
+}
 
 // isOwner=true 表示店主账号（持有 KB）；自助注册 isOwner=false（空槽，≠ KB）
 export function createCockpitAcc({ phone, name, password, isOwner = false }) {
@@ -732,6 +738,7 @@ export function cockpitStats(onlineMs = 5 * 60 * 1000) {
     totalUsers: accs.length,
     onlineNow: accs.filter((a) => a.lastSeenAt && (now - new Date(a.lastSeenAt).getTime()) <= onlineMs).length,
     newToday: accs.filter((a) => a.createdAt && a.createdAt.slice(0, 10) === today).length,
+    totalMembers: Object.keys(loadTenantMembers()).length,
   }
 }
 
@@ -751,6 +758,14 @@ export function validateCockpitSession(token) {
   if (!token) return null
   const s = cockpitSessions.get(token); if (!s) return null
   if (Date.now() > s.expiresAt) { cockpitSessions.delete(token); return null }
+  // 契约 v1.1：成员会话（kind='member'）与店主会话并存；成员的有效性看成员本身 + 所属租户账号
+  if (s.kind === 'member') {
+    const m = findTenantMemberByPhone(s.phone)
+    if (!m || !m.enabled) { cockpitSessions.delete(token); return null }
+    const t = findCockpitAccByUserId(s.userId)
+    if (!t || !t.enabled) { cockpitSessions.delete(token); return null }
+    return Object.assign({}, s, { account: t, member: publicTenantMember(m) })
+  }
   const a = findCockpitAccByPhone(s.phone)
   if (!a || !a.enabled) { cockpitSessions.delete(token); return null }
   return Object.assign({}, s, { account: a })
@@ -779,4 +794,190 @@ export function migrateSharedSlotToOwner(userId) {
     const bak = path.join(src, 'backups'); if (fs.existsSync(bak)) for (const f of fs.readdirSync(bak)) { const ff = path.join(bak, f); if (fs.statSync(ff).isFile()) { ensureDir(path.join(dst, 'backups')); atomicWrite(path.join(dst, 'backups', f), fs.readFileSync(ff, 'utf8')); moved = true } }
   } catch { }
   return moved
+}
+
+// ===================================================================
+// 租户内成员（tenant_members）—— 契约 v1.1，「员工入单」的身份基础
+// 模型：租户(tenantUserId = 一套数据槽) <- 成员(memberId + role) <- 设备(token)
+// 铁律：成员与店主**共用同一数据槽**（数据同源）；权限差异由 role 在服务端校验，
+//       不靠前端隐藏，也不靠数据分区（同一家店的数据本就该在一起）。
+// ===================================================================
+const TENANT_MEMBERS_FILE = path.join(DATA_ROOT, 'tenant-members.json')
+const INVITES = new Map() // phone -> { codeHash, expiresAt, attempts, tenantUserId, name, role, invitedBy }
+const INVITE_TTL_MS = 10 * 60 * 1000
+const INVITE_MAX_ATTEMPTS = 5
+const MEMBER_ROLES = ['owner', 'manager', 'cashier', 'stock', 'viewer']
+// 权限矩阵：**一处定义**，驾驶舱 scopeFilter 与进销存命令层共同引用（契约第 4 节）
+const ROLE_ACTIONS = {
+  owner: ['data.read', 'data.write', 'pos.sell', 'price.change', 'cost.view', 'stock.in', 'order.delete', 'members.list', 'members.manage', 'cockpit.fullView'],
+  manager: ['data.read', 'data.write', 'pos.sell', 'price.change', 'cost.view', 'stock.in', 'members.list', 'cockpit.fullView'],
+  cashier: ['data.read', 'data.write', 'pos.sell'],
+  stock: ['data.read', 'data.write', 'stock.in'],
+  viewer: ['data.read'],
+}
+export function roleCan(role, action) {
+  const r = MEMBER_ROLES.includes(String(role)) ? String(role) : 'viewer'
+  return (ROLE_ACTIONS[r] || []).includes(String(action))
+}
+export function roleMatrix() { return JSON.parse(JSON.stringify(ROLE_ACTIONS)) }
+export function listRoles() { return MEMBER_ROLES.slice() }
+/** 会话的有效角色：成员看 role；店主看 isOwner；其余按最小权限 viewer */
+export function sessionRole(sess) {
+  if (!sess) return 'viewer'
+  if (sess.role && MEMBER_ROLES.includes(sess.role)) return sess.role
+  return sess.isOwner ? 'owner' : 'viewer'
+}
+
+function loadTenantMembers() { try { return JSON.parse(fs.readFileSync(TENANT_MEMBERS_FILE, 'utf8')) } catch { return {} } }
+function saveTenantMembers(m) { ensureDir(DATA_ROOT); atomicWrite(TENANT_MEMBERS_FILE, JSON.stringify(m)) }
+export function findTenantMemberByPhone(phone) { const ph = String(phone || '').trim(); return ph ? (loadTenantMembers()[ph] || null) : null }
+export function findTenantMemberById(memberId) {
+  const id = String(memberId || '').trim()
+  if (!id) return null
+  for (const m of Object.values(loadTenantMembers())) if (m.memberId === id) return m
+  return null
+}
+export function listTenantMembers(tenantUserId) {
+  const t = String(tenantUserId || '').trim()
+  return Object.values(loadTenantMembers()).filter((m) => m.tenantUserId === t)
+}
+/** 对外脱敏视图：绝不外泄 salt / passHash */
+export function publicTenantMember(m) {
+  if (!m) return null
+  return { memberId: m.memberId, phone: m.phone, name: m.name, role: m.role, enabled: !!m.enabled, createdAt: m.createdAt, invitedBy: m.invitedBy || '' }
+}
+
+/** 店主添加成员：生成一次性邀请码（10 分钟 TTL、5 次尝试、用后即焚）。
+ *  邀请码由**店主本人转达**给员工（当前无短信网关，这比假装发短信更诚实、今天就能用）。 */
+export function inviteTenantMember({ tenantUserId, phone, name, role, invitedBy }) {
+  const t = String(tenantUserId || '').trim()
+  if (!t) return { error: '缺少 tenantUserId' }
+  const ph = String(phone || '').trim()
+  if (!/^1\d{10}$/.test(ph)) return { error: '手机号格式不正确' }
+  const rl = String(role || '').trim()
+  if (!MEMBER_ROLES.includes(rl)) return { error: '角色不合法（可选：' + MEMBER_ROLES.join(' / ') + '）' }
+  if (rl === 'owner') return { error: 'owner 只能通过店主账号使用，不支持邀请' }
+  if (loadCockpitAccs()[ph]) return { error: '该手机号本身就是账号，无需邀请' }
+  const exist = findTenantMemberByPhone(ph)
+  if (exist && exist.tenantUserId !== t) return { error: '该手机号已加入其他租户' }
+  if (exist && exist.enabled) return { error: '该成员已在本租户中' }
+  const code = String(Math.floor(100000 + Math.random() * 900000))
+  INVITES.set(ph, { codeHash: codeHash(ph, code), expiresAt: Date.now() + INVITE_TTL_MS, attempts: 0, tenantUserId: t, name: String(name || '').trim(), role: rl, invitedBy: String(invitedBy || '') })
+  return { ok: true, phone: ph, role: rl, inviteCode: code, expiresInSec: Math.floor(INVITE_TTL_MS / 1000) }
+}
+
+/** 员工凭邀请码加入并首次设置密码 */
+export function acceptTenantInvite({ phone, inviteCode, password }) {
+  const ph = String(phone || '').trim()
+  const ent = INVITES.get(ph)
+  if (!ent) return { error: '请先让店主发起邀请' }
+  if (Date.now() > ent.expiresAt) { INVITES.delete(ph); return { error: '邀请码已过期，请店主重新发起' } }
+  if (ent.attempts >= INVITE_MAX_ATTEMPTS) { INVITES.delete(ph); return { error: '邀请码错误次数过多，请店主重新发起' } }
+  if (codeHash(ph, String(inviteCode || '').trim()) !== ent.codeHash) {
+    ent.attempts += 1
+    INVITES.set(ph, ent)
+    const left = INVITE_MAX_ATTEMPTS - ent.attempts
+    return { error: left > 0 ? ('邀请码不正确，还可尝试 ' + left + ' 次') : '邀请码错误次数过多，请店主重新发起' }
+  }
+  if (!password || String(password).length < 6) return { error: '密码至少 6 位' }
+  INVITES.delete(ph) // 用后即焚
+  const members = loadTenantMembers()
+  const salt = crypto.randomBytes(16).toString('hex')
+  const memberId = 'm_' + crypto.randomBytes(8).toString('hex')
+  members[ph] = {
+    memberId, tenantUserId: ent.tenantUserId, phone: ph, name: ent.name || ph.slice(-4), role: ent.role,
+    enabled: true, salt, passHash: cockpitScryptHash(password, salt),
+    invitedBy: ent.invitedBy, createdAt: new Date().toISOString(), lastLoginAt: null,
+  }
+  saveTenantMembers(members)
+  return { ok: true, member: publicTenantMember(members[ph]) }
+}
+
+/** 成员登录：手机号 + 密码 -> { member, tenant }（tenant 决定数据槽） */
+export function tenantMemberLogin(phone, password) {
+  const ph = String(phone || '').trim()
+  const m = findTenantMemberByPhone(ph)
+  if (!m) return { error: '账号或密码错误' }
+  if (!m.enabled) return { error: '该成员已被停用，请联系店主' }
+  if (!cockpitVerifyScrypt(password, m.passHash, m.salt)) return { error: '账号或密码错误' }
+  const owner = findCockpitAccByUserId(m.tenantUserId)
+  if (!owner || !owner.enabled) return { error: '所属租户账号不可用，请联系店主' }
+  const members = loadTenantMembers()
+  members[ph] = Object.assign({}, m, { lastLoginAt: new Date().toISOString() })
+  saveTenantMembers(members)
+  return { ok: true, member: members[ph], tenant: owner }
+}
+export function setTenantMemberEnabled(phone, enabled) {
+  const ph = String(phone || '').trim()
+  const members = loadTenantMembers()
+  if (!members[ph]) return { error: '成员不存在' }
+  members[ph].enabled = !!enabled
+  saveTenantMembers(members)
+  return { ok: true, member: publicTenantMember(members[ph]) }
+}
+
+/** 成员会话：userId = 租户槽（数据与店主同源），memberId/role 决定权限 */
+export function createTenantMemberSession(token, member, tenant, ttlMs = 12 * 60 * 60 * 1000) {
+  cockpitSessions.set(token, {
+    kind: 'member', phone: member.phone, name: member.name,
+    userId: member.tenantUserId || tenant.userId, isOwner: false,
+    memberId: member.memberId, role: member.role,
+    expiresAt: Date.now() + ttlMs,
+  })
+}
+export function pendingTenantInvites() { return INVITES.size }
+
+// ===================================================================
+// 进销存业务数据 · 按记录增量同步（契约 v1.1 /api/tenant/*）
+// 解决：原 /api/snapshot 是「整库快照覆盖 + x-last-sync 冲突拒绝」，两个员工同时开单会静默丢单。
+// 做法：以 (kind, id) 为同步单元，逐记录合并；冲突不覆盖、如实回传（绝不静默丢失）。
+// 铁律：服务端**只存密文**（iv+data），明文业务数据永不落盘；与驾驶舱知识库快照（/api/cockpit/snapshot）是两个数据平面。
+// ===================================================================
+const BIZ_KINDS = ['transaction', 'product', 'customer', 'supplier', 'stocktake', 'payment']
+function bizLogFile(userId) { return path.join(userDir(userId), 'bizlog.json') }
+function loadBizLog(userId) {
+  try { const j = JSON.parse(fs.readFileSync(bizLogFile(userId), 'utf8')); if (j && j.records) return j } catch { }
+  return { cursor: 0, records: {} }
+}
+function saveBizLog(userId, lg) { ensureDir(userDir(userId)); atomicWrite(bizLogFile(userId), JSON.stringify(lg)) }
+
+export function tenantSync(userId, opts = {}) {
+  const uid = String(userId || '').trim()
+  if (!uid) return { error: '缺少租户标识' }
+  const lg = loadBizLog(uid)
+  const changes = Array.isArray(opts.changes) ? opts.changes.slice(0, 2000) : []
+  const applied = []
+  const conflicts = []
+  let seq = Number(lg.cursor) || 0
+  for (const c of changes) {
+    const kind = String(c && c.kind || '').trim()
+    const id = String(c && c.id || '').trim()
+    if (!kind || !id) continue
+    if (BIZ_KINDS.indexOf(kind) < 0) return { error: '不支持的记录类型: ' + kind }
+    const key = kind + '|' + id
+    const prev = lg.records[key]
+    const inAt = String(c.updatedAt || '')
+    // 冲突判据：服务端已有更新版本 -> 不覆盖，如实回传，交由客户端呈现/重放
+    if (prev && String(prev.updatedAt || '') > inAt) {
+      conflicts.push({ kind, id, serverUpdatedAt: prev.updatedAt, clientUpdatedAt: inAt, server: { iv: prev.iv || '', data: prev.data || '', deleted: !!prev.deleted } })
+      continue
+    }
+    seq += 1
+    lg.records[key] = { seq, kind, id, updatedAt: inAt || new Date().toISOString(), deleted: !!c.deleted, iv: c.deleted ? '' : String(c.iv || ''), data: c.deleted ? '' : String(c.data || '') }
+    applied.push(key)
+  }
+  if (applied.length) { lg.cursor = seq; saveBizLog(uid, lg) }
+  const since = Number(opts.cursor) || 0
+  const lim = Math.min(Math.max(Number(opts.limit) || 500, 1), 1000)
+  const rest = Object.values(lg.records).filter((r) => r.seq > since).sort((a, b) => a.seq - b.seq)
+  const out = rest.slice(0, lim).map((r) => ({ kind: r.kind, id: r.id, updatedAt: r.updatedAt, deleted: !!r.deleted, iv: r.iv || '', data: r.data || '', seq: r.seq }))
+  return { ok: true, cursor: Number(lg.cursor) || 0, applied, conflicts, changes: out, hasMore: rest.length > out.length }
+}
+
+/** 业务数据水位（不含任何明文；供体检/排障） */
+export function tenantBizStats(userId) {
+  const lg = loadBizLog(String(userId || ''))
+  const byKind = {}
+  for (const r of Object.values(lg.records)) byKind[r.kind] = (byKind[r.kind] || 0) + 1
+  return { cursor: Number(lg.cursor) || 0, totalRecords: Object.keys(lg.records).length, byKind }
 }

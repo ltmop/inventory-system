@@ -581,6 +581,108 @@ const server = http.createServer(async (req, res) => {
       store.audit('cockpit.snapshot', sess.name, `${(body.data || '').length} bytes`, sess.userId)
       return json(res, 200, { ok: true, at: new Date().toISOString() })
     }
+    // ======== 租户成员（契约 v1.1）：店主加员工 -> 员工凭邀请码加入 -> 登录即用同一套数据 ========
+    // GET /api/cockpit/permissions（当前会话的角色与可用动作；两个产品共用同一矩阵）
+    if (req.method === 'GET' && pathname === '/api/cockpit/permissions') {
+      const sess = store.validateCockpitSession(req.headers['x-token'])
+      if (!sess) return json(res, 401, { ok: false, error: '未登录或会话已过期' })
+      const role = store.sessionRole(sess)
+      return json(res, 200, { ok: true, role, memberId: sess.memberId || '', tenantUserId: sess.userId, actions: store.roleMatrix()[role] || [], matrix: store.roleMatrix() })
+    }
+
+    // POST /api/cockpit/members（店主添加成员 -> 返回邀请码，由店主转达给员工）
+    if (req.method === 'POST' && pathname === '/api/cockpit/members') {
+      const sess = store.validateCockpitSession(req.headers['x-token'])
+      if (!sess) return json(res, 401, { ok: false, error: '未登录或会话已过期' })
+      if (!store.roleCan(store.sessionRole(sess), 'members.manage')) return json(res, 403, { ok: false, error: '当前身份无此权限（仅店主可添加成员）' })
+      const body = JSON.parse((await readBody(req)).toString())
+      const rt = store.inviteTenantMember({ tenantUserId: sess.userId, phone: body.phone, name: body.name, role: body.role, invitedBy: sess.phone })
+      if (rt.error) return json(res, 400, { ok: false, error: rt.error })
+      store.audit('cockpit.member.invite', sess.name, '', sess.userId)
+      return json(res, 200, { ok: true, phone: rt.phone, role: rt.role, inviteCode: rt.inviteCode, expiresInSec: rt.expiresInSec, message: '把邀请码告诉该员工（10 分钟内有效），让他在自己电脑上凭手机号+邀请码设置密码' })
+    }
+
+    // GET /api/cockpit/members（成员列表；店主/店长可见）
+    if (req.method === 'GET' && pathname === '/api/cockpit/members') {
+      const sess = store.validateCockpitSession(req.headers['x-token'])
+      if (!sess) return json(res, 401, { ok: false, error: '未登录或会话已过期' })
+      if (!store.roleCan(store.sessionRole(sess), 'members.list')) return json(res, 403, { ok: false, error: '当前身份无此权限' })
+      return json(res, 200, { ok: true, members: store.listTenantMembers(sess.userId).map(store.publicTenantMember), roles: store.listRoles() })
+    }
+
+    // POST /api/cockpit/members/accept（员工凭邀请码加入并首次设密码 -> 直接返回会话）
+    if (req.method === 'POST' && pathname === '/api/cockpit/members/accept') {
+      const body = JSON.parse((await readBody(req)).toString())
+      const ip = clientIp(req)
+      const limKey = 'member-accept:' + String(body.phone || '').trim()
+      const allow = store.checkLoginAllowed(ip, limKey)
+      if (!allow.allowed) return json(res, 429, { ok: false, error: allow.error })
+      const rt = store.acceptTenantInvite({ phone: body.phone, inviteCode: body.inviteCode || body.code, password: body.password })
+      if (rt.error) { store.reportLoginResult(ip, limKey, false); return json(res, 400, { ok: false, error: rt.error }) }
+      store.reportLoginResult(ip, limKey, true)
+      const lg = store.tenantMemberLogin(body.phone, body.password)
+      if (lg.error) return json(res, 401, { ok: false, error: lg.error })
+      const token = randomHex(32)
+      store.createTenantMemberSession(token, lg.member, lg.tenant)
+      const slotKey = store.getCockpitSlotKey(lg.tenant.userId)
+      store.audit('cockpit.member.accept', lg.member.name, '', lg.member.tenantUserId)
+      return json(res, 200, { ok: true, memberId: lg.member.memberId, role: lg.member.role, name: lg.member.name, phone: lg.member.phone, userId: lg.tenant.userId, isOwner: false, token, slotKey, expiresIn: 12 * 60 * 60 })
+    }
+
+    // POST /api/cockpit/members/login（成员登录：手机号 + 密码）
+    if (req.method === 'POST' && pathname === '/api/cockpit/members/login') {
+      const body = JSON.parse((await readBody(req)).toString())
+      const id = String(body.phone || body.memberId || '').trim()
+      if (!id) return json(res, 400, { ok: false, error: '请输入手机号' })
+      const ip = clientIp(req)
+      const limKey = 'member:' + id.toLowerCase()
+      const allow = store.checkLoginAllowed(ip, limKey)
+      if (!allow.allowed) return json(res, 429, { ok: false, error: allow.error })
+      const lg = store.tenantMemberLogin(id, body.password || '')
+      if (lg.error) { store.reportLoginResult(ip, limKey, false); store.audit('cockpit.member.login.fail', String(id), '', ''); return json(res, 401, { ok: false, error: lg.error }) }
+      store.reportLoginResult(ip, limKey, true)
+      const token = randomHex(32)
+      store.createTenantMemberSession(token, lg.member, lg.tenant)
+      const slotKey = store.getCockpitSlotKey(lg.tenant.userId)
+      store.audit('cockpit.member.login', lg.member.name, '', lg.member.tenantUserId)
+      return json(res, 200, { ok: true, memberId: lg.member.memberId, role: lg.member.role, name: lg.member.name, phone: lg.member.phone, userId: lg.tenant.userId, isOwner: false, token, slotKey, expiresIn: 12 * 60 * 60 })
+    }
+
+    // POST /api/cockpit/members/disable（停用成员；仅店主；跨租户操作直接拒绝）
+    if (req.method === 'POST' && pathname === '/api/cockpit/members/disable') {
+      const sess = store.validateCockpitSession(req.headers['x-token'])
+      if (!sess) return json(res, 401, { ok: false, error: '未登录或会话已过期' })
+      if (!store.roleCan(store.sessionRole(sess), 'members.manage')) return json(res, 403, { ok: false, error: '当前身份无此权限（仅店主可停用成员）' })
+      const body = JSON.parse((await readBody(req)).toString())
+      const m = body.memberId ? store.findTenantMemberById(body.memberId) : store.findTenantMemberByPhone(body.phone)
+      if (!m) return json(res, 404, { ok: false, error: '成员不存在' })
+      if (m.tenantUserId !== sess.userId) return json(res, 403, { ok: false, error: '跨租户操作被拒绝' })
+      const rt = store.setTenantMemberEnabled(m.phone, body.enabled === undefined ? false : !!body.enabled)
+      if (rt.error) return json(res, 400, { ok: false, error: rt.error })
+      store.audit('cockpit.member.disable', sess.name, '', sess.userId)
+      return json(res, 200, { ok: true, member: rt.member })
+    }
+    // ======== POST /api/tenant/sync（进销存业务数据：按记录增量同步；服务端只存密文） ========
+    if (req.method === 'POST' && pathname === '/api/tenant/sync') {
+      const sess = store.validateCockpitSession(req.headers['x-token'])
+      if (!sess) return json(res, 401, { ok: false, error: '未登录或会话已过期' })
+      const role = store.sessionRole(sess)
+      if (!store.roleCan(role, 'data.read')) return json(res, 403, { ok: false, error: '当前身份无读取权限' })
+      const body = JSON.parse((await readBody(req)).toString())
+      const hasPush = Array.isArray(body.changes) && body.changes.length > 0
+      if (hasPush && !store.roleCan(role, 'data.write')) return json(res, 403, { ok: false, error: '当前身份无写入权限（只读）' })
+      const r = store.tenantSync(sess.userId, { cursor: body.cursor, changes: body.changes, limit: body.limit })
+      if (r.error) return json(res, 400, { ok: false, error: r.error })
+      if (r.applied.length) store.audit('tenant.sync', sess.name, r.applied.length + ' 条变更', sess.userId)
+      return json(res, 200, r)
+    }
+
+    // ======== GET /api/tenant/status（本租户业务数据水位；供体检/排障） ========
+    if (req.method === 'GET' && pathname === '/api/tenant/status') {
+      const sess = store.validateCockpitSession(req.headers['x-token'])
+      if (!sess) return json(res, 401, { ok: false, error: '未登录或会话已过期' })
+      return json(res, 200, { ok: true, ...store.tenantBizStats(sess.userId) })
+    }
 
     if (pathname === '/admin' || pathname === '/admin/') {
       const ak = checkAdminKey(req, null, url)
