@@ -9,6 +9,8 @@ import path from 'node:path'
 
 const DIR = import.meta.dirname || path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'))
 const ADMIN_KEY = 'test-admin-key-0123456789'
+// 端口基址可覆盖：生产机上 3200/3201 已被 inventory-app 占用（曾导致 C 组假失败），默认改用高位端口
+const PBASE = Number(process.env.TEST_PORT_BASE || 39300)
 let pass = 0, fail = 0
 const failures = []
 
@@ -67,7 +69,7 @@ function stop(s) { try { s.proc.kill() } catch { } }
 
 // ============================== 主场景 ==============================
 console.log('\n[A] 主场景（TRUST_PROXY=1 + 开发短信模式）')
-const A = await startServer({ TRUST_PROXY: '1', ADMIN_KEY, COCKPIT_SMS_MOCK: '1', NODE_ENV: 'test', SEND_GLOBAL_HOURLY: '100' }, 3199, 'main')
+const A = await startServer({ TRUST_PROXY: '1', ADMIN_KEY, COCKPIT_SMS_MOCK: '1', NODE_ENV: 'test', SEND_GLOBAL_HOURLY: '100' }, PBASE + 1, 'main')
 if (!(await waitReady(A))) { console.log('  ✗ 服务未就绪，输出：'); console.log(A.getOut() + A.getErr()); process.exit(1) }
 const IP1 = '203.0.113.10'
 
@@ -190,7 +192,7 @@ stop(A)
 
 // ============================== 生产防呆 ==============================
 console.log('\n[B] 生产环境短信 mock 防呆（fail-closed）')
-const B = await startServer({ NODE_ENV: 'production', COCKPIT_SMS_MOCK: '1', ADMIN_KEY, TRUST_PROXY: '1' }, 3200, 'prodguard')
+const B = await startServer({ NODE_ENV: 'production', COCKPIT_SMS_MOCK: '1', ADMIN_KEY, TRUST_PROXY: '1' }, PBASE + 2, 'prodguard')
 let exitCode = null
 await Promise.race([
   new Promise(res => B.proc.on('exit', c => { exitCode = c; res() })),
@@ -202,7 +204,7 @@ stop(B)
 
 // ============================== 短信配额 ==============================
 console.log('\n[C] 短信成本上限')
-const C = await startServer({ TRUST_PROXY: '1', ADMIN_KEY, COCKPIT_SMS_MOCK: '1', NODE_ENV: 'test', SEND_GLOBAL_HOURLY: '2' }, 3201, 'quota')
+const C = await startServer({ TRUST_PROXY: '1', ADMIN_KEY, COCKPIT_SMS_MOCK: '1', NODE_ENV: 'test', SEND_GLOBAL_HOURLY: '2' }, PBASE + 3, 'quota')
 if (await waitReady(C)) {
   const s1 = await sendCode(C, '13700000001', '192.0.2.1')
   const s2 = await sendCode(C, '13700000002', '192.0.2.2')
@@ -214,7 +216,7 @@ if (await waitReady(C)) {
 
 // ============================== TRUST_PROXY 关闭时的行为 ==============================
 console.log('\n[D] 未启用 TRUST_PROXY（默认）应为抗伪造')
-const D = await startServer({ ADMIN_KEY, COCKPIT_SMS_MOCK: '1', NODE_ENV: 'test' }, 3202, 'noxff')
+const D = await startServer({ ADMIN_KEY, COCKPIT_SMS_MOCK: '1', NODE_ENV: 'test' }, PBASE + 4, 'noxff')
 if (await waitReady(D)) {
   r = await sendCode(D, '13600000001', '192.0.2.9')
   ok('D 未开 TRUST_PROXY 时发码链正常', r.status === 200, JSON.stringify(r.body))
@@ -286,7 +288,7 @@ ok('F 拒绝后共享槽原样保留', fs.existsSync(path.join(fRoot2, 'users', 
 
 // ============================== 租户成员（契约 v1.1） ==============================
 console.log('\n[G] 租户成员：店主加员工 -> 员工登录 -> 数据同源、权限不同')
-const G = await startServer({ TRUST_PROXY: '1', ADMIN_KEY, COCKPIT_SMS_MOCK: '1', NODE_ENV: 'test' }, 3203, 'members')
+const G = await startServer({ TRUST_PROXY: '1', ADMIN_KEY, COCKPIT_SMS_MOCK: '1', NODE_ENV: 'test' }, PBASE + 5, 'members')
 if (await waitReady(G)) {
   const AKH = { 'x-admin-key': ADMIN_KEY }
   const ownerPh = '13800009001', empPh = '13800009002'
@@ -324,7 +326,7 @@ if (await waitReady(G)) {
 
 // ============================== 按单据增量同步（契约 v1.1） ==============================
 console.log('\n[H] 进销存业务数据：按单据增量同步（替代整库覆盖，杜绝静默丢单）')
-const H = await startServer({ TRUST_PROXY: '1', ADMIN_KEY, COCKPIT_SMS_MOCK: '1', NODE_ENV: 'test' }, 3204, 'tenantsync')
+const H = await startServer({ TRUST_PROXY: '1', ADMIN_KEY, COCKPIT_SMS_MOCK: '1', NODE_ENV: 'test' }, PBASE + 6, 'tenantsync')
 if (await waitReady(H)) {
   const AKH = { 'x-admin-key': ADMIN_KEY }
   const h1 = await call(H, 'POST', '/api/cockpit/register', { ip: '198.51.100.10', headers: AKH, body: { phone: '13800008001', name: '渔具店', password: 'pass123456', isOwner: true } })
@@ -370,7 +372,7 @@ if (await waitReady(H)) {
 
 // ============================== 密码兜底通道（无需短信网关） ==============================
 console.log('\n[I] 恢复码 / 已登录改密 / 管理员重置 —— 全部不依赖短信')
-const I = await startServer({ TRUST_PROXY: '1', ADMIN_KEY, COCKPIT_SMS_MOCK: '1', NODE_ENV: 'test' }, 3205, 'pwd')
+const I = await startServer({ TRUST_PROXY: '1', ADMIN_KEY, COCKPIT_SMS_MOCK: '1', NODE_ENV: 'test' }, PBASE + 7, 'pwd')
 if (await waitReady(I)) {
   const AKH = { 'x-admin-key': ADMIN_KEY }
   const FMT = /^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/
