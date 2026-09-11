@@ -288,10 +288,13 @@ const server = http.createServer(async (req, res) => {
       const regOk = store.checkRegisterAllowed(ip)
       if (!regOk.allowed) return json(res, 429, { ok: false, error: regOk.error })
       const body = JSON.parse((await readBody(req)).toString())
-      // 安全加固（2026-09-10）：自助注册强制 手机号+验证码；管理员（ADMIN_KEY）可建无手机号账号
+      // 2026-09-11 修正：手机号强制改为**策略开关**——REQUIRE_PHONE_ON_REGISTER=1 才强制；
+      // 进销存客户端只发 用户名+密码（CloudLoginGate 无手机号输入框），默认必须放行。
+      // 管理员（ADMIN_KEY）任何情况下都豁免。
       const ak = checkAdminKey(req, body, url)
       if (ak.status === 429) return json(res, 429, { ok: false, error: ak.error })
-      const r = store.registerAccount(body.username, body.password, body.note || '', body.phone, body.code, { requirePhone: !ak.ok })
+      const requirePhone = !ak.ok && process.env.REQUIRE_PHONE_ON_REGISTER === '1'
+      const r = store.registerAccount(body.username, body.password, body.note || '', body.phone, body.code, { requirePhone })
       if (r.error) return json(res, 400, { ok: false, error: r.error })
       const slotKey = store.getOrCreateSlotKey(r.userId) // 每账号独立槽密钥
       store.audit('account.register', r.username, '', r.userId)

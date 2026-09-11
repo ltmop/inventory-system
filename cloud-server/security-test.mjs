@@ -87,7 +87,7 @@ ok('R1 cockpit 发码保持兼容（CAPTCHA_REQUIRED 未开启）', r.status ===
 
 // --- R3 自助注册强制手机号+验证码 ---
 r = await call(A, 'POST', '/api/account/register', { ip: IP1, body: { username: 'nophone1', password: 'pass123456' } })
-ok('R3 无手机号注册被拒', r.status === 400 && /手机号/.test(String(r.body.error)), JSON.stringify(r.body))
+ok('R3 默认允许无手机号注册（进销存客户端只发用户名+密码，必须放行）', r.status === 200 && !!r.body.userId, JSON.stringify(r.body))
 r = await call(A, 'POST', '/api/account/register', { ip: IP1, body: { username: 'nophone2', password: 'pass123456', phone: '13800000003', code: '000000' } })
 ok('R3 验证码错误注册被拒', r.status === 400, JSON.stringify(r.body))
 await sendCode(A, '13800000003', IP1)
@@ -422,6 +422,17 @@ if (await waitReady(I)) {
   ok('I 恢复码明文均未落盘', [rc1, rc2, rc3, rc4, rcM].every((c) => !c || (a1 + a2).indexOf(String(c)) < 0))
   stop(I)
 } else { ok('I 密码兜底服务启动', false, 'not ready') }
+
+// ============================== 手机号强制策略开关 ==============================
+console.log('\n[J] REQUIRE_PHONE_ON_REGISTER=1 时才强制手机号（策略可配，不是写死）')
+const J = await startServer({ TRUST_PROXY: '1', ADMIN_KEY, COCKPIT_SMS_MOCK: '1', NODE_ENV: 'test', REQUIRE_PHONE_ON_REGISTER: '1' }, PBASE + 8, 'phonepolicy')
+if (await waitReady(J)) {
+  let j1 = await call(J, 'POST', '/api/account/register', { ip: '198.51.100.201', body: { username: 'nophoneX', password: 'pass123456' } })
+  ok('J 开关打开：无手机号注册被拒', j1.status === 400 && /手机号/.test(String(j1.body.error)), JSON.stringify(j1.body))
+  j1 = await call(J, 'POST', '/api/account/register', { ip: '198.51.100.202', headers: { 'x-admin-key': ADMIN_KEY }, body: { username: 'adminnoPhone', password: 'pass123456' } })
+  ok('J 开关打开：管理员仍可无手机号建号', j1.status === 200 && !!j1.body.userId, JSON.stringify(j1.body))
+  stop(J)
+} else { ok('J 策略服务启动', false, 'not ready') }
 
 // ============================== 汇总 ==============================
 console.log('\n================ 结果 ================')

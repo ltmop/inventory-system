@@ -237,10 +237,11 @@ export function registerAccount(username, password, note = '', phone = '', code 
   if (!uname || uname.length < 2) return { error: '用户名至少 2 个字符' }
   if (!password || String(password).length < 6) return { error: '密码至少 6 位' }
   const ph = String(phone || '').trim()
-  // 安全加固（2026-09-10）：自助注册默认强制 手机号+验证码。
-  // 原实现仅在传入 phone 时才校验验证码 —— 不传 phone 即可完全跳过短信校验并批量建号。
-  // 管理员/内部建号走 opts.requirePhone=false，且入口同时要求 ADMIN_KEY。
-  const requirePhone = opts.requirePhone !== false
+  // 2026-09-11 修正：/api/account/* 是【进销存设备账号线】，用户名+密码本就是它的设计（客户端没有手机号输入框）；
+  // 把「驾驶舱租户线」的强制手机号规则套过来，直接打断了已发布客户端的注册（生产实测 400）。
+  // 现改为**策略可配**：默认允许无手机号注册；设 REQUIRE_PHONE_ON_REGISTER=1 才强制（等短信网关上线/对外开放注册时再开）。
+  // 传了手机号则仍然必须验证码正确（这条不变）。
+  const requirePhone = opts.requirePhone === true
   if (!ph && requirePhone) return { error: '需要手机号 + 短信验证码' }
   if (ph) {
     if (!/^1\d{10}$/.test(ph)) return { error: '手机号格式不正确' }
