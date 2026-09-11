@@ -224,7 +224,11 @@ const server = http.createServer(async (req, res) => {
   // ======== GET /cockpit-updates/* —— 驾驶舱自动更新源（latest.yml + Setup exe 静态托管；独立于进销存 /updates/*） ========
   if (req.method === 'GET' && pathname.startsWith('/cockpit-updates/')) {
     const __dirname = fileURLToPath(new URL('.', import.meta.url))
-    const rel = pathname.slice('/cockpit-updates/'.length)
+    // FIX 2026-09-11: pathname is the raw (percent-encoded) request path, so any artifact whose name
+    // contains a space or a non-ASCII char could never be served (statSync on '%E4%BB%BB...' always
+    // failed -> 404), which silently broke auto-update for every previous release. Decode first.
+    let rel = pathname.slice('/cockpit-updates/'.length)
+    try { rel = decodeURIComponent(rel) } catch (e) { rel = '' }
     const safe = rel.split('/').filter((p) => p && p !== '..' && !p.includes('\\')).join('/')
     const full = path.join(__dirname, 'cockpit-updates', safe)
     try {
