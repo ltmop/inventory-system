@@ -757,7 +757,14 @@ if (checkKwsModel(spikeKwsDir).ready && checkTtsModel(spikeTtsDir).ready) {
     console.log('（跳过 KWS 夹具检出：spike/test_wavs/xiaodu-16k.wav 不存在，可跑 spike/make-wake-fixture.mjs 生成）')
   }
 
-  // TTS 合成 → KWS 联动：VITS 输出有随机性，合成语音的检出率非 100%，允许最多 3 次尝试
+  // TTS 合成 → KWS 联动：VITS 输出有随机性，**单次检出率实测只有 0.267**
+  // （2026-09-12 用 scripts/probe-kws-rate.mjs 实测 30 次合成命中 8 次；同一段音频重复喂 KWS 结果一致
+  //  → 随机性全在合成侧，不在 KWS 侧）。
+  // ⚠️ 原来写「5 次内」，按 p=0.267 算全失败概率高达 **21%** —— 与之前观察到的「约 1/3 概率偶发失败」吻合。
+  //    那是**测试设计问题，不是产品回归**：它让整条验收结论不可信。
+  // 改为 31 次：全失败概率降到约 **7e-5（≈1/15000）**；又因为**检测到就提前退出**，
+  //    典型成本仍是 1/p ≈ 3.8 次合成，几乎不增加运行时间（只在真失败时才跑满 31 次）。
+  // 这仍是一条真实性断言：TTS / KWS / 唤醒词任一坏掉 → p=0 → 必然失败。
   const ttsWavToPcm16 = (w) => {
     const n = (w.wav.length - 44) / 2
     const src = new Float32Array(n)
@@ -773,11 +780,21 @@ if (checkKwsModel(spikeKwsDir).ready && checkTtsModel(spikeTtsDir).ready) {
   }
   tts.initTts(spikeTtsDir)
   let synthDetected = null
-  for (let i = 0; i < 5 && !synthDetected; i++) {
+  let synthTries = 0
+  const SYNTH_MAX = 31
+  for (let i = 0; i < SYNTH_MAX && !synthDetected; i++) {
+    synthTries++
     const w = tts.synthesize({ text: '小杜小杜' })
     if (w.ok) synthDetected = feedWav16k(ttsWavToPcm16(w))
   }
-  ok('TTS 合成语音能被 KWS 检出（5 次内）', synthDetected === '小杜小杜')
+  // 打印命中次数：即使断言通过，**检出率退化**（例如从现在约 3.8 次变成 20 次）也能在日志里看出来。
+  // 这行是观测信息，不是断言，所以不改变断言总数。
+  if (synthDetected) {
+    console.log('  TTS→KWS：第 ' + synthTries + ' 次尝试命中（实测单次检出率约 0.27，期望约 3.8 次）')
+  } else {
+    console.log('  TTS→KWS：' + SYNTH_MAX + ' 次尝试全部未命中 —— 检出率明显退化，请查 TTS 合成与 KWS 模型')
+  }
+  ok('TTS 合成语音能被 KWS 检出（' + SYNTH_MAX + ' 次内）', synthDetected === '小杜小杜')
 
   // 负例：普通语句不应误检
   const wNeg = tts.synthesize({ text: '今天天气怎么样' })
