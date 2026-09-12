@@ -1,0 +1,37 @@
+{
+  "note": "断言只加不减的机器闸门。由 scripts/check-assertions.mjs 读取；档位由 test-backend.mjs 自己打印的跳过标记判定。",
+  "explain": [
+    "为什么不是一个固定数字：test-backend.mjs 有 5 处条件跳过，全部依赖本地语音模型与夹具音频",
+    "（spike/ 与 %APPDATA%），而 .gitignore 第 4 行就是 spike/ —— 这些素材故意不入 git。",
+    "实测（HEAD 5d991a5）：本机齐全 = 611；git archive 纯净检出 = 607。",
+    "所以门槛按档位分别记录。新增环境组合会被闸门拒绝（exit 2）并要求跑一次 --update 确认，绝不静默放过。"
+  ],
+  "measuredHow": "每个档位都是**实测**得来，不是猜的。第一版我凭推理写了一个 no-models(全 5 个跳过标记) 档位，实测根本不存在 —— 闸门当场以 exit 2 拒绝，这就是它该做的。",
+  "knownLimitation": [
+    "档位由跳过标记判定，是**启发式**：实测出现过「只打印 1 个跳过标记、断言却少 4 条」的情况",
+    "（缺 spike/test_wavs 的夹具音频会让 KWS 夹具块整体不跑，且不逐个打印跳过项）。",
+    "若同一档位在不同机器上数字不同，闸门会拒绝并要求 --update —— 刻意保守，宁可要求人工确认一次，也不静默放过下降。"
+  ],
+  "tiers": [
+    {
+      "key": "with-models",
+      "skipMarkers": [],
+      "floor": 611,
+      "note": "本机齐全：spike/ 与 %APPDATA% 的模型、夹具音频都在",
+      "commit": "5d991a5",
+      "worktreeDirty": true,
+      "updatedAt": "2026-09-12T01:45:00.000Z"
+    },
+    {
+      "key": "partial:KWS 夹具检出",
+      "skipMarkers": [
+        "跳过 KWS 夹具检出"
+      ],
+      "floor": 607,
+      "note": "有 %APPDATA% 下载的模型，但缺 spike/test_wavs 的夹具音频（git archive 纯净检出即此档）",
+      "commit": "5d991a5",
+      "worktreeDirty": false,
+      "updatedAt": "2026-09-12T01:45:00.000Z"
+    }
+  ]
+}
