@@ -104,7 +104,19 @@ export function snapshotMtime(userId) {
 export function saveBackup(userId, date, iv, data) {
   const dir = path.join(userDir(userId), 'backups')
   ensureDir(dir)
-  atomicWrite(path.join(dir, `${date}.enc`), JSON.stringify({ iv, data }))
+  const file = path.join(dir, `${date}.enc`)
+  // 多设备保险（2026-09-12）：同一天已有备份时，先把旧的一份挪到 backups-prev/，绝不静默销毁。
+  // 场景：两台电脑同一天各上传一次整库备份，后到的会覆盖先到的；这样先到那台的数据仍可恢复。
+  // listBackups 只读 backups/，因此对外语义与文件名格式完全不变。
+  try {
+    if (fs.existsSync(file)) {
+      const prevDir = path.join(userDir(userId), 'backups-prev')
+      ensureDir(prevDir)
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+      fs.renameSync(file, path.join(prevDir, `${date}.${stamp}.enc`))
+    }
+  } catch { /* 旧备份保不住也不能挡住新备份写入 */ }
+  atomicWrite(file, JSON.stringify({ iv, data }))
 }
 
 export function loadBackup(userId, date) {
@@ -135,21 +147,20 @@ export function listBackups(userId) {
 
 /** 保留最近 KEEP 份备份，删掉更旧的 */
 export function cleanOldBackups(userId, keep = 30) {
-  const dir = path.join(userDir(userId), 'backups')
-  ensureDir(dir)
-  try {
-    const files = fs.readdirSync(dir)
-      .filter(f => f.endsWith('.enc'))
-      .sort()
-      .reverse() // 最新的在前
-    for (let i = keep; i < files.length; i++) {
-      fs.unlinkSync(path.join(dir, files[i]))
-    }
-  } catch { /* 清理失败不致命 */ }
+  for (const sub of ['backups', 'backups-prev']) {
+    const dir = path.join(userDir(userId), sub)
+    ensureDir(dir)
+    try {
+      const files = fs.readdirSync(dir)
+        .filter(f => f.endsWith('.enc'))
+        .sort()
+        .reverse() // 最新的在前
+      for (let i = keep; i < files.length; i++) {
+        fs.unlinkSync(path.join(dir, files[i]))
+      }
+    } catch { /* 清理失败不致命 */ }
+  }
 }
-
-// ---------- 元数据 ----------
-
 export function loadMeta(userId) {
   const file = path.join(userDir(userId), 'meta.json')
   try {
