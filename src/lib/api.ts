@@ -1,3 +1,5 @@
+import { createOffline } from './offlineTransport.js'
+
 // 本地模式（原"游客"）：云账号可选，不登录也全功能使用；guest 标记仅用于界面横幅提示
 const GUEST_KEY = 'fi-cloud-guest'
 /** 当前是否游客模式（跳过登录） */
@@ -83,7 +85,10 @@ function createHttpBackend(token: string, baseUrl = ''): FiBridge {
           break
         } catch {
           if (attempt >= 2) {
-            throw new Error('连不上' + label + '——检查网络是否连接、' + label + '是否在线，稍后重试；已自动重试 3 次')
+            // A3 离线层：打上 network 标记，供离线传输层精确区分「网络故障」与「业务拒绝」
+            const err = new Error('连不上' + label + '——检查网络是否连接、' + label + '是否在线，稍后重试；已自动重试 3 次')
+            ;(err as Error & { network?: boolean }).network = true
+            throw err
           }
           await new Promise((res) => setTimeout(res, 700 * (attempt + 1)))
         }
@@ -97,7 +102,12 @@ function createHttpBackend(token: string, baseUrl = ''): FiBridge {
         }
         throw new Error('链接已失效——到收银电脑的「设置 → 手机看店」重新复制网址打开')
       }
-      if (!r.ok) throw new Error(data.error ?? `请求失败（${r.status}）`)
+      if (!r.ok) {
+        // A3 离线层：带上 HTTP 状态码 → 离线层据此判定「业务拒绝，绝不入队」
+        const err = new Error(data.error ?? `请求失败（${r.status}）`)
+        ;(err as Error & { status?: number }).status = r.status
+        throw err
+      }
       return data.result
     },
   }
@@ -133,7 +143,14 @@ const rawBackend: FiBridge | null =
  * 本地模式（原"游客"）：云账号是可选项，不登录也能全功能使用，数据只保存在本机。
  * 登录云账号仅用于多台电脑同步 + 云端备份；未登录时所有读写照常走本地/局域网通道。
  */
-export const backend: FiBridge | null = rawBackend
+// A3 离线层：只在传输层包住 rawBackend 这一个导出点 → 所有调用方零改动白得
+// 「断网写队列 + 断网读缓存 + 联网幂等重放」。队列是传输缓冲，不是账本，不产生任何本地单据。
+const offlineApi = createOffline({ inner: rawBackend })
+
+/** 离线层控制面：队列长度/失败数/订阅/手动重传。UI 横幅与「待上传」面板从这里接线。 */
+export const offline = offlineApi
+
+export const backend: FiBridge | null = offlineApi.bridge as FiBridge | null
 
 export const backendKind: BackendKind =
   typeof window !== 'undefined' && window.fi && !central.url ? 'ipc' : backend ? 'http' : null
