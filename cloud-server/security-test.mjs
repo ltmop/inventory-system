@@ -461,6 +461,13 @@ if (await waitReady(K)) {
   ok('K 水位接口可用（设备令牌）', k.status === 200 && k.body.totalRecords === 1, JSON.stringify(k.body))
   k = await call(K, 'POST', '/api/tenant/sync', { ip: '198.51.100.31', headers: { 'x-user-id': uidB, 'x-token': tokB }, body: { cursor: 0, changes: [] } })
   ok('K 跨进销存账号数据隔离', k.status === 200 && k.body.changes.length === 0 && k.body.cursor === 0, JSON.stringify(k.body))
+  // kind 白名单已由 6 种扩到 19 种（契约修订）：抽查新 kind + 确认非表名仍被拒
+  k = await call(K, 'POST', '/api/tenant/sync', { ip: '198.51.100.30', headers: { 'x-user-id': uidA, 'x-token': tokA }, body: { cursor: 0, changes: [{ kind: 'inventory_batch', id: 'B-1', updatedAt: '2026-09-12T11:00:00Z', iv: 'IV-B', data: 'CIPHER-B' }] } })
+  ok('K kind=inventory_batch 被接受（FIFO 批次，最关键）', k.status === 200 && k.body.applied.length === 1, JSON.stringify(k.body))
+  k = await call(K, 'POST', '/api/tenant/sync', { ip: '198.51.100.30', headers: { 'x-user-id': uidA, 'x-token': tokA }, body: { cursor: 0, changes: [{ kind: 'payment_register', id: 'PR-1', updatedAt: '2026-09-12T11:01:00Z', iv: 'IV-C', data: 'CIPHER-C' }] } })
+  ok('K kind=payment_register 被接受', k.status === 200 && k.body.applied.length === 1, JSON.stringify(k.body))
+  k = await call(K, 'POST', '/api/tenant/sync', { ip: '198.51.100.30', headers: { 'x-user-id': uidA, 'x-token': tokA }, body: { cursor: 0, changes: [{ kind: 'order', id: 'X', updatedAt: '2026-09-12T11:02:00Z' }] } })
+  ok('K 非表名 kind=order 仍被拒（400）', k.status === 400, JSON.stringify(k.body))
   const hk = await call(K, 'POST', '/api/cockpit/register', { ip: '198.51.100.32', headers: { 'x-admin-key': ADMIN_KEY }, body: { phone: '13800009001', name: 'k', password: 'pass123456', isOwner: true } })
   k = await call(K, 'POST', '/api/tenant/sync', { ip: '198.51.100.32', headers: { 'x-token': hk.body.token }, body: { cursor: 0, changes: [] } })
   ok('K 回归：驾驶舱会话路径未被破坏', k.status === 200 && k.body.cursor === 0, JSON.stringify(k.body))

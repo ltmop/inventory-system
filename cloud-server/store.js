@@ -1055,7 +1055,19 @@ export function recoverByCode(phone, code, newPassword) {
 // 做法：以 (kind, id) 为同步单元，逐记录合并；冲突不覆盖、如实回传（绝不静默丢失）。
 // 铁律：服务端**只存密文**（iv+data），明文业务数据永不落盘；与驾驶舱知识库快照（/api/cockpit/snapshot）是两个数据平面。
 // ===================================================================
-const BIZ_KINDS = ['transaction', 'product', 'customer', 'supplier', 'stocktake', 'payment']
+// 契约修订（2026-09-12，待 IAM 会签）：kind 由 6 种扩到 19 种。
+// 原因：客户端有 19 张要同步的表，原 6 种覆盖不到 13 张  其中 inventory_batches（FIFO 批次）
+//       最关键：不同步它，跨设备拉回的单据会引用不存在的批次。
+// 做法：kind = 本地表名的单数化（原 6 种沿用不变，stock_takes 继续用老的 'stocktake'）。
+// 纯加法、向后兼容：原 6 种语义一字不变；'order' 之类非表名仍是非法类型（原测试断言不受影响）。
+const BIZ_KINDS = [
+  //  原有 6 种（语义不变） 
+  'transaction', 'product', 'customer', 'supplier', 'stocktake', 'payment',
+  //  新增 13 种：补齐 19 张同步表 
+  'inventory_batch', 'stock_take_item', 'category', 'unit', 'expense',
+  'purchase_order', 'purchase_order_item', 'price_tier', 'kit', 'kit_item',
+  'supplier_payment', 'waste_log', 'payment_register',
+]
 function bizLogFile(userId) { return path.join(userDir(userId), 'bizlog.json') }
 function loadBizLog(userId) {
   try { const j = JSON.parse(fs.readFileSync(bizLogFile(userId), 'utf8')); if (j && j.records) return j } catch { }
