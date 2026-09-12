@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Moon, Sun, Search, Settings, PanelLeftClose, PanelLeftOpen, AlertTriangle, UserCircle2, LogOut, CloudUpload, UserPlus } from 'lucide-react'
 import { useAppStore } from '@/store/appStore'
+import { OfflineChip } from './OfflineBanner'
 
 // 路由 → 页面标题，顶栏左侧显示当前在哪一页
 const TITLE_MAP: Record<string, string> = {
@@ -98,6 +99,9 @@ export function TopBar({
           <span className="hidden sm:inline">{lowStockCount} 缺货</span>
         </button>
       )}
+
+      {/* 离线/待上传（A3 离线层）：断网时店主能看见「单子在本地排队」，不会以为没记上 */}
+      <OfflineChip />
 
       {/* 明暗切换 */}
       <button
