@@ -435,6 +435,38 @@ if (await waitReady(J)) {
 } else { ok('J 策略服务启动', false, 'not ready') }
 
 // ============================== 汇总 ==============================
+// ============================== K：进销存设备令牌也能用增量同步 ==============================
+console.log('\n[K] 进销存设备令牌（uploadToken）也能用按记录增量同步（无需先做身份收敛）')
+const K = await startServer({ TRUST_PROXY: '1', ADMIN_KEY, COCKPIT_SMS_MOCK: '1', NODE_ENV: 'test' }, PBASE + 9, 'devsync')
+if (await waitReady(K)) {
+  // 两个进销存账号（走管理员通道，免手机号）验证"设备令牌"这条并列鉴权
+  let k = await call(K, 'POST', '/api/account/register', { ip: '198.51.100.30', headers: { 'x-admin-key': ADMIN_KEY }, body: { username: 'dev-a', password: 'pass123456' } })
+  const uidA = k.body.userId
+  const bindA = await call(K, 'POST', '/api/device/bind', { ip: '198.51.100.30', body: { username: 'dev-a', password: 'pass123456', deviceName: 'A' } })
+  const tokA = bindA.body.uploadToken
+  k = await call(K, 'POST', '/api/account/register', { ip: '198.51.100.31', headers: { 'x-admin-key': ADMIN_KEY }, body: { username: 'dev-b', password: 'pass123456' } })
+  const uidB = k.body.userId
+  const bindB = await call(K, 'POST', '/api/device/bind', { ip: '198.51.100.31', body: { username: 'dev-b', password: 'pass123456', deviceName: 'B' } })
+  const tokB = bindB.body.uploadToken
+
+  k = await call(K, 'POST', '/api/tenant/sync', { ip: '198.51.100.30', body: { cursor: 0, changes: [] } })
+  ok('K 无令牌仍被拒（401）', k.status === 401, 'status=' + k.status)
+  k = await call(K, 'POST', '/api/tenant/sync', { ip: '198.51.100.30', headers: { 'x-user-id': uidA, 'x-token': 'bogus-token' }, body: { cursor: 0, changes: [] } })
+  ok('K 伪造设备令牌被拒（401）', k.status === 401, 'status=' + k.status)
+  k = await call(K, 'POST', '/api/tenant/sync', { ip: '198.51.100.30', headers: { 'x-user-id': uidA, 'x-token': tokA }, body: { cursor: 0, changes: [{ kind: 'transaction', id: 'DEV-T1', updatedAt: '2026-09-12T10:00:00Z', iv: 'IV-D1', data: 'CIPHER-D1' }] } })
+  ok('K 设备令牌可推送（200 / applied=1）', k.status === 200 && k.body.applied.length === 1 && k.body.cursor === 1, JSON.stringify(k.body))
+  k = await call(K, 'POST', '/api/tenant/sync', { ip: '198.51.100.30', headers: { 'x-user-id': uidA, 'x-token': tokA }, body: { cursor: 0, changes: [] } })
+  ok('K 设备令牌可拉取', k.status === 200 && k.body.changes.length === 1 && k.body.changes[0].id === 'DEV-T1', JSON.stringify(k.body.changes && k.body.changes.length))
+  k = await call(K, 'GET', '/api/tenant/status', { ip: '198.51.100.30', headers: { 'x-user-id': uidA, 'x-token': tokA } })
+  ok('K 水位接口可用（设备令牌）', k.status === 200 && k.body.totalRecords === 1, JSON.stringify(k.body))
+  k = await call(K, 'POST', '/api/tenant/sync', { ip: '198.51.100.31', headers: { 'x-user-id': uidB, 'x-token': tokB }, body: { cursor: 0, changes: [] } })
+  ok('K 跨进销存账号数据隔离', k.status === 200 && k.body.changes.length === 0 && k.body.cursor === 0, JSON.stringify(k.body))
+  const hk = await call(K, 'POST', '/api/cockpit/register', { ip: '198.51.100.32', headers: { 'x-admin-key': ADMIN_KEY }, body: { phone: '13800009001', name: 'k', password: 'pass123456', isOwner: true } })
+  k = await call(K, 'POST', '/api/tenant/sync', { ip: '198.51.100.32', headers: { 'x-token': hk.body.token }, body: { cursor: 0, changes: [] } })
+  ok('K 回归：驾驶舱会话路径未被破坏', k.status === 200 && k.body.cursor === 0, JSON.stringify(k.body))
+  stop(K)
+} else { ok('K 设备令牌同步服务启动', false, 'not ready') }
+
 console.log('\n================ 结果 ================')
 console.log('PASS ' + pass + '   FAIL ' + fail)
 if (fail) { console.log('未通过：\n - ' + failures.join('\n - ')) }

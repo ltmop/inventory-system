@@ -708,8 +708,15 @@ const server = http.createServer(async (req, res) => {
     }
     // ======== POST /api/tenant/sync（进销存业务数据：按记录增量同步；服务端只存密文） ========
     if (req.method === 'POST' && pathname === '/api/tenant/sync') {
-      const sess = store.validateCockpitSession(req.headers['x-token'])
-      if (!sess) return json(res, 401, { ok: false, error: '未登录或会话已过期' })
+      // 鉴权（两条并列，行为互不影响）：
+      //   1) 驾驶舱会话 x-token  原有路径，一字未改
+      //   2) 进销存设备令牌 x-user-id + x-token  让进销存桌面端在不改身份模型的前提下就能用按记录增量同步
+      let sess = store.validateCockpitSession(req.headers['x-token'])
+      if (!sess) {
+        const deviceUserId = requireUploadAuth(req, res)
+        if (!deviceUserId) return
+        sess = { userId: deviceUserId, name: 'device', role: 'owner', kind: 'device', isOwner: true, phone: '' }
+      }
       const role = store.sessionRole(sess)
       if (!store.roleCan(role, 'data.read')) return json(res, 403, { ok: false, error: '当前身份无读取权限' })
       const body = JSON.parse((await readBody(req)).toString())
@@ -723,8 +730,15 @@ const server = http.createServer(async (req, res) => {
 
     // ======== GET /api/tenant/status（本租户业务数据水位；供体检/排障） ========
     if (req.method === 'GET' && pathname === '/api/tenant/status') {
-      const sess = store.validateCockpitSession(req.headers['x-token'])
-      if (!sess) return json(res, 401, { ok: false, error: '未登录或会话已过期' })
+      // 鉴权（两条并列，行为互不影响）：
+      //   1) 驾驶舱会话 x-token  原有路径，一字未改
+      //   2) 进销存设备令牌 x-user-id + x-token  让进销存桌面端在不改身份模型的前提下就能用按记录增量同步
+      let sess = store.validateCockpitSession(req.headers['x-token'])
+      if (!sess) {
+        const deviceUserId = requireUploadAuth(req, res)
+        if (!deviceUserId) return
+        sess = { userId: deviceUserId, name: 'device', role: 'owner', kind: 'device', isOwner: true, phone: '' }
+      }
       return json(res, 200, { ok: true, ...store.tenantBizStats(sess.userId) })
     }
 
