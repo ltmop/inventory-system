@@ -5,8 +5,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { encrypt, encryptBuffer, decryptBuffer, generateKey, deriveKey } from './cloudCrypto.js'
+import { encrypt, decrypt, encryptBuffer, decryptBuffer, generateKey, deriveKey } from './cloudCrypto.js'
 import { buildSnapshot } from './cloudSnapshot.js'
+import { createCloudSync } from './cloudSync.js'
 
 // 云服务器：默认公网 HTTPS（2026-08-30 任务1 起，密码不再明文走公网）；
 // 开发/自建可用环境变量 CLOUD_SERVER_URL 覆盖。旧客户端仍可用 http://43.128.20.39（80 端口兼容保留）
@@ -39,6 +40,45 @@ let cloudState = {
 
 const CLOUD_CONFIG = 'cloud.json'
 
+// ---------- 阶段2.2：业务数据按记录增量同步 ----------
+// 三条平面相互独立：/api/backup 是整库保险，/api/snapshot 是手机看店看板，
+// 这里是按记录增量（/api/tenant/sync） 才是"多台电脑数据互通"的正路。
+let bizSync = null
+function getBizSync() {
+  if (!db) return null
+  if (!cloudState.userId || !cloudState.uploadToken || !cloudState.keyK) return null
+  if (!bizSync) {
+    bizSync = createCloudSync({
+      db,
+      encrypt: (plain) => encrypt(plain, cloudState.keyK),
+      decrypt: (enc) => decrypt(enc, cloudState.keyK),
+      getAuth: () => ({ userId: cloudState.userId, uploadToken: cloudState.uploadToken }),
+      cloudUrl: CLOUD_URL,
+      log: (m) => console.log(m),
+    })
+  }
+  return bizSync
+}
+
+/** 业务数据同步：首次会播种本机历史数据；未登录/云挂了都静默返回，不影响本地用 */
+export async function syncBusinessData() {
+  const s = getBizSync()
+  if (!s) return { ok: false, error: '未登录云账号' }
+  try {
+    const seed = await s.seedIfEmpty()
+    const r = await s.syncOnce()
+    return { ok: true, ...seed, ...r }
+  } catch (e) {
+    cloudState.error = String((e && e.message) || e)
+    return { ok: false, error: cloudState.error }
+  }
+}
+
+export function businessSyncStatus() {
+  const s = getBizSync()
+  return s ? s.status() : null
+}
+
 // ---------- B3 调度器状态 ----------
 let schedulerTimer = null
 let lastMtime = 0
@@ -58,6 +98,7 @@ export function initCloud(database, dbP, dataD, backupD, isProFn) {
   // 已配对用户启动：2 秒后立即上传一次快照（不等 60s 首查）
   if (cloudState.paired) {
     setTimeout(() => { syncSnapshot().catch(() => {}) }, 2000)
+    setTimeout(() => { syncBusinessData().catch(() => {}) }, 3000)
   }
 }
 
@@ -146,6 +187,7 @@ function startScheduler() {
       const lastSync = cloudState.lastSyncAt ? new Date(cloudState.lastSyncAt).getTime() : 0
       if (Date.now() - lastSync > 6 * 3600 * 1000) {
         syncSnapshot().catch(() => {})
+    syncBusinessData().catch(() => {})
       }
     }
   }, 10_000)
@@ -159,9 +201,12 @@ function startScheduler() {
       if (mtime !== lastMtime && Date.now() - lastSync > 15 * 60 * 1000) {
         lastMtime = mtime
         syncSnapshot().catch(() => {})
+    syncBusinessData().catch(() => {})
       }
       // 每日备份：日期变更时
       const today = new Date().toISOString().slice(0, 10)
+      // 阶段2.2：业务数据按记录增量同步
+      syncBusinessData().catch(() => {})
       if (today !== lastBackupDate && mtime !== lastMtime) {
         lastBackupDate = today
         uploadBackup().catch(() => {})
@@ -486,6 +531,7 @@ export async function registerAccount(username, password, note = '', deviceName 
     saveLocalConfig()
     // 注册并登录成功立即上传快照
     syncSnapshot().catch(() => {})
+    syncBusinessData().catch(() => {})
     return { ok: true, viewUrl: cloudState.viewUrl, username: cloudState.username }
   } catch (e) {
     return { ok: false, error: `注册请求失败: ${e.message}` }
@@ -520,6 +566,7 @@ export async function loginAccount(username, password, deviceName = '') {
     }
     // 登录成功立即上传快照（不等调度器）
     syncSnapshot().catch(() => {})
+    syncBusinessData().catch(() => {})
     return { ok: true, viewUrl: cloudState.viewUrl, username: data.username }
   } catch (e) {
     return { ok: false, error: `登录请求失败: ${e.message}` }
@@ -529,6 +576,8 @@ export async function loginAccount(username, password, deviceName = '') {
 // ---------- 退出登录（解绑本机）：清空本地凭证，回到未配对 ----------
 
 export function logoutAccount() {
+  bizSync = null
+  try { db.prepare("DELETE FROM settings WHERE key IN ('sync_push_seq','sync_pull_cursor','sync_seeded')").run() } catch { /* 忽略 */ }
   try {
     const file = path.join(dataDir, CLOUD_CONFIG)
     if (fs.existsSync(file)) fs.unlinkSync(file)

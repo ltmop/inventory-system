@@ -232,6 +232,16 @@ export function createCloudSync({ db, encrypt, decrypt, getAuth, cloudUrl, fetch
     return { applied, deferred }
   }
 
+  async function get(path) {
+    const auth = getAuth()
+    if (!auth || !auth.userId || !auth.uploadToken) throw new Error('未登录云账号')
+    const f = fetchImpl || fetch
+    const r = await f(cloudUrl + path, { headers: { 'x-user-id': auth.userId, 'x-token': auth.uploadToken } })
+    const j = await r.json().catch(() => ({}))
+    if (!r.ok || j.ok === false) throw new Error(j.error || `HTTP ${r.status}`)
+    return j
+  }
+
   async function post(path, body) {
     const auth = getAuth()
     if (!auth || !auth.userId || !auth.uploadToken) throw new Error('未登录云账号')
@@ -290,10 +300,53 @@ export function createCloudSync({ db, encrypt, decrypt, getAuth, cloudUrl, fetch
     return { pulled: (resp.changes || []).length, applied: ap.applied }
   }
 
+  /**
+   * 首次全量播种。
+   * 为什么必须有：CDC 触发器只记录"装好之后"的变更；本机已有的 1377 行历史数据不会自己进 changelog，
+   * 于是第二台电脑永远拉不到老数据（会看到"同步成功但另一台是空的"）。
+   * 策略：仅当**服务端该租户为空**时，把本机现有全部行登记成 'I' 变更，交给正常 push 分批推上去。
+   * 幂等 + 安全：settings.sync_seeded 记一次；服务端已有数据时只标记不灌（绝不把本机老数据盖回去）。
+   */
+  async function seedIfEmpty() {
+    ensureAux()
+    if (readNum('sync_seeded', 0) === 1) return { seeded: 0, reason: 'already-seeded' }
+    const st = await get('/api/tenant/status')
+    if (Number(st.totalRecords) > 0) {
+      writeNum('sync_seeded', 1)
+      return { seeded: 0, reason: 'server-not-empty', serverRecords: Number(st.totalRecords) }
+    }
+    const now = new Date().toISOString()
+    let n = 0
+    const ins = db.prepare("INSERT INTO sync_changelog (tbl, guid, op, at) VALUES (?, ?, 'I', ?)")
+    db.exec('BEGIN')
+    try {
+      for (const tbl of Object.keys(TBL_KIND)) {
+        const rows = db.prepare(`SELECT guid, COALESCE(updated_at, ?) AS at FROM "${tbl}" WHERE guid IS NOT NULL`).all(now)
+        for (const r of rows) { ins.run(tbl, r.guid, r.at || now); n++ }
+      }
+      writeNum('sync_seeded', 1)
+      db.exec('COMMIT')
+    } catch (e) {
+      try { db.exec('ROLLBACK') } catch { /* 忽略 */ }
+      throw e
+    }
+    log(`[sync] 首次播种：把本机 ${n} 行历史数据登记为待推变更`)
+    return { seeded: n }
+  }
+
+  /** 排空式同步：单批 500，首次播种 1377 行要 3 批，不能只跑一轮 */
   async function syncOnce() {
-    const p = await push()
+    let rounds = 0, pushed = 0, conflicts = []
+    while (rounds < 10) {
+      const p = await push()
+      pushed += p.pushed || 0
+      if ((p.conflicts || []).length) conflicts = p.conflicts
+      rounds++
+      if (status().backlog === 0) break
+      if (!p.pushed) break // 推不动了，别死循环
+    }
     const l = await pull()
-    return { ...p, pulled: l.pulled }
+    return { pushed, conflicts, pulled: l.pulled, rounds }
   }
 
   function status() {
@@ -303,5 +356,5 @@ export function createCloudSync({ db, encrypt, decrypt, getAuth, cloudUrl, fetch
     return { pushSeq: readNum(PUSH_SEQ_KEY, 0), pullCursor: readNum(PULL_CURSOR_KEY, 0), backlog, pendingRefs: pending, deferredRecords: deferred }
   }
 
-  return { push, pull, syncOnce, status, applyChanges, buildRecord, TBL_KIND, KIND_TBL }
+  return { push, pull, syncOnce, seedIfEmpty, status, applyChanges, buildRecord, TBL_KIND, KIND_TBL }
 }
