@@ -98,5 +98,8 @@ page('customers', function (app) {
       app.appendChild(card)
     })
   }
+  // 首帧：上次的客户列表直接上屏（网络结果回来再覆盖）；没有缓存就照旧显示加载中
+  const cachedCustomers = apiCached('customer:list')
+  if (cachedCustomers && cachedCustomers.length) { list = cachedCustomers; render() }
   load()
 })

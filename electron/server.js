@@ -34,12 +34,13 @@ const MAX_BODY_BYTES = 8192
 // 通用调用接口（/api/invoke）请求体上限：批量导入/商品图片 base64 会到几百 KB
 const MAX_INVOKE_BODY = 2 * 1024 * 1024
 
-// 幂等键（防重复提交直接弄错钱）：写接口携带 idempotencyKey(每次逻辑操作唯一) → 网络重试/双击/重发返回原结果，不重复记账
-// 内存缓存 + TTL；键 = channel:key，值为上次成功结果。15 分钟窗口覆盖绝大多数重复提交场景；重启清空(可接受)
-const idemCache = new Map()
-const IDEM_TTL = 15 * 60 * 1000
-function idemCheck(channel, key) { const ck = channel + ':' + String(key ?? ''); const hit = idemCache.get(ck); return hit && Date.now() - hit.at < IDEM_TTL ? hit : null }
-function idemSet(channel, key, result) { idemCache.set(channel + ':' + String(key ?? ''), { result, at: Date.now() }); if (idemCache.size > 5000) { for (const k of idemCache.keys()) if (Date.now() - idemCache.get(k).at > IDEM_TTL) idemCache.delete(k) } }
+// 跨域（默认关闭 = 与历史行为完全一致）。手机 APP 跑在 http://localhost、接口打中心库属跨域；
+// 反代层（Caddy）若没补 CORS，浏览器预检失败会让 APP 全部请求被拦。
+// 但反代若已经加了 CORS，这里再加一次会输出重复的 ACAO，浏览器反而直接判定失败 ——
+// 所以做成显式开关，只在实测确认反代没补时才打开：
+//   FI_CORS_ALLOW_ORIGINS=http://localhost,https://app.junchengzn.com
+const CORS_ORIGINS = String(process.env.FI_CORS_ALLOW_ORIGINS || '')
+  .split(',').map((s) => s.trim()).filter(Boolean)
 
 // 桌面网页版（/app）静态资源 MIME
 const STATIC_MIME = {
@@ -716,6 +717,49 @@ function listCenterBackups(dir) {
 }
 
 export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, webRoot = null, ai = null, voice = null, doubao = null, voiceOrder = null }) {
+  // ---------- 幂等去重（防重复提交弄错钱）----------
+  // 原实现是**进程内存 Map + 15 分钟 TTL**，注释自述「重启清空(可接受)」。2026-09-12 实测证伪：
+  // 同一 idempotencyKey 在 pm2 restart 之后不再判重；而桌面(src/lib/offlineTransport.js)与手机
+  // (electron/mobile/offline.js)两端的离线队列，都会在「写请求已记账但响应丢失」之后重放同一 key →
+  // 「服务重启」比 15 分钟窗口更常发生（每次部署/崩溃），重复单据会真的落两次。
+  // 现改为**落库**（表 idem），并把默认窗口放宽到 7 天（离线单据可能躺数天才重放）；
+  // 可用 FI_IDEM_TTL_MS 覆盖。建表失败则退回内存 Map —— 绝不因幂等层把服务打挂。
+  const IDEM_TTL = Number(process.env.FI_IDEM_TTL_MS || 7 * 24 * 3600 * 1000)
+  let idemReady = false
+  const idemFallback = new Map()
+  try {
+    db.prepare('CREATE TABLE IF NOT EXISTS idem (channel TEXT NOT NULL, "key" TEXT NOT NULL, result TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (channel, "key"))').run()
+    db.prepare('DELETE FROM idem WHERE at < ?').run(Date.now() - IDEM_TTL)
+    idemReady = true
+  } catch (e) {
+    console.error('[server] 幂等表不可用，退回内存（重启后不判重）:', e && e.message)
+  }
+  function idemCheck(channel, key) {
+    const k = String(key ?? '')
+    if (!k) return null
+    if (idemReady) {
+      try {
+        const row = db.prepare('SELECT result, at FROM idem WHERE channel = ? AND "key" = ?').get(channel, k)
+        if (!row || Date.now() - row.at >= IDEM_TTL) return null
+        return { result: JSON.parse(row.result), at: row.at }
+      } catch { return null }
+    }
+    const hit = idemFallback.get(channel + ':' + k)
+    return hit && Date.now() - hit.at < IDEM_TTL ? hit : null
+  }
+  function idemSet(channel, key, result) {
+    const k = String(key ?? '')
+    if (!k) return
+    if (idemReady) {
+      try {
+        db.prepare('INSERT INTO idem (channel, "key", result, at) VALUES (?,?,?,?) ON CONFLICT(channel, "key") DO UPDATE SET result = excluded.result, at = excluded.at').run(channel, k, JSON.stringify(result), Date.now())
+        if (Math.random() < 0.01) db.prepare('DELETE FROM idem WHERE at < ?').run(Date.now() - IDEM_TTL)
+      } catch { /* 落库失败不影响业务 */ }
+      return
+    }
+    idemFallback.set(channel + ':' + k, { result, at: Date.now() })
+    if (idemFallback.size > 5000) { for (const kk of idemFallback.keys()) if (Date.now() - idemFallback.get(kk).at > IDEM_TTL) idemFallback.delete(kk) }
+  }
   if (ai) aiRef = ai
   if (voice) voiceRef = voice
   if (doubao) doubaoRef = doubao
@@ -804,7 +848,9 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     'stocktake:create','stocktake:updateItem','stocktake:complete','stocktake:submit','import:batch',
     'customer:create','customer:update','customer:delete','payment:record',
     'expense:create','expense:update','expense:delete','waste:create',
-    'part:set','part:setMany','kit:save','kit:delete','receipt:register','receipt:reconcile',
+    // 注：receipt:reconcile 是纯查询（commands/receipt.js 里只有 SELECT），原来误放在写通道，
+    // 会让只读账号（财务）点「收款对账」直接 403。已移出。
+    'part:set','part:setMany','kit:save','kit:delete','receipt:register',
     'po:create','po:receive','po:cancel','priceTier:set','priceTier:delete','photo:save','photo:delete',
   ])
 
@@ -1343,6 +1389,26 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
   }
 
   async function handle(req, res) {
+    // 跨域放行：只有显式配置 FI_CORS_ALLOW_ORIGINS 才生效（默认不输出任何 CORS 头）。
+    // 用 setHeader：Node 里 writeHead 只覆盖它自己显式给出的头，setHeader 设过的会保留，
+    // 所以这里设一次就够，不用动 sendJson 或任何既有函数签名。
+    if (CORS_ORIGINS.length) {
+      const reqOrigin = req.headers.origin
+      if (reqOrigin && CORS_ORIGINS.includes(reqOrigin)) {
+        res.setHeader('Access-Control-Allow-Origin', reqOrigin)
+        res.setHeader('Vary', 'Origin')
+      }
+      // 预检必须在方法白名单之前放行，否则 OPTIONS 会被下面判成 405
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, {
+          'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+          'Access-Control-Allow-Headers': 'content-type,x-token,authorization',
+          'Access-Control-Max-Age': '600',
+        })
+        res.end()
+        return
+      }
+    }
     // 方法白名单：GET + 写接口 POST /api/outbound（手机开单）和 POST /api/invoke（整机共享），其余一律 405
     const url = new URL(req.url ?? '/', 'http://localhost')
     const isOutbound = req.method === 'POST' && url.pathname === '/api/outbound'
@@ -1389,6 +1455,19 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     // 桌面网页版（整机共享）：其他电脑/平板浏览器打开用全功能系统
     if (url.pathname === '/app' || url.pathname.startsWith('/app/')) {
       serveApp(res, url.pathname)
+      return
+    }
+    // 手机端网址归一：/m（无斜杠）→ **308 跳到 /m/**（方案 1）。
+    // 为什么必须跳：electron/mobile/index.html 用的是**相对路径**（offline.js / app.js / pages/*.js /
+    // manifest.json / sw.js），这是**设计意图** —— 见 mobile/sw.js:2 的注释：
+    // 「官网是 /m/sw.js（BASE=/m/），APK 是 /sw.js（BASE=/），同一份代码两端通吃」。
+    // 但浏览器在 /m（无斜杠）时会把相对路径解析到**根目录**，于是 app.js 变成 /app.js → 404
+    // → 所有脚本都加载不了 → 整页白屏（只剩 HTML 骨架）。实测 /app.js 确为 404、/m/app.js 为 200。
+    // 308 = 永久重定向且**保留请求方法**（这里只有 GET，但语义正确，比 302 好）。
+    // ⚠️ 必须带上 url.search：店里的二维码是 /m/?token=xxx，丢了 ?token= 就会白跳一次、然后 401。
+    if (url.pathname === '/m') {
+      res.writeHead(308, { ...SECURITY_HEADERS, Location: '/m/' + (url.search || '') })
+      res.end()
       return
     }
     // 手机原生操作端（轻量单页应用，hash 路由，零依赖）

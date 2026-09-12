@@ -141,5 +141,11 @@ page('today', function (app) {
     }
   }
 
+  // 首帧：上次的今日数据 + AI 配置直接上屏，网络结果回来再覆盖
+  if (!loaded) {
+    const c0 = apiCached('report:today')
+    const c1 = apiCached('ai:status')
+    if (c0) { data = c0; aiConfigured = !!(c1 && c1.configured); loaded = true; render() }
+  }
   load()
 })

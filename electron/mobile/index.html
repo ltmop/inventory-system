@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="manifest" href="/m/manifest.json">
+<link rel="manifest" href="manifest.json">
 <title>AI 智能进销存</title>
-<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/m/sw.js').catch(()=>{})}</script>
+<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{})}</script>
 <style>
 :root{--paper:#f7f2e8;--card:#fffdf7;--ink:#2b2620;--sub:#8a7f6e;--line:#e2d9c8;--red:#c0392b;--green:#1faa59;--blue:#1677ff;--gold:#b7791f;font-size:17px}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -129,20 +129,11 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <div class="toast" id="toastEl"></div>
 </div>
 <script src="lib/zxing.min.js"></script>
+<script src="offline.js"></script>
 <script src="app.js"></script>
 <script src="pages/pos.js"></script>
 <script src="pages/inbound.js"></script>
 <script src="pages/stock.js"></script>
 <script src="pages/today.js"></script>
-<script src="pages/expenses.js"></script>
-<script src="pages/restock.js"></script>
-<script src="pages/customers.js"></script>
-<script src="pages/suppliers.js"></script>
-<script src="pages/stocktake.js"></script>
-<script src="pages/expiring.js"></script>
-<script src="pages/waste.js"></script>
-<script src="pages/parts.js"></script>
-<script src="pages/kits.js"></script>
-<script src="pages/ai.js"></script>
 </body>
 </html>

@@ -63,5 +63,8 @@ page('kits', function (app) {
     } catch (e) { toast('加载失败: ' + e.message) }
   }
 
+  // 首帧：上次的套装列表直接上屏（网络结果回来再覆盖）
+  const cachedKits = apiCached('kit:list')
+  if (cachedKits) { kits = cachedKits; loaded = true; render() }
   load()
 })

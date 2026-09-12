@@ -19,5 +19,8 @@ page('suppliers', function (app) {
     })
     app.appendChild(Object.assign(document.createElement('div'), { className: 'text-center text-xs text-muted', style: 'padding:12px', textContent: '详细对账请在电脑上操作' }))
   }
+  // 首帧：上次的供应商列表直接上屏（网络结果回来再覆盖）
+  const cachedSuppliers = apiCached('supplier:list')
+  if (cachedSuppliers) { list = cachedSuppliers; loaded = true; render() }
   load()
 })

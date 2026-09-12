@@ -29,5 +29,8 @@ page('restock', function (app) {
       app.appendChild(card)
     })
   }
+  // 首帧：上次的补货清单直接上屏（网络结果回来再覆盖；空数组也是有效结论）
+  const cachedRestock = apiCached('report:lowStock')
+  if (cachedRestock) { items = cachedRestock; loaded = true; render() }
   load()
 })

@@ -49,5 +49,8 @@ page('expiring', function (app) {
     })
   }
 
+  // 首帧：上次的临期清单直接上屏（网络结果回来再覆盖）
+  const cachedExpiring = apiCached('product:expiring', { days: 30 })
+  if (cachedExpiring) { items = cachedExpiring; loaded = true; render() }
   load()
 })

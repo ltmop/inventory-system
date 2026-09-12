@@ -103,5 +103,8 @@ page('waste', function (app) {
     })
   }
 
+  // 首帧：上次的报损记录直接上屏（网络结果回来再覆盖）
+  const cachedWaste = apiCached('waste:list', { limit: 50 })
+  if (cachedWaste) { list = cachedWaste; loaded = true; render() }
   load()
 })

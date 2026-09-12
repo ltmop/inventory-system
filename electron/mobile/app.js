@@ -21,13 +21,18 @@ const TOKEN = (() => {
   }
   try { return localStorage.getItem('fi-mobile-token') || '' } catch { return '' }
 })()
-const SERVER = ''
+// 平台自适应（唯一 shim）：APK 由 index.html 注入 window.__FI_SERVER__ 指向中心库；
+// 官网与局域网 /m/ 不加注入 = SERVER 留空 = 同源。两端共用同一个 app.js，不做第二份副本。
+function readStoredServer() { try { return localStorage.getItem('fi-server') || '' } catch (e) { return '' } }
+// 优先用店主粘进来的地址（存在本机），否则用构建时注入的地址；官网/局域网 /m/ 两者都没有 = 留空 = 同源。
+let SERVER = readStoredServer() || (typeof window !== 'undefined' && window.__FI_SERVER__) || ''
 const COLORS = ["#0e9f6e","#b7791f","#1677ff","#7c3aed","#d64545","#0e7490","#be185d","#3f6212","#9a3412"]
 
-// 防请求风暴：只有 token 失效(401)才全局标记锁死（等用户回设置页重新扫码）；
+// 防请求风暴：只有连接码失效(401)才全局标记锁死（横幅会引导到「更多 - 连接设置」重输）；
 // 普通网络抖动（断网/超时）不锁死，让单次请求失败后可以重试——否则 WiFi 一抖手机端就全瘫
 let tokenFailed = false
-const REQUEST_TIMEOUT_MS = 15000 // 15 秒超时，不无限等
+const READ_TIMEOUT_MS = 8000  // 读操作：8 秒足够，再久用户就以为卡死了
+const WRITE_TIMEOUT_MS = 15000 // 写操作：给足时间；重发有幂等键兜底，不会重复记账
 
 // 顶部连接横幅：断网/连接失败时大白话提醒，连上后自动隐藏
 function showNetBanner(text, color, onRetry) {
@@ -56,63 +61,280 @@ function hideNetBanner() {
   } catch {}
 }
 
-// 协议检测：https=语音可用；http=语音受限（提示重新扫 https 码）
-;(function checkProtocol() {
-  if (location.protocol === 'http:') {
-    showNetBanner('当前是普通连接，语音识别用不了。回店里电脑设置页重新扫码（安全连接），或用电脑说话。')
-  }
-})()
+
+// 写通道白名单：与 electron/server.js 的 WRITE_CHANNELS 对齐。
+// 写操作一律带 idempotencyKey —— 服务端 15 分钟内同 key 返回原结果，
+// 断网重试 / 双击 / 超时重发都不会重复扣库存、重复记账。
+const WRITE_CHANNELS = {
+  'product:create': 1, 'product:update': 1, 'product:batchUpdate': 1, 'product:delete': 1, 'product:mark': 1,
+  'inbound:create': 1, 'outbound:confirm': 1, 'outbound:checkout': 1, 'outbound:return': 1, 'outbound:exchange': 1,
+  'supplier:create': 1, 'supplier:update': 1, 'supplier:delete': 1, 'supplier:pay': 1,
+  'stocktake:create': 1, 'stocktake:updateItem': 1, 'stocktake:complete': 1, 'stocktake:submit': 1, 'import:batch': 1,
+  'customer:create': 1, 'customer:update': 1, 'customer:delete': 1, 'payment:record': 1,
+  'expense:create': 1, 'expense:update': 1, 'expense:delete': 1, 'waste:create': 1,
+  'part:set': 1, 'part:setMany': 1, 'kit:save': 1, 'kit:delete': 1, 'receipt:register': 1,
+  'po:create': 1, 'po:receive': 1, 'po:cancel': 1, 'priceTier:set': 1, 'priceTier:delete': 1, 'photo:save': 1, 'photo:delete': 1,
+}
+function newIdemKey() { return 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8) }
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms) }) }
+const inflightWrites = {}
 
 let netDown = false
-async function api(channel, payload) {
-  if (tokenFailed) throw new Error('连接已失效，请回设置页重新扫码')
-  if (!TOKEN) throw new Error('未连接电脑，请回到设置页扫码进入手机端')
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
-  let r
-  try {
-    r = await fetch(SERVER + '/api/invoke?token=' + TOKEN, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ channel, payload: payload || {} }),
-      signal: controller.signal,
-    })
-  } catch (e) {
-    // 断网/超时：显示断网提示+重试 横幅，不锁死全局，仅本次失败
-    showNetBanner('连不上中心库 / 网络异常，检查网络后重试', '#ffe9d6', () => { hideNetBanner(); renderPage() })
-    netDown = true
-    throw new Error(e?.name === 'AbortError' ? '请求超时，请重试' : '连不上中心库，请检查手机网络')
-  } finally {
+// 原始调用：鉴权 / 3 次重试 / HTTP，不含离线兜底（离线重放也复用它）。
+// 网络类失败会带 .network=true，业务拒绝（4xx）不带 —— 只有前者才进离线层。
+async function invokeRaw(channel, payload) {
+  let lastErr = null
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const controller = new AbortController()
+    const timer = setTimeout(function () { controller.abort() }, WRITE_CHANNELS[channel] ? WRITE_TIMEOUT_MS : READ_TIMEOUT_MS)
+    let r
+    try {
+      r = await fetch(SERVER + '/api/invoke?token=' + TOKEN, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel, payload: payload || {} }),
+        signal: controller.signal,
+      })
+    } catch (e) {
+      clearTimeout(timer)
+      netDown = true
+      lastErr = new Error((e && e.name === 'AbortError') ? '请求超时，正在重试' : '连不上店里的账本，检查手机网络')
+      lastErr.network = true
+      showNetBanner('连不上店里的账本，检查网络后重试', '#ffe9d6', function () { hideNetBanner(); renderPage(true) })
+      await sleep(700 * (attempt + 1))
+      continue
+    }
     clearTimeout(timer)
+    const data = await r.json().catch(function () { return {} })
+    if (netDown && r.ok) { netDown = false; hideNetBanner() }
+    if (r.status === 401) { tokenFailed = true; showNetBanner('连接已失效，点这里重新输入连接码', '#ffdede', function () { openConnectPanel() }); throw new Error(data.error || '连接已失效，请到「更多 - 连接设置」重新输入连接码') }
+    if (r.status >= 500 && attempt < 2) {
+      lastErr = new Error(data.error || '服务端繁忙，正在重试'); lastErr.network = true
+      await sleep(700 * (attempt + 1)); continue
+    }
+    if (!r.ok) throw new Error(data.error || '请求失败')
+    return data.result
   }
-  const data = await r.json()
-  if (netDown && r.ok) { netDown = false; if (location.protocol !== 'http:') hideNetBanner() }
-  if (!r.ok) {
-    if (r.status === 401) tokenFailed = true // token 失效，停止所有后续请求（需重新扫码）
-    throw new Error(data.error || '请求失败')
-  }
-  return data.result
+  throw lastErr || new Error('请求失败')
 }
 
+// 离线层接线：写通道断网进队列、读通道断网用上次缓存，联网后按序幂等重放。
+const NO_QUEUE = { 'stocktake:create': 1, 'stocktake:submit': 1, 'stocktake:complete': 1, 'import:batch': 1, 'photo:save': 1, 'photo:delete': 1 }
+const NO_CACHE = { 'ai:chat': 1, 'ai:dailySummary': 1, 'ai:photoDraft': 1, 'payment:getQr': 1 }
+function updateOfflineBanner(pending, failed) {
+  const n = pending === undefined ? Offline.pendingCount() : pending
+  const f = failed === undefined ? Offline.failedCount() : failed
+  if (!n && !f) { if (!netDown) hideNetBanner(); return }
+  const txt = f ? ('有 ' + f + ' 笔被中心库拒绝，点开处理（另有 ' + n + ' 笔待上传）') : ('离线 ' + n + ' 笔待上传，点开可重传')
+  showNetBanner(txt, f ? '#ffdede' : '#fff3cd', function () { Offline.openPanel() })
+}
+Offline.init({ invoke: invokeRaw, writeChannels: WRITE_CHANNELS, noQueue: NO_QUEUE, noCache: NO_CACHE, onPending: updateOfflineBanner })
+function flushOffline() { if (Offline.pendingCount()) Offline.flush() }
+// 同步读上次缓存（离线层 L1）：页面首帧先用它渲染，网络结果回来再覆盖 —— 切页不再闪「加载中」
+function apiCached(channel, payload) {
+  if (!Offline.readable(channel)) return null
+  const hit = Offline.cacheGet(channel, payload)
+  return hit ? hit.data : null
+}
+
+// opts.idempotencyKey：调用方自带的幂等键（开单页按购物车复用），不传则自动生成。
+// 写通道遇网络故障会带同一个 key 自动重试 3 次；飞行中的同内容写操作只发一次（双击去重）。
+async function api(channel, payload, opts) {
+  if (tokenFailed) throw new Error('连接已失效，请到「更多 - 连接设置」重新输入连接码')
+  if (!TOKEN) throw new Error('还没连上店铺账本，请到「更多 - 连接设置」填入连接码')
+  const p = Object.assign({}, payload || {})
+  const isWrite = !!WRITE_CHANNELS[channel]
+  if (isWrite && !p.idempotencyKey) p.idempotencyKey = (opts && opts.idempotencyKey) || newIdemKey()
+  const sig = Object.assign({}, p); delete sig.idempotencyKey
+  const flightKey = isWrite ? channel + '|' + JSON.stringify(sig) : ''
+  if (flightKey && inflightWrites[flightKey]) return inflightWrites[flightKey]
+  const gen = renderGen
+  const stale = function () { return new Promise(function () {}) } // 已切页：结果丢弃（永不落地）
+  const run = (async function () {
+    try {
+      const out = await invokeRaw(channel, p)
+      if (Offline.readable(channel)) Offline.cachePut(channel, p, out)
+      if (Offline.pendingCount()) setTimeout(flushOffline, 500) // 网络已恢复：顺手把攒下的单据传上去
+      if (gen !== renderGen) return stale()
+      return out
+    } catch (e) {
+      if (!e || !e.network) { if (gen !== renderGen) return stale(); throw e } // 业务拒绝：只对当前页有意义
+      if (isWrite && Offline.canQueue(channel)) { const q = Offline.queueWrite(channel, p); return gen !== renderGen ? stale() : q }
+      if (isWrite) throw new Error('这个操作需要联网（盘点/批量导入不能离线记账），连上网再试')
+      const hit = Offline.readable(channel) ? Offline.cacheGet(channel, p) : null
+      if (hit && gen !== renderGen) return stale()
+      if (hit) { toast('离线：显示上次的数据（' + new Date(hit.at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) + '）'); return hit.data }
+      throw e
+    }
+  })()
+  if (flightKey) {
+    inflightWrites[flightKey] = run
+    const done = function () { delete inflightWrites[flightKey] }
+    run.then(done, done)
+  }
+  return run
+}
 // —— 操作员身份（T2 统一）：全手机页写操作共用同一个 getOperator()，发货/开单/入库/报损都能追到人 ——
+function escHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] }) }
 function getOperator() { try { return localStorage.getItem('fi-operator') || '老板' } catch { return '老板' } }
-function setOperator(n) { try { localStorage.setItem('fi-operator', String(n == null ? '' : n).trim() || '老板') } catch {} }
+// 记住用过的名字：多人共用一台手机时，换人只要点一下，不用每次打字
+function getOperators() { try { const v = JSON.parse(localStorage.getItem('fi-operators') || '[]'); return Array.isArray(v) ? v : [] } catch { return [] } }
+function rememberOperator(n) {
+  const s = String(n == null ? '' : n).trim()
+  if (!s) return
+  const list = getOperators().filter(function (x) { return x !== s })
+  list.unshift(s)
+  try { localStorage.setItem('fi-operators', JSON.stringify(list.slice(0, 12))) } catch (e) {}
+}
+function setOperator(n) {
+  const s = String(n == null ? '' : n).trim() || '老板'
+  try { localStorage.setItem('fi-operator', s) } catch (e) {}
+  rememberOperator(s)
+}
+// 操作员面板：点名字即切换（开单/入库/报损都会记到这个名字上）
+function openOperatorPanel() {
+  const old = document.getElementById('op-panel'); if (old) old.remove()
+  const cur = getOperator()
+  const known = getOperators()
+  if (known.indexOf(cur) < 0) known.unshift(cur)
+  const ov = document.createElement('div')
+  ov.id = 'op-panel'
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(10,22,40,.96);z-index:310;padding:22px;color:#e6edf5;overflow:auto'
+  let h = '<div style="font-size:22px;font-weight:800;margin-bottom:6px">这台手机现在谁在用？</div>' +
+    '<div style="font-size:14px;color:#8fa3c0;line-height:1.7;margin-bottom:18px">开单、入库、报损都会记在这个名字上，方便对账到人</div>'
+  known.forEach(function (n, i) {
+    const on = n === cur
+    h += '<button data-oi="' + i + '" style="width:100%;height:60px;margin-bottom:10px;border-radius:14px;border:2px solid ' + (on ? '#d4af37' : 'rgba(255,255,255,.2)') + ';background:' + (on ? 'linear-gradient(135deg,#c9a55a,#d4af37)' : 'rgba(255,255,255,.08)') + ';color:' + (on ? '#0a1628' : '#e6edf5') + ';font-size:19px;font-weight:800">' + escHtml(n) + (on ? ' · 正在用' : '') + '</button>'
+  })
+  h += '<input id="op-new" placeholder="换个人：输个名字" autocomplete="off" style="width:100%;height:58px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);border-radius:12px;color:#fff;font-size:18px;padding:0 14px;margin:8px 0 12px;outline:none">' +
+    '<button id="op-save" style="width:100%;height:58px;border-radius:14px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:18px;font-weight:800">就用这个名字</button>' +
+    '<button id="op-close" style="width:100%;height:50px;margin-top:10px;border-radius:12px;border:none;background:rgba(255,255,255,.12);color:#e6edf5;font-size:16px">取消</button>'
+  ov.innerHTML = h
+  document.body.appendChild(ov)
+  function pick(name) {
+    setOperator(name)
+    ov.remove()
+    toast('已切换操作员：' + getOperator())
+    renderPage(true)
+  }
+  ov.querySelectorAll('[data-oi]').forEach(function (b) { b.onclick = function () { pick(known[Number(b.getAttribute('data-oi'))]) } })
+  ov.querySelector('#op-save').onclick = function () {
+    const v = (ov.querySelector('#op-new').value || '').trim()
+    if (!v) { toast('先输个名字'); return }
+    pick(v)
+  }
+  ov.querySelector('#op-close').onclick = function () { ov.remove() }
+  setTimeout(function () { const i = ov.querySelector('#op-new'); if (i) i.focus() }, 120)
+}
+
+// —— 连接店铺账本（手机端唯一接入入口）：粘连接码、粘整条链接、或扫二维码，都不用打长串 ——
+// 连接码的真实格式是 32 位小写 hex（server.js 的 /^[0-9a-f]{32}$/ 是权威定义）：能抓到就直接用，
+// 抓不到才退回通用清洗；清洗只删「绝不可能出现在连接码里」的字符（空白/引号/中文标点/汉字），不猜内容。
+function sanitizeToken(s) {
+  const str = String(s == null ? '' : s)
+  const mHex = str.match(/[0-9a-f]{32}/)
+  if (mHex) return mHex[0]
+  return str.replace(/[\s"'`<>\u300a\u300b\uff0c\u3002\uff1b\u3001:\uff1a=\uff1d]/g, '').replace(/[\u4e00-\u9fa5]/g, '')
+}
+function parseConnectInput(raw) {
+  const out = { token: '', server: '' }
+  let s = String(raw == null ? '' : raw).trim()
+  if (!s) return out
+  const mUrl = s.match(/https?:\/\/[^\s"']+/i)
+  if (mUrl) {
+    try {
+      const u = new URL(mUrl[0])
+      out.server = u.origin
+      const t = u.searchParams.get('token')
+      if (t) { out.token = sanitizeToken(t); return out }
+    } catch (e) {}
+    s = s.replace(mUrl[0], ' ')   // 整条链接里没有 token 参数：剩下部分继续按连接码解析
+  }
+  const mTok = s.match(/(?:token|连接码|访问码)\s*[:=：]?\s*([A-Za-z0-9._\-]+)/i)
+  if (mTok) s = mTok[1]
+  out.token = sanitizeToken(s)
+  return out
+}
+function openConnectPanel(firstRun) {
+  const old = document.getElementById('cn-panel'); if (old) old.remove()
+  const ov = document.createElement('div')
+  ov.id = 'cn-panel'
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(10,22,40,.97);z-index:300;padding:22px;color:#e6edf5;overflow:auto'
+  ov.innerHTML =
+    '<div style="font-size:22px;font-weight:800;margin-bottom:6px">连接店铺账本</div>' +
+    '<div style="font-size:14px;color:#8fa3c0;line-height:1.75;margin-bottom:16px">把店主发给你的<b style="color:#d4af37">连接码</b>粘进来就行。<br>整条链接（https://…）直接粘进来也能认。</div>' +
+    '<input id="cn-in" placeholder="在这里粘贴连接码" autocomplete="off" spellcheck="false" style="width:100%;height:60px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);border-radius:12px;color:#fff;font-size:17px;padding:0 14px;outline:none">' +
+    '<div id="cn-echo" style="font-size:13px;color:#8fa3c0;margin:8px 0 14px;min-height:18px"></div>' +
+    '<div style="display:flex;gap:10px;margin-bottom:12px">' +
+      '<button id="cn-paste" style="flex:1;height:52px;border-radius:12px;border:none;background:rgba(255,255,255,.12);color:#e6edf5;font-size:16px;font-weight:700">粘贴</button>' +
+      '<button id="cn-scan" style="flex:1;height:52px;border-radius:12px;border:none;background:rgba(255,255,255,.12);color:#e6edf5;font-size:16px;font-weight:700">扫码</button>' +
+    '</div>' +
+    '<button id="cn-go" style="width:100%;height:60px;border-radius:14px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:19px;font-weight:800">连接</button>' +
+    '<button id="cn-off" style="width:100%;height:50px;margin-top:12px;border-radius:12px;border:none;background:rgba(248,113,113,.18);color:#ffd9d9;font-size:15px">断开本机连接</button>' +
+    '<div style="font-size:12px;color:#8fa3c0;margin-top:14px;line-height:1.8">当前：' + (TOKEN ? '已连接' : '还没连接') + '<br>连接码在店主那台电脑上，或让店主发你一条链接。' +
+    (firstRun ? '<br><br>连上以后，开单、查库存、看今天赚多少都能用。' : '') + '</div>'
+  document.body.appendChild(ov)
+  const inp = ov.querySelector('#cn-in'), echo = ov.querySelector('#cn-echo')
+  function refresh() {
+    const p = parseConnectInput(inp.value)
+    echo.textContent = p.token
+      ? ('已识别连接码：' + p.token.slice(0, 6) + '…（' + p.token.length + ' 位）' + (p.server ? ' · 地址已带上' : ''))
+      : (inp.value.trim() ? '没看出连接码，检查一下是不是复制全了' : '')
+  }
+  function connect() {
+    const p = parseConnectInput(inp.value)
+    if (!p.token) { toast('先把连接码粘进来'); inp.focus(); return }
+    if (p.token.length < 8) { toast('连接码太短，可能没复制全（一般是 32 位）'); return }
+    try {
+      localStorage.setItem('fi-mobile-token', p.token)
+      if (p.server) localStorage.setItem('fi-server', p.server)
+    } catch (e) {}
+    toast('连接成功，正在打开…')
+    setTimeout(function () { location.reload() }, 500)
+  }
+  inp.oninput = refresh
+  ov.querySelector('#cn-paste').onclick = async function () {
+    try {
+      const t = await navigator.clipboard.readText()
+      if (t) { inp.value = t; refresh(); if (parseConnectInput(t).token) connect() } else { toast('剪贴板是空的，长按输入框粘贴') }
+    } catch (e) { toast('长按输入框，手动粘贴'); inp.focus() }
+  }
+  ov.querySelector('#cn-scan').onclick = function () {
+    openScanner(function (code) { if (code) { inp.value = code; refresh() } }, '扫描店主给的二维码')
+  }
+  ov.querySelector('#cn-go').onclick = connect
+  ov.querySelector('#cn-off').onclick = function () {
+    try { localStorage.removeItem('fi-mobile-token'); localStorage.removeItem('fi-server') } catch (e) {}
+    toast('已断开，重开 APP 再连一次')
+    setTimeout(function () { location.reload() }, 600)
+  }
+  refresh()
+  setTimeout(function () { inp.focus() }, 150)
+}
 // 断网自动提示 + 恢复自动隐藏（T4）
-window.addEventListener('offline', () => showNetBanner('网络已断开，请检查手机网络', '#ffe9d6', () => { hideNetBanner(); renderPage() }))
-window.addEventListener('online', () => { hideNetBanner(); renderPage() })
+window.addEventListener('offline', () => showNetBanner('网络已断开，请检查手机网络', '#ffe9d6', () => { hideNetBanner(); renderPage(true) }))
+window.addEventListener('online', () => { hideNetBanner(); flushOffline(); renderPage(true) })
 
 let currentPage = ''
+let renderGen = 0 // 页面代次：切页后旧请求的续写一律丢弃，避免把上一页的数据写进新页面
 function navigate(hash) { location.hash = hash }
-window.addEventListener('hashchange', renderPage)
+window.addEventListener('hashchange', () => renderPage())
 document.addEventListener('DOMContentLoaded', () => {
+  // 没有连接码：用页内面板（可粘整条链接 / 扫码），不再用系统弹窗 —— 店主不会打长串；
+  // 官网 / 局域网 /m/ 也一样走这里（粘连接码即可，SERVER 留空=同源）。
+  if (!TOKEN) { openConnectPanel(true); return }
   document.getElementById('dateEl').textContent = new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })
   renderPage()
+  flushOffline() // 开机先把上次离线攒下的单据重传一遍
+  // 首次连上后问一次「这台手机谁在用」；不选就一直用「老板」，不再打扰
+  try { if (!localStorage.getItem('fi-operator')) setTimeout(openOperatorPanel, 700) } catch (e) {}
 })
 
-function renderPage() {
+function renderPage(force) {
   const hash = (location.hash || '#pos').replace('#', '')
   const page = hash || 'pos'
-  if (page === currentPage) return
+  if (page === currentPage && !force) return
   currentPage = page
+  renderGen++
   document.querySelectorAll('.tab').forEach(a => {
     a.classList.toggle('on', a.getAttribute('href') === '#' + page)
   })
@@ -120,6 +342,15 @@ function renderPage() {
   app.innerHTML = '<div class="text-center" style="padding:40px;color:var(--sub)">加载中...</div>'
   const fn = pages[page]
   if (fn) { try { fn(app) } catch (e) { app.innerHTML = '<div class="text-center" style="padding:40px"><div style="font-size:48px">⚠️</div><div class="text-red font-bold mt">' + page + ' 出错</div><div class="text-sm text-muted mt-sm">' + e.message + '</div></div>' } }
+  else if (LAZY_PAGES[page]) {
+    // 低频页：首次进入时才去取脚本；离线且缓存里还没有 → 明确告知，不假装加载中
+    loadPageScript(page).then(function (ok) {
+      if (currentPage !== page) return
+      const f2 = pages[page]
+      if (f2) { try { app.innerHTML = ''; f2(app) } catch (e) { app.innerHTML = '<div class="text-center" style="padding:40px"><div class="text-red font-bold mt">' + page + ' 出错</div><div class="text-sm text-muted mt-sm">' + e.message + '</div></div>' } }
+      else { app.innerHTML = '<div class="text-center" style="padding:40px"><div class="font-bold mt">这一页还没下载好</div><div class="text-sm text-muted mt-sm">连一次网打开它，之后离线也能用</div></div>' }
+    })
+  }
   else { app.innerHTML = '<div class="text-center" style="padding:40px"><div style="font-size:48px">⚠️</div><div class="font-bold mt">页面未找到</div></div>' }
 }
 
@@ -151,147 +382,6 @@ function fmt(cents, nullText) {
 function phColor(p) { return COLORS[(p.id || 0) % COLORS.length] }
 function phChar(p) { const name = (((p.brand || '') + ' ' + (p.model || '')).trim() || p.sku_code || ''); return name[0] || '?' }
 function prodName(p) { const n = ((p.brand || '') + ' ' + (p.model || '')).trim(); return (n || p.sku_code || '未知') }
-
-// ========== 语音识别（40岁+用户：打字慢，按住/点按说话最自然） ==========
-// 链路：手机录音(webm) → 本地转16kHz PCM → 发给PC本地识别(sherpa-onnx)
-//       本地模型没下载 → 兜底云端ASR(webm base64)
-let mediaRecorder = null
-let mediaChunks = []
-
-function blobToBase64(blob) {
-  return new Promise((resolve) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result).split(',')[1] || '')
-    reader.readAsDataURL(blob)
-  })
-}
-
-// webm → 16kHz 单声道 Float32 PCM（本地 sherpa-onnx 需要的输入）
-async function blobToPcm16k(blob) {
-  const buf = await blob.arrayBuffer()
-  const Ctx = window.AudioContext || window.webkitAudioContext
-  const ctx = new Ctx()
-  try {
-    const decoded = await ctx.decodeAudioData(buf)
-    const targetLen = Math.max(1, Math.ceil(decoded.duration * 16000))
-    const off = new OfflineAudioContext(1, targetLen, 16000)
-    const src = off.createBufferSource()
-    src.buffer = decoded
-    src.connect(off.destination)
-    src.start()
-    const rendered = await off.startRendering()
-    return Array.from(rendered.getChannelData(0)) // 转普通数组便于 JSON 传输
-  } finally { ctx.close().catch(() => {}) }
-}
-
-// 语音转文字：本地 sherpa → 豆包ASR（火山方舟）→ Kimi，逐级降级
-async function speechToText(blob) {
-  const b64 = await blobToBase64(blob)
-  // 1) 本地 sherpa-onnx（离线、免费、快；小模型识别一般）
-  try {
-    const status = await api('voice:status')
-    if (status && status.ready) {
-      const pcm = await blobToPcm16k(blob)
-      if (pcm.length > 0) {
-        const r = await api('voice:transcribe', { pcm, sampleRate: 16000 })
-        if (r && r.ok && r.text) return { text: r.text, mode: '本地' }
-      }
-    }
-  } catch { /* 本地失败 → 走豆包 */ }
-  // 2) 豆包 ASR（火山方舟，中文识别更准；需电脑配了豆包 Key）
-  try {
-    const r = await api('doubao:transcribe', { audioBase64: b64, mimeType: 'audio/webm' })
-    if (r && r.ok && r.text) return { text: r.text, mode: '豆包' }
-  } catch { /* 豆包失败 → 走 Kimi */ }
-  // 3) Kimi whisper（兜底）
-  try {
-    const r = await api('ai:transcribe', { audioBase64: b64, mimeType: 'audio/webm' })
-    if (r && r.ok && r.text) return { text: r.text, mode: '云端' }
-  } catch { /* 都失败 */ }
-  return null
-}
-
-// 语音输入弹层：大麦克风按钮，点一下开始听、再点一下结束并识别
-function voiceInput(onResult, hint) {
-  // 浏览器麦克风需要 HTTPS/localhost 安全上下文；局域网 HTTP 下 navigator.mediaDevices 是 undefined
-  // 这里提前拦截，不弹录音界面也不报错，提示用打字或电脑上软件的语音
-  const hasMic = !!(window.navigator && navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
-  if (!hasMic) {
-    toast('这个网络不支持手机录音（要用语音请连 HTTPS 或直接在电脑上说话）')
-    return
-  }
-  const overlay = document.createElement('div')
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(10,22,40,.96);z-index:400;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#e6edf5'
-  overlay.innerHTML =
-    '<div style="font-size:20px;font-weight:800;margin-bottom:6px">语音输入</div>' +
-    '<div style="font-size:14px;color:#8fa3c0;margin-bottom:30px">' + (hint || '点一下麦克风开始说，再说一次结束') + '</div>' +
-    '<div id="voice-mic" style="width:130px;height:130px;border-radius:50%;background:linear-gradient(135deg,#c9a55a,#d4af37);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 8px 30px rgba(212,175,55,.4)">' +
-      '<svg viewBox="0 0 24 24" fill="none" stroke="#0a1628" stroke-width="2" width="56" height="56"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zM5 10a7 7 0 0 0 14 0M12 17v4"/></svg>' +
-    '</div>' +
-    '<div id="voice-status" style="margin-top:24px;font-size:16px;color:#8fa3c0">点麦克风开始</div>' +
-    '<button id="voice-close" style="margin-top:30px;height:48px;padding:0 30px;border-radius:12px;border:none;background:rgba(255,255,255,.12);color:#e6edf5;font-size:16px">取消</button>'
-  document.body.appendChild(overlay)
-
-  let recording = false
-  let startTime = 0
-  const micBtn = overlay.querySelector('#voice-mic')
-  const statusEl = overlay.querySelector('#voice-status')
-
-  // 语音搜索：ASR 识别出的词先用店里商品清单纠错，再回调（识别不准时纠正成真实商品名）
-  async function smartVoiceSearch(rawText, onResult) {
-    const text = (rawText || '').trim()
-    if (!text) { onResult(''); return }
-    let finalText = text
-    let hint = ''
-    try {
-      const r = await api('ai:correctTerm', { text })
-      if (r && r.ok && r.corrected && r.matched) {
-        finalText = r.corrected
-        hint = '已纠正「' + text + '」→「' + r.corrected + '」'
-      }
-    } catch { /* 纠错失败就用原词 */ }
-    if (hint) toast(hint)
-    onResult(finalText)
-  }
-
-  function startRecording() {
-    if (!window.navigator || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      statusEl.textContent = '此网络不支持录音，请关掉用打字'
-      return
-    }
-    mediaChunks = []
-    navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
-      mediaRecorder = new MediaRecorder(stream)
-      mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) mediaChunks.push(e.data) }
-      mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop())
-        const blob = new Blob(mediaChunks, { type: 'audio/webm' })
-        const secs = ((Date.now() - startTime) / 1000).toFixed(0)
-        statusEl.textContent = '识别中（' + secs + '秒）...'
-        const res = await speechToText(blob)
-        overlay.remove()
-        if (res && res.text) { onResult(res.text, res.mode) }
-        else { toast('没听清，再说一次或直接打字'); onResult('', '') }
-      }
-      mediaRecorder.start()
-      recording = true
-      startTime = Date.now()
-      statusEl.textContent = '正在听... 再说一次结束'
-      micBtn.style.background = 'linear-gradient(135deg,#e74c3c,#c0392b)'
-      micBtn.querySelector('svg').style.stroke = '#fff'
-    }).catch(() => { toast('无法使用麦克风，请直接打字'); overlay.remove() })
-  }
-
-  function stopRecording() {
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      mediaRecorder.stop()
-      mediaRecorder = null
-    }
-  }
-
-  micBtn.onclick = () => { if (recording) { recording = false; stopRecording() } else { startRecording() } }
-  overlay.querySelector('#voice-close').onclick = () => { if (recording) { try { mediaRecorder && mediaRecorder.stop() } catch {} } overlay.remove() }
-}
 
 // ========== 扫码 ==========
 let scanCallback = null
@@ -374,12 +464,34 @@ async function decodeBarcode(img) {
   return null
 }
 
+// 首屏按需加载：只预载 4 个高频页（开单/入库/库存/今日），其余首次进入时才注入脚本，
+// 缩短启动白屏；离线也能用 —— sw.js 的预缓存里已经包含全部页面脚本。
+const LAZY_PAGES = { ai: 1, restock: 1, expiring: 1, waste: 1, kits: 1, customers: 1, expenses: 1, suppliers: 1, stocktake: 1, parts: 1 }
+const lazyLoading = {}
+function loadPageScript(name) {
+  if (pages[name] || !LAZY_PAGES[name]) return Promise.resolve(!!pages[name])
+  if (lazyLoading[name]) return lazyLoading[name]
+  lazyLoading[name] = new Promise(function (resolve) {
+    const s = document.createElement('script')
+    s.src = 'pages/' + name + '.js'
+    s.onload = function () { resolve(true) }
+    s.onerror = function () { resolve(false) }
+    document.head.appendChild(s)
+  })
+  return lazyLoading[name]
+}
+
 // ========== 页面注册 ==========
 const pages = {}
 function page(name, fn) { pages[name] = fn }
 
 page('more', (app) => {
   app.innerHTML = ''
+  // 当前操作员：放最上面，换人点一下 —— 多人共用一台手机时这是每天都会用到的
+  const opCard = document.createElement('div')
+  opCard.className = 'card'; opCard.style.cursor = 'pointer'; opCard.onclick = openOperatorPanel
+  opCard.innerHTML = '<div class="font-bold">👤 当前操作员：' + escHtml(getOperator()) + '</div><div class="text-sm text-muted mt-sm">换人点这里 · 开单/入库/报损都记在这个名字上</div>'
+  app.appendChild(opCard)
   const items = [
     ['🤖 AI 助手', '问库存、要补货建议、经营问答', () => navigate('ai')],
     ['💰 今日盈利', '营业额/毛利/净利，今天赚了多少', () => navigate('today')],
@@ -399,6 +511,10 @@ page('more', (app) => {
     card.innerHTML = '<div class="font-bold">' + t + '</div><div class="text-sm text-muted mt-sm">' + d + '</div>'
     app.appendChild(card)
   })
+  const connCard = document.createElement('div')
+  connCard.className = 'card'; connCard.style.cursor = 'pointer'; connCard.onclick = function () { openConnectPanel() }
+  connCard.innerHTML = '<div class="font-bold">🔗 连接设置</div><div class="text-sm text-muted mt-sm">' + (TOKEN ? '已连接店铺账本' : '还没连接') + ' · 换店铺或重新输入连接码' + '</div>'
+  app.appendChild(connCard)
   const note = document.createElement('div')
   note.className = 'text-center text-sm text-muted'; note.style.padding = '20px'
   note.textContent = '采购订货、经营报表、批量导入、设置请在电脑上操作'

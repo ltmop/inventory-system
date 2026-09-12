@@ -55,5 +55,8 @@ page('parts', function (app) {
     })
   }
 
+  // 首帧：上次的配节库存直接上屏（网络结果回来再覆盖）
+  const cachedParts = apiCached('part:all', {})
+  if (cachedParts) { parts = cachedParts; loaded = true; render() }
   load()
 })

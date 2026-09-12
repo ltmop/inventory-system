@@ -1,6 +1,8 @@
 // stock.js: 库存查询 —— 打开直接显示全部 SKU，按货位/品类分组，大字卡片（40岁+友好）
 page('stock', function (app) {
-  let keyword = '', results = [], tmr = null
+  let keyword = ''
+  let results = apiCached('product:list', { keyword: '', limit: 500 }) || [] // 首帧先用上次缓存，网络结果回来再覆盖
+  let tmr = null
 
   async function search(kw) {
     keyword = kw
@@ -22,14 +24,11 @@ page('stock', function (app) {
   function render() {
     app.innerHTML = ''
 
-    // 搜索框 + 语音
+    // 搜索框
     const sr = document.createElement('div'); sr.className = 'scanrow'
     const inp = document.createElement('input'); inp.className = 'search'; inp.placeholder = '🔍 输入品名/条码/SKU 过滤...'; inp.value = keyword; inp.style.width = '100%'
     inp.oninput = (e) => search(e.target.value.trim())
-    const mic = document.createElement('button'); mic.className = 'scanbtn'; mic.style.flex = '0 0 56px'; mic.style.height = '60px'
-    mic.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="26" height="26"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zM5 10a7 7 0 0 0 14 0M12 17v4"/></svg>'
-    mic.onclick = () => voiceInput((text) => { if (text) { smartVoiceSearch(text, (t) => { if (t) { inp.value = t; search(t) } }) } }, '说商品名查库存')
-    sr.appendChild(inp); sr.appendChild(mic); app.appendChild(sr)
+    sr.appendChild(inp); app.appendChild(sr)
 
     // 扫码查库存
     const btn = document.createElement('button'); btn.className = 'scanbtn'; btn.style.margin = '10px 16px'; btn.style.width = 'calc(100% - 32px)'
@@ -67,12 +66,20 @@ page('stock', function (app) {
       ;(groups[key] = groups[key] || []).push(p)
     })
 
+    // 分片上屏：先画首屏，剩下的按帧补，300 个 SKU 不再一次卡住主线程
+    const q = []
+    let qi = 0
+    function drain() {
+      const t0 = Date.now()
+      while (qi < q.length && Date.now() - t0 < 10) { q[qi++]() }
+      if (qi < q.length) requestAnimationFrame(drain)
+    }
     for (const grpKey of Object.keys(groups)) {
       // 货位组名用"📍 货位"，品类组名用品类
       const isLoc = groups[grpKey].every(p => (p.location || '').trim() === grpKey) && grpKey.trim()
       const title = document.createElement('div'); title.className = 'sectitle'
       title.innerHTML = '<span class="tag" style="font-size:14px">' + (isLoc ? '📍 ' : '') + grpKey + '</span><span style="font-size:13px">' + groups[grpKey].length + ' 个</span>'
-      app.appendChild(title)
+      q.push(function () { app.appendChild(title) })
 
       groups[grpKey].forEach(p => {
         const total = p.total_stock || 0
@@ -103,14 +110,15 @@ page('stock', function (app) {
         const clearBtn = card.querySelector('[data-clear]')
         if (hotBtn) hotBtn.onclick = async (e) => { e.stopPropagation(); await toggleMark(p.id, 'is_hot', !isHot) }
         if (clearBtn) clearBtn.onclick = async (e) => { e.stopPropagation(); await toggleMark(p.id, 'is_clearance', !isClear) }
-        app.appendChild(card)
+        q.push(function () { app.appendChild(card) })
       })
     }
 
     // 底部提示
     const foot = document.createElement('div'); foot.className = 'text-center'; foot.style.cssText = 'padding:16px;color:var(--sub);font-size:13px'
     foot.textContent = '点商品可去开单页卖它'
-    app.appendChild(foot)
+    q.push(function () { app.appendChild(foot) })
+    drain()
   }
 
   render()
