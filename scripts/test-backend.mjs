@@ -1587,6 +1587,24 @@ xdb.close()
   const jIdem3 = await rIdem3.json()
   ok('不同 key 正常执行不误杀', rIdem3.status === 200 && jIdem3.ok === true && jIdem3.idempotent !== true)
 
+  // 幂等去重必须扛住「服务重启」：同一 db 上重开一个新实例（等价 pm2 restart），同一 key 仍须判重。
+  // 历史实现是进程内存 Map + 15 分钟 TTL（重启即清）→ 2026-09-12 实测会重复记账；
+  // 详见 任务5-缺陷体检报告-20260912.md 的 D1。此断言是该缺陷的回归防线。
+  const srvAfterRestart = createInventoryServer({ db: wdb, dataDir: wDir, basePort: 0 })
+  const stAfterRestart = await srvAfterRestart.start()
+  const postAfterRestart = (body) =>
+    fetch(`http://127.0.0.1:${stAfterRestart.port}/api/outbound?token=${wToken}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    })
+  const txBeforeRestart = wdb.prepare("SELECT COUNT(*) AS n FROM transactions WHERE product_id = ? AND type='out'").get(spId).n
+  const rIdemRestart = await postAfterRestart({ productId: spId, quantity: 1, idempotencyKey: 'dup-test-1' })
+  const jIdemRestart = await rIdemRestart.json()
+  const txAfterRestart = wdb.prepare("SELECT COUNT(*) AS n FROM transactions WHERE product_id = ? AND type='out'").get(spId).n
+  ok('幂等扛住服务重启：同 key 仍判重', rIdemRestart.status === 200 && jIdemRestart.idempotent === true,
+    JSON.stringify(jIdemRestart).slice(0, 100))
+  ok('幂等扛住服务重启：不重复记流水', txAfterRestart === txBeforeRestart, txBeforeRestart + ' vs ' + txAfterRestart)
+  await srvAfterRestart.stop()
+
   // 赊账开单：部分付款 → 欠款入账（应付=sp[7]，付 2/3，欠 1/3，期望由种子推导）
   const wPaid = Math.floor((sp[7] * 2) / 3)
   const r2 = await post({ productId: spId, quantity: 1, sellingPrice: sp[7], customerId: wcust.id, paidAmount: wPaid })
