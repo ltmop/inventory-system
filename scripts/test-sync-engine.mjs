@@ -126,6 +126,40 @@ try {
   const statusB = sB.status()
   ok('B 无待推积压（应用远端不产生自产日志）', statusB.backlog === 0, JSON.stringify(statusB))
 
+
+  console.log('\n[6] 2.3 冲突逐条处理（保留我的 / 用云端的）')
+  const p3 = '__e2e_conflict__' + Date.now()
+  dbA.prepare('INSERT INTO products (sku_code, category, cost_price) VALUES (?,?,?)').run(p3, '其他', 1000)
+  const pr3 = dbA.prepare('SELECT id, guid FROM products WHERE sku_code = ?').get(p3)
+  await sA.push(); await sB.pull()
+  ok('两边都有了这条记录', !!dbB.prepare('SELECT id FROM products WHERE guid = ?').get(pr3.guid), '')
+  // A、B 各改一次，A 先推
+  dbA.prepare('UPDATE products SET cost_price = 1001 WHERE guid = ?').run(pr3.guid)
+  await sleep(20)
+  dbB.prepare('UPDATE products SET cost_price = 2002 WHERE guid = ?').run(pr3.guid)
+  await sA.push()
+  dbB.prepare('UPDATE sync_changelog SET at = ? WHERE guid = ?').run('2000-01-01T00:00:00.000Z', pr3.guid)
+  await sB.push()
+  ok('冲突被记录到待处理列表', sB.listConflicts().some((c) => c.id === pr3.guid), JSON.stringify(sB.listConflicts()))
+  // 选择：保留我的
+  let rf = sB.resolveConflict('product', pr3.guid, 'mine')
+  ok('选「保留我的」被接受', rf.ok === true, JSON.stringify(rf))
+  await sB.push()
+  await sA.pull()
+  ok('云端已变成本机版本（A 拉到 2002）', dbA.prepare('SELECT cost_price FROM products WHERE guid = ?').get(pr3.guid).cost_price === 2002, JSON.stringify(dbA.prepare('SELECT cost_price FROM products WHERE guid = ?').get(pr3.guid)))
+  ok('该冲突已从待处理列表移除', !sB.listConflicts().some((c) => c.id === pr3.guid), JSON.stringify(sB.listConflicts()))
+  // 再制造一次冲突，这次选「用云端的」
+  dbA.prepare('UPDATE products SET cost_price = 3003 WHERE guid = ?').run(pr3.guid)
+  await sA.push()
+  dbB.prepare('UPDATE products SET cost_price = 4004 WHERE guid = ?').run(pr3.guid)
+  dbB.prepare('UPDATE sync_changelog SET at = ? WHERE guid = ?').run('2000-01-01T00:00:00.000Z', pr3.guid)
+  await sB.push()
+  ok('再次产生冲突', sB.listConflicts().some((c) => c.id === pr3.guid), JSON.stringify(sB.listConflicts()))
+  rf = sB.resolveConflict('product', pr3.guid, 'theirs')
+  ok('选「用云端的」被接受', rf.ok === true, JSON.stringify(rf))
+  ok('本机已采用云端版本（3003）', dbB.prepare('SELECT cost_price FROM products WHERE guid = ?').get(pr3.guid).cost_price === 3003, JSON.stringify(dbB.prepare('SELECT cost_price FROM products WHERE guid = ?').get(pr3.guid)))
+  ok('非法 choice 被拒', sB.resolveConflict('product', pr3.guid, 'whatever').ok === false, '')
+
   dbA.close(); dbB.close()
 } catch (e) {
   fail++; failures.push('异常: ' + e.message)

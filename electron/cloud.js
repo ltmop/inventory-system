@@ -78,6 +78,21 @@ export function businessSyncStatus() {
   const s = getBizSync()
   return s ? s.status() : null
 }
+/** 未处理的多端同步冲突（给界面逐条呈现） */
+export function listSyncConflicts() {
+  const s = getBizSync()
+  return s ? s.listConflicts() : []
+}
+
+/** 逐条解决冲突：choice = 'mine'（保留本机） | 'theirs'（采用云端） */
+export async function resolveSyncConflict(kind, id, choice) {
+  const s = getBizSync()
+  if (!s) return { ok: false, error: '未登录云账号' }
+  const r = s.resolveConflict(kind, id, choice)
+  if (r.ok) { try { await syncBusinessData() } catch { /* 忽略 */ } }
+  return r
+}
+
 
 // ---------- B3 调度器状态 ----------
 let schedulerTimer = null
@@ -316,11 +331,13 @@ export async function syncSnapshot(storeName) {
 }
 
 /** 冲突时用户选择"保留本机"：把本机 lastServerAt 设为当前时间，下次同步即无冲突覆盖云端（last-write-wins，用户明确选择） */
+// 【已退役  2026-09-12】原实现：把本机整库快照强行盖到云端，会直接抹掉另一台电脑的数据。
+// 现在多端同步按记录增量 + 冲突逐条呈现，不再需要这把"大锤"，保留同名函数只为兼容旧 IPC 调用点。
 export async function resolveConflict() {
-  cloudState.lastServerAt = new Date().toISOString()
-  saveLocalConfig()
-  await syncSnapshot()
-  return cloudState.error ? { ok: false, error: cloudState.error } : { ok: true }
+  return {
+    ok: false,
+    error: '整库强行覆盖已下线（它会抹掉另一台电脑的数据）。请在冲突列表里逐条选择「保留我的」或「用云端的」。',
+  }
 }
 
 // ---------- 整库备份上传 ----------
@@ -603,5 +620,7 @@ export function logoutAccount() {
 // ---------- 状态查询 ----------
 
 export function getCloudState() {
-  return { ...cloudState, viewUrl: cloudState.viewUrl }
+  let syncConflicts = []
+  try { syncConflicts = listSyncConflicts() } catch { /* 未登录/无引擎时为空 */ }
+  return { ...cloudState, viewUrl: cloudState.viewUrl, syncConflicts }
 }

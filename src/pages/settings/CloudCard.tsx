@@ -105,10 +105,12 @@ export function CloudCard() {
   }
 
   // 同步冲突（另一台电脑有新数据）时用户选择"保留本机"：强制把本机统计快照覆盖上去
-  const handleResolveConflict = async () => {
+  // 阶段2.3：多端同步冲突逐条处理（旧的整库强行覆盖已退役）
+  const handleResolveOne = async (kind: string, id: string, choice: 'mine' | 'theirs') => {
     if (!backend) return
     try {
-      await backend.invoke('cloud:resolveConflict')
+      const r = await backend.invoke('cloud:resolveSyncConflict', { kind, id, choice })
+      if (r && r.ok === false) setCloud({ error: r.error || '处理失败' })
       const s = await backend.invoke('cloud:status')
       if (s) setCloud(s)
     } catch (e) {
@@ -436,11 +438,34 @@ export function CloudCard() {
             <div className="flex flex-wrap items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
               <XCircle className="size-3 shrink-0" />
               <span className="min-w-0 flex-1">{cloud.error}</span>
-              {cloud.error.includes('同步冲突') && (
-                <button onClick={handleResolveConflict} className="shrink-0 rounded-md bg-red-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-red-500 cursor-pointer">
-                  仍要覆盖本机数据
-                </button>
-              )}
+            </div>
+          )}
+
+          {/* 多端同步冲突：必须用户逐条决定，绝不自动覆盖（旧版整库强行覆盖已下线） */}
+          {(cloud.syncConflicts?.length ?? 0) > 0 && (
+            <div className="space-y-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <div className="flex items-center gap-1 font-medium">
+                <AlertTriangle className="size-3 shrink-0" />
+                <span>有 {cloud.syncConflicts!.length} 条数据在两台电脑上都改过，请选择保留哪一份：</span>
+              </div>
+              <div className="max-h-56 space-y-1 overflow-auto">
+                {cloud.syncConflicts!.map((c) => (
+                  <div key={c.kind + '|' + c.id} className="flex flex-wrap items-center gap-2 rounded bg-white/70 px-2 py-1">
+                    <span className="min-w-0 flex-1 truncate">{c.kind}</span>
+                    <button
+                      onClick={() => handleResolveOne(c.kind, c.id, 'mine')}
+                      className="shrink-0 rounded-md bg-brand-600 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-brand-700 cursor-pointer"
+                    >保留我的</button>
+                    <button
+                      onClick={() => handleResolveOne(c.kind, c.id, 'theirs')}
+                      className="shrink-0 rounded-md bg-slate-600 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-slate-700 cursor-pointer"
+                    >用云端的</button>
+                  </div>
+                ))}
+              </div>
+              <div className="text-[11px] text-amber-700">
+                保留我的 = 用本机这份覆盖云端；用云端的 = 放弃本机这处改动。两者都只影响这一条记录。
+              </div>
             </div>
           )}
         </CardContent>

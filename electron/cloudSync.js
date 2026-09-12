@@ -54,6 +54,8 @@ export function createCloudSync({ db, encrypt, decrypt, getAuth, cloudUrl, fetch
       '  PRIMARY KEY (child_tbl, child_guid, fk_col)\n' +
       ')'
     )
+    // 冲突表：被判冲突的记录落在这里，等用户在界面上逐条选择（保留我的 / 用云端的）
+    db.exec('CREATE TABLE IF NOT EXISTS sync_conflict (kind TEXT NOT NULL, id TEXT NOT NULL, serverUpdatedAt TEXT, localUpdatedAt TEXT, server_iv TEXT, server_data TEXT, createdAt TEXT, PRIMARY KEY (kind, id))')
     // 延后队列：父记录还没到就先存着，下次同步重试（避免 NOT NULL 外键插不进去导致整批失败）
     db.exec(
       'CREATE TABLE IF NOT EXISTS sync_pending_record (\n' +
@@ -258,6 +260,7 @@ export function createCloudSync({ db, encrypt, decrypt, getAuth, cloudUrl, fetch
 
   /** 推：把 changelog 里未推的折叠后推上去 */
   async function push() {
+    ensureAux() // push 也要写 sync_conflict，先确保辅助表存在
     const from = readNum(PUSH_SEQ_KEY, 0)
     const rows = db.prepare('SELECT seq, tbl, guid, op, at FROM sync_changelog WHERE seq > ? ORDER BY seq LIMIT 500').all(from)
     if (!rows.length) return { pushed: 0, conflicts: [], changes: [] }
@@ -278,6 +281,16 @@ export function createCloudSync({ db, encrypt, decrypt, getAuth, cloudUrl, fetch
     const resp = await post('/api/tenant/sync', { cursor: readNum(PULL_CURSOR_KEY, 0), changes })
     // 服务端会把刚推上去的也回传（seq 更大），那是回声，别当新数据应用
     const conflictKeys = new Set((resp.conflicts || []).map((c) => c.kind + '|' + c.id))
+    // 服务端已接受的新版本  这条记录的旧冲突自动失效（避免记录已删/已更新后界面还留着幽灵冲突）
+    for (const kk of resp.applied || []) {
+      const i = String(kk).indexOf('|')
+      if (i > 0) db.prepare('DELETE FROM sync_conflict WHERE kind = ? AND id = ?').run(String(kk).slice(0, i), String(kk).slice(i + 1))
+    }
+    // 冲突落库，等用户逐条决定；绝不自动覆盖任何一方
+    for (const c of resp.conflicts || []) {
+      db.prepare('INSERT OR REPLACE INTO sync_conflict (kind, id, serverUpdatedAt, localUpdatedAt, server_iv, server_data, createdAt) VALUES (?,?,?,?,?,?,?)')
+        .run(String(c.kind), String(c.id), c.serverUpdatedAt || '', c.clientUpdatedAt || '', (c.server && c.server.iv) || '', (c.server && c.server.data) || '', new Date().toISOString())
+    }
     const incoming = (resp.changes || []).filter((c) =>
       // 自己刚推上去的回声，别当新数据再应用一遍
       !(mine.has(c.kind + '|' + c.id) && !conflictKeys.has(c.kind + '|' + c.id)) &&
@@ -334,6 +347,41 @@ export function createCloudSync({ db, encrypt, decrypt, getAuth, cloudUrl, fetch
     return { seeded: n }
   }
 
+  /** 未处理的冲突列表（给界面呈现） */
+  function listConflicts() {
+    ensureAux()
+    return db.prepare('SELECT kind, id, serverUpdatedAt, localUpdatedAt, createdAt FROM sync_conflict ORDER BY createdAt').all()
+  }
+
+  /**
+   * 逐条解决冲突。choice：
+   *   'mine'    保留本机版本：把本机这行重新登记为最新变更（时间戳=现在），下次 push 取胜
+   *   'theirs'  采用云端版本：解密服务端那份并覆盖本机
+   * 必须用户显式选择；引擎不做任何自动选择（旧版整库强行覆盖已下线）
+   */
+  function resolveConflict(kind, id, choice) {
+    ensureAux()
+    const tbl = KIND_TBL[String(kind)]
+    if (!tbl) return { ok: false, error: '未知记录类型: ' + kind }
+    const c = db.prepare('SELECT * FROM sync_conflict WHERE kind = ? AND id = ?').get(String(kind), String(id))
+    if (!c) return { ok: false, error: '冲突不存在或已处理' }
+    if (choice === 'theirs') {
+      try {
+        applyChanges([{ kind: String(kind), id: String(id), updatedAt: c.serverUpdatedAt, iv: c.server_iv, data: c.server_data }])
+        db.prepare('DELETE FROM sync_conflict WHERE kind = ? AND id = ?').run(String(kind), String(id))
+        return { ok: true, choice: 'theirs' }
+      } catch (e) {
+        return { ok: false, error: String((e && e.message) || e) }
+      }
+    }
+    if (choice === 'mine') {
+      const now = new Date().toISOString()
+      db.prepare("INSERT INTO sync_changelog (tbl, guid, op, at) VALUES (?, ?, 'U', ?)").run(tbl, String(id), now)
+      db.prepare('DELETE FROM sync_conflict WHERE kind = ? AND id = ?').run(String(kind), String(id))
+      return { ok: true, choice: 'mine' }
+    }
+    return { ok: false, error: "choice 必须是 mine 或 theirs" }
+  }
   /** 排空式同步：单批 500，首次播种 1377 行要 3 批，不能只跑一轮 */
   async function syncOnce() {
     let rounds = 0, pushed = 0, conflicts = []
@@ -353,8 +401,9 @@ export function createCloudSync({ db, encrypt, decrypt, getAuth, cloudUrl, fetch
     const pending = (() => { try { return db.prepare('SELECT COUNT(*) n FROM sync_pending_ref').get().n } catch { return 0 } })()
     const backlog = (() => { try { return db.prepare('SELECT COUNT(*) n FROM sync_changelog WHERE seq > ?').get(readNum(PUSH_SEQ_KEY, 0)).n } catch { return 0 } })()
     const deferred = (() => { try { return db.prepare('SELECT COUNT(*) n FROM sync_pending_record').get().n } catch { return 0 } })()
-    return { pushSeq: readNum(PUSH_SEQ_KEY, 0), pullCursor: readNum(PULL_CURSOR_KEY, 0), backlog, pendingRefs: pending, deferredRecords: deferred }
+    const conflicts = (() => { try { return db.prepare('SELECT COUNT(*) n FROM sync_conflict').get().n } catch { return 0 } })()
+    return { pushSeq: readNum(PUSH_SEQ_KEY, 0), pullCursor: readNum(PULL_CURSOR_KEY, 0), backlog, pendingRefs: pending, deferredRecords: deferred, conflicts }
   }
 
-  return { push, pull, syncOnce, seedIfEmpty, status, applyChanges, buildRecord, TBL_KIND, KIND_TBL }
+  return { push, pull, syncOnce, seedIfEmpty, status, listConflicts, resolveConflict, applyChanges, buildRecord, TBL_KIND, KIND_TBL }
 }

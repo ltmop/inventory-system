@@ -24,7 +24,7 @@ import { createInventoryServer } from './server.js'
 import { createPhotoStore } from './photo.js'
 import { initAutoUpdater, checkForUpdates, downloadAndInstall } from './updater.js'
 import { loadLicense, activateLicense, verifyLicenseCode, machineFingerprint, saveLevelToDb, quotaStatus, planFor } from './license.js'
-import { initCloud, pairWithCloud, syncSnapshot, uploadBackup, listCloudBackups, restoreFromCloud, regenViewLink, getCloudState, stopScheduler as stopCloudScheduler, exitSnapshot as exitCloudSnapshot, registerAccount as cloudRegisterAccount, loginAccount as cloudLoginAccount, logoutAccount as cloudLogoutAccount, resolveConflict, dismissRestoreHold } from './cloud.js'
+import { initCloud, pairWithCloud, syncSnapshot, uploadBackup, listCloudBackups, restoreFromCloud, regenViewLink, getCloudState, stopScheduler as stopCloudScheduler, exitSnapshot as exitCloudSnapshot, registerAccount as cloudRegisterAccount, loginAccount as cloudLoginAccount, logoutAccount as cloudLogoutAccount, resolveConflict, dismissRestoreHold, listSyncConflicts, resolveSyncConflict, syncBusinessData } from './cloud.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -527,6 +527,10 @@ function registerIpc() {
   ipcMain.handle('cloud:pair', (_e, p) => pairWithCloud(p?.pairCode ?? ''))
   ipcMain.handle('cloud:syncNow', () => syncSnapshot())
   ipcMain.handle('cloud:resolveConflict', () => resolveConflict())
+// 阶段2.3：多端同步冲突列出并逐条解决（旧的整库强行覆盖已退役）
+ipcMain.handle('cloud:syncConflicts', () => listSyncConflicts())
+ipcMain.handle('cloud:resolveSyncConflict', (_e, p) => resolveSyncConflict(p?.kind ?? '', p?.id ?? '', p?.choice ?? ''))
+ipcMain.handle('cloud:syncBusinessNow', () => syncBusinessData())
   ipcMain.handle('cloud:backupNow', () => uploadBackup())
   ipcMain.handle('cloud:listBackups', () => listCloudBackups())
   ipcMain.handle('cloud:restore', async (_e, p) => {

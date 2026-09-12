@@ -221,8 +221,8 @@ interface AppState {
   setLicense: (s: { activated: boolean; level: 'free' | 'pro' | 'max'; expiresAt: string | null; machineId: string; daysLeft: number | null }) => void
 
   /** 云备份状态（cloud:status IPC） */
-  cloud: { paired: boolean; username: string | null; lastSyncAt: string | null; lastBackupAt: string | null; syncing: boolean; error: string | null; viewUrl: string | null; needsRestore?: boolean; pendingBackup?: { date: string; size: number } | null }
-  setCloud: (s: Partial<{ paired: boolean; username: string | null; lastSyncAt: string | null; lastBackupAt: string | null; syncing: boolean; error: string | null; viewUrl: string | null; needsRestore?: boolean; pendingBackup?: { date: string; size: number } | null }>) => void
+  cloud: { paired: boolean; username: string | null; lastSyncAt: string | null; lastBackupAt: string | null; syncing: boolean; error: string | null; viewUrl: string | null; needsRestore?: boolean; pendingBackup?: { date: string; size: number } | null; syncConflicts?: { kind: string; id: string; serverUpdatedAt: string; localUpdatedAt: string; createdAt: string }[] }
+  setCloud: (s: Partial<{ paired: boolean; username: string | null; lastSyncAt: string | null; lastBackupAt: string | null; syncing: boolean; error: string | null; viewUrl: string | null; needsRestore?: boolean; pendingBackup?: { date: string; size: number } | null; syncConflicts: { kind: string; id: string; serverUpdatedAt: string; localUpdatedAt: string; createdAt: string }[] }>) => void
 
   /** Electron 环境启动时调用一次：从 SQLite 拉全量数据进 store */
   loadAll: () => Promise<void>
@@ -567,7 +567,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   license: { activated: false, level: 'free', expiresAt: null, machineId: '', daysLeft: null },
   setLicense: (s) => set({ license: s }),
 
-  cloud: { paired: false, username: null, lastSyncAt: null, lastBackupAt: null, syncing: false, error: null, viewUrl: null },
+  cloud: { paired: false, username: null, lastSyncAt: null, lastBackupAt: null, syncing: false, error: null, viewUrl: null, syncConflicts: [] },
   setCloud: (s) => set((st) => ({ cloud: { ...st.cloud, ...s } })),
 
   loadAll: async () => {
