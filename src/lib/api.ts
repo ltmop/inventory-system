@@ -129,6 +129,35 @@ export function setCentralConfig(url: string, token: string) {
 }
 const central = getCentralConfig()
 
+/**
+ * 「纯本机通道」：问的是**这台电脑自己**的状态 —— 中心库/主机上没有、也不该有这些通道。
+ *
+ * 为什么必须单独挑出来（2026-09-14 真机取证）：
+ *   老板的收银机跑在**中心库模式**（localStorage `fi-central-url=https://app.junchengzn.com`，
+ *   运行中的进程有两条到 43.128.20.39:443 的 ESTABLISHED 连接），此时下面 `rawBackend`
+ *   会把**所有**通道都发给中心库。于是：
+ *     · `cloud:status` → 中心库没实现这个通道 → 返回 "unknown channel"
+ *       → Layout 的 `.catch(() => {})` 吞掉 → `cloud.paired` 恒为 false
+ *       → **右上角永远显示「未登录」**，哪怕本机云账号是登着的 → owner 反馈的症状②
+ *     · `update:downloadAndInstall` → 同样未知通道 → UpdateBanner 的 catch 吞掉
+ *       → **点「下载更新」毫无反应** → owner 反馈的症状①
+ *   两者都不是"服务器坏了"，而是**把"问本机"的问题发给了别人**。
+ *   已 `grep` 证实 `electron/server.js` 的 INVOKE_CHANNELS 里确实没有 `cloud:` / `update:` 系列。
+ *
+ * 所以：桌面端（有 `window.fi`）遇到这些前缀一律走本机 IPC；
+ * 手机浏览器等没有 `window.fi` 的客户端行为完全不变（本来也没有"本机"这个概念）。
+ */
+export const LOCAL_ONLY_PREFIXES = ['cloud:', 'update:'] as const
+
+export function isLocalOnlyChannel(channel: string): boolean {
+  return LOCAL_ONLY_PREFIXES.some((p) => channel.indexOf(p) === 0)
+}
+
+/** 本机 IPC 桥（只有 Electron 里有）；手机浏览器 / 纯网页为 null */
+function localBridge(): FiBridge | null {
+  return typeof window !== 'undefined' && window.fi ? window.fi : null
+}
+
 /** 原始桥（未包装）：优先中心库模式，其次本地 IPC（Electron），再局域网 http */
 const rawBackend: FiBridge | null =
   typeof window !== 'undefined' && central.url && central.token
@@ -150,7 +179,26 @@ const offlineApi = createOffline({ inner: rawBackend })
 /** 离线层控制面：队列长度/失败数/订阅/手动重传。UI 横幅与「待上传」面板从这里接线。 */
 export const offline = offlineApi
 
-export const backend: FiBridge | null = offlineApi.bridge as FiBridge | null
+const offlineBridge = offlineApi.bridge as FiBridge | null
+
+/**
+ * 对外**唯一**后端出口。
+ *
+ * 纯本机通道（`cloud:` / `update:`）→ 直连本机 IPC，**且不经离线层**：
+ *   离线层会给"读"加 7 天缓存、给"写"排队 —— 而
+ *     · 「本机登录态」被缓存，会把一次 `paired:false` 钉死 7 天（即使后端已恢复也读到旧值）；
+ *     · 「下载更新」被排队，会让用户以为点成功了，其实一个字节都没下。
+ *   所以这两类必须绕开离线层。已同时把它们加进 offlineTransport 的 NO_CACHE_PREFIX 作为双保险。
+ */
+export const backend: FiBridge | null = offlineBridge
+  ? ({
+      invoke(channel: string, payload?: unknown) {
+        const local = localBridge()
+        if (local && isLocalOnlyChannel(channel)) return local.invoke(channel, payload)
+        return offlineBridge.invoke(channel, payload)
+      },
+    } as FiBridge)
+  : null
 
 export const backendKind: BackendKind =
   typeof window !== 'undefined' && window.fi && !central.url ? 'ipc' : backend ? 'http' : null

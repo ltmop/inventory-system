@@ -9,6 +9,9 @@ export function UpdateBanner() {
   const [downloading, setDownloading] = useState(false)
   const [percent, setPercent] = useState(0)
   const [done, setDone] = useState(false)
+  // 2026-09-14：下载/安装失败要把原因显示出来。以前一律静默吞掉，
+  // 于是"通道不通"这类故障在界面上表现为「点了没反应」——最难查的一种。
+  const [error, setError] = useState('')
 
   useEffect(() => {
     if (!backend) return
@@ -18,6 +21,7 @@ export function UpdateBanner() {
     const unsubs = [
       api.onUpdateAvailable((info: { version: string }) => {
         setVersion(info.version)
+        setError('')
         setVisible(true)
       }),
       // 下载进度（update:progress），显示百分比
@@ -37,9 +41,12 @@ export function UpdateBanner() {
       // 下载完成：主进程 update-downloaded 会弹「重启安装」对话框，
       // banner 同步改为「已就绪」
       setDone(true)
-    } catch {
-      // 下载失败，静默——用户下次启动还能再试
+    } catch (e) {
+      // 2026-09-14：不再静默。以前这里无声吞掉，于是中心库模式下
+      // update:downloadAndInstall 走 HTTP 得到 unknown channel 时，
+      // 用户看到的是「点了没反应」——最难查的一类故障。现在把原因显示出来，并允许重试。
       setDownloading(false)
+      setError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -50,7 +57,9 @@ export function UpdateBanner() {
       <div className="flex items-center gap-3 rounded-lg bg-brand-700 px-5 py-3 text-white shadow-lg">
         <Download className="size-4" />
         <span className="text-sm">
-          {done ? (
+          {error ? (
+            <>更新失败：{error}</>
+          ) : done ? (
             <>v{version} 已就绪，重启后安装</>
           ) : downloading ? (
             <>正在下载 v{version}… {percent > 0 ? percent + '%' : ''}</>

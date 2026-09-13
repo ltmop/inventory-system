@@ -49,8 +49,11 @@ export const NO_QUEUE_PREFIX = ['account:', 'auth:', 'cloud:', 'license:', 'pair
 
 // 不缓存读通道：AI 与收款码必须实时，缓存会给出错误结论/过期二维码。
 // 与 electron/mobile/app.js:122 的 NO_CACHE 同集合，另加桌面端 AI 前缀。
+// 2026-09-14 加入 cloud:/update: —— 这两个是**本机实时状态**（本机云账号登录态、应用更新），
+// 不是可缓存的内容。实测症状：中心库模式下 cloud:status 拿到过 paired:false，
+// 离线层把它按 7 天 TTL 缓存 → 后端恢复后读到的仍是那一次旧值，右上角一直「未登录」。
 export const NO_CACHE = { 'ai:chat': 1, 'ai:dailySummary': 1, 'ai:photoDraft': 1, 'payment:getQr': 1 }
-export const NO_CACHE_PREFIX = ['ai:']
+export const NO_CACHE_PREFIX = ['ai:', 'cloud:', 'update:']
 
 // 建档类通道：离线时返回 tmp_xxx，后续单据引用它，重放成功后改写为服务端真 id。
 // 必须有这一条，否则「新建商品 → 立即入库/开单」在断网时会以 productId: undefined 入队 → 孤儿单据。
