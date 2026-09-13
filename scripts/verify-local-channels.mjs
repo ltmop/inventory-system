@@ -94,6 +94,25 @@ ok('preload 放行 update:downloadAndInstall', preload.includes("'update:downloa
 ok('main.js 注册 cloud:status', mainJs.includes("'cloud:status'"))
 ok('main.js 注册 update:downloadAndInstall', mainJs.includes("'update:downloadAndInstall'"))
 
+console.log('\n=== ⑦ 云账号凭证落盘不许静默失败（同一症状的第二个成因）===')
+// 机制：saveLocalConfig() 在凭证不全时静默 return，而 paired 只在写盘成功后置位
+//   → 渲染层按 r.ok 显示「已登录（云账号）」，本机其实什么都没存
+//   → 下一次 cloud:status 立刻变回未配对 = 用户说的「刚登录就变成未登录」。
+// 所以：落盘必须有返回值语义，且两条建立凭证的路径都要检查它、不许谎报成功。
+const cloudJs = fs.readFileSync(path.join(REPO, 'electron', 'cloud.js'), 'utf8')
+const cloudCode = strip(cloudJs)
+const fnStart = cloudCode.indexOf('function saveLocalConfig')
+const saveFn = fnStart >= 0 ? cloudCode.slice(fnStart, fnStart + 2200) : ''
+ok('saveLocalConfig 有成功返回值 return true', /return true/.test(saveFn))
+ok('saveLocalConfig 有失败返回值 return false', /return false/.test(saveFn))
+ok('凭证不全时不再静默裸 return（旧写法 viewToken) return 必须消失）',
+  !/\|\|\s*!cloudState\.viewToken\)\s*return\b/.test(cloudCode))
+ok('凭证不全时写明了原因', /cloudState\.error\s*=\s*'登录凭证不完整/.test(cloudCode))
+const guardCount = (cloudCode.match(/if\s*\(\s*!saveLocalConfig\(\)\s*\)/g) || []).length
+ok('建立凭证的两条路径（注册/登录）都检查了落盘结果', guardCount >= 2, '实际 ' + guardCount + ' 处')
+ok('检查后返回 ok:false，不谎报成功',
+  /if\s*\(\s*!saveLocalConfig\(\)\s*\)\s*return\s*\{\s*ok:\s*false/.test(cloudCode))
+
 console.log('\n================ 结果 ================')
 console.log('PASS ' + pass + '   FAIL ' + fail)
 process.exit(fail === 0 ? 0 : 1)

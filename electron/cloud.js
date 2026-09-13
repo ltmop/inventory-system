@@ -149,10 +149,23 @@ function loadLocalConfig() {
   } catch { return }
 }
 
+/**
+ * 把云账号凭证落盘（cloud.json）。
+ *
+ * ⚠️ 返回值**必须被调用方检查**。以前凭证不全就静默 `return`，而 `paired` 只在写盘成功后置位，
+ * 于是产生分裂态：渲染层按 `r.ok` 显示「已登录（云账号）」，本机其实什么都没存
+ * → 下一次 `cloud:status` 立刻回到未配对 → 用户看到「刚登录就变成未登录」
+ * （2026-09-14 owner 反馈，与「中心库模式下本机通道被发到服务器」是同一症状的两个成因）。
+ * 现在返回 true/false 并把原因写进 cloudState.error。
+ */
 function saveLocalConfig() {
+  // 任务4：凭证不全绝不落盘（配对/登录/注册成功路径天然齐全；半途中断不会留下 {username} 残件）
+  // 但**不再静默**：说清为什么没存，让调用方能把失败如实报给界面。
+  if (!cloudState.userId || !cloudState.keyK || !cloudState.uploadToken || !cloudState.viewToken) {
+    cloudState.error = '登录凭证不完整（服务器未返回全部凭证），本次登录没有保存'
+    return false
+  }
   try {
-    // 任务4：凭证不全绝不落盘（配对/登录/注册成功路径天然齐全；半途中断不会留下 {username} 残件）
-    if (!cloudState.userId || !cloudState.keyK || !cloudState.uploadToken || !cloudState.viewToken) return
     const file = path.join(dataDir, CLOUD_CONFIG)
     const tmpFile = file + '.tmp'
     fs.writeFileSync(
@@ -174,8 +187,10 @@ function saveLocalConfig() {
     fs.renameSync(tmpFile, file)
     cloudState.paired = true
     cloudState.viewUrl = buildViewUrl(cloudState.viewToken, cloudState.keyK)
+    return true
   } catch (e) {
     cloudState.error = `保存凭证失败: ${e.message}`
+    return false
   }
 }
 
@@ -545,7 +560,9 @@ export async function registerAccount(username, password, note = '', deviceName 
     cloudState.keyK = keyK
     cloudState.pairedAt = new Date().toISOString()
     cloudState.error = null
-    saveLocalConfig()
+    // 凭证没落盘就不算注册成功：否则界面会显示「已登录（云账号）」而本机什么都没存，
+    // 下一次 cloud:status 立刻变回未配对 —— 用户看到「刚登录就变成未登录」。
+    if (!saveLocalConfig()) return { ok: false, error: cloudState.error || '注册凭证保存失败，请重试' }
     // 注册并登录成功立即上传快照
     syncSnapshot().catch(() => {})
     syncBusinessData().catch(() => {})
@@ -575,7 +592,8 @@ export async function loginAccount(username, password, deviceName = '') {
     cloudState.keyK = keyK
     cloudState.pairedAt = new Date().toISOString()
     cloudState.error = null
-    saveLocalConfig()
+    // 同上：落盘失败必须如实报错，不能让界面显示一个本机并不存在的登录态
+    if (!saveLocalConfig()) return { ok: false, error: cloudState.error || '登录凭证保存失败，请重试' }
     // 新电脑登录老账号：本机全新 + 云端有备份 → 挂起上传并提示恢复（防止空库顶掉云端数据）
     const pending = await detectFirstRunRestore()
     if (pending) {
