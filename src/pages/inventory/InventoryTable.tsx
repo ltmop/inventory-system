@@ -173,6 +173,9 @@ export function InventoryTable({
                   <TableHead>SKU</TableHead>
                   <TableHead>大分类</TableHead>
                   <TableHead>品类</TableHead>
+                  {/* 子类：老板填了 152 个商品，以前**这张表里一个都看不见**
+                      （同一字段在入库/出库搜索里反而有）。补列属于"身份别分裂"。 */}
+                  <TableHead>子类</TableHead>
                   <TableHead>品牌</TableHead>
                   <TableHead>型号规格</TableHead>
                   <TableHead>状态</TableHead>
@@ -248,6 +251,9 @@ export function InventoryTable({
                         <TableCell className="py-1.5 font-mono text-xs">{p.sku_code}</TableCell>
                         <TableCell className="py-1.5 text-slate-500">{groupOf.get(p.category) || '—'}</TableCell>
                         <TableCell className="py-1.5">{p.category}</TableCell>
+                        <TableCell className="py-1.5 text-slate-500" title={p.sub_category ?? ''}>
+                          {p.sub_category ?? '—'}
+                        </TableCell>
                         <TableCell className="py-1.5">{p.brand ?? '—'}</TableCell>
                         <TableCell className="py-1.5">
                           {p.model ?? '—'}
@@ -322,7 +328,11 @@ export function InventoryTable({
                         <TableRow key={`${p.id}-batches`} className="bg-slate-50 hover:bg-slate-50">
                           <TableCell />
                           <TableCell />
-                          <TableCell colSpan={9} className="py-3">
+                          {/* 展开行横跨除前两列（勾选/展开箭头）外的所有列。
+                              加「子类」列后主表共 13 列 → 这里必须是 11。
+                              顺带修掉既有差一：加子类前主表 12 列而这里是 9（2+9=11≠12），
+                              展开行比表头少一格，浏览器会补一个空单元格。 */}
+                          <TableCell colSpan={11} className="py-3">
                             {formatSpecs(p) && (
                               <div className="mb-2 text-xs text-slate-500">
                                 规格：<span className="font-medium text-slate-700">{formatSpecs(p)}</span>

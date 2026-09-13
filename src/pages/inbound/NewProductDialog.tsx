@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { pickCompressedPhoto } from '@/lib/photo'
+import { subCategoryOptions } from '@/lib/subCategories'
 import { useAppStore } from '@/store/appStore'
 import {
   SPEC_LABELS, SPEC_PLACEHOLDERS, specFieldsFor, type SpecField,
@@ -77,6 +78,13 @@ export function NewProductDialog({
   // 选图压缩中的本地忙态（不落盘，纯表单预览，建档后由页面统一保存）
   const units = useAppStore((s) => s.units)
   const categories = useAppStore((s) => s.categories)
+  // 子类候选：只给「当前品类下已经用过的子类」做建议 —— 老板打第二个伊势尼时不必重打。
+  // 用 datalist 而不是 Select：**仍然允许自由输入**，那 150 个真实子类值一个字都不会丢。
+  const products = useAppStore((s) => s.products)
+  const subCatChoices = useMemo(
+    () => subCategoryOptions(products, form.category),
+    [products, form.category],
+  )
   const unitOptions = units.length > 0 ? units : [{ name: '件', allow_decimal: 0 }]
   const [photoBusy, setPhotoBusy] = useState(false)
   const pickPhoto = async () => {
@@ -129,7 +137,15 @@ export function NewProductDialog({
               value={form.subCategory}
               onChange={(e) => onFormChange({ subCategory: e.target.value })}
               placeholder="如：手竿、PE线、伊势尼..."
+              list="sub-category-choices-new"
             />
+            {/* 候选项来自库存里已用过的子类（按品类收敛）；没有候选项时 datalist 为空，
+                输入框行为与以前完全一样 —— 不会挡住任何自由输入 */}
+            <datalist id="sub-category-choices-new">
+              {subCatChoices.map((v) => (
+                <option key={v} value={v} />
+              ))}
+            </datalist>
           </div>
           <div className="space-y-1">
             <Label>品牌</Label>

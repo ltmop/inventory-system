@@ -35,6 +35,10 @@ interface InventoryFilterBarProps {
   location: string
   onLocationChange: (v: string) => void
   locations: string[]
+  /** 子类（商品身份的第三层）：候选值随选中的「品类」收敛，全部来自库存里已用过的子类 */
+  subCategory: string
+  onSubCategoryChange: (v: string) => void
+  subCategories: string[]
   stockMin: string
   onStockMinChange: (v: string) => void
   stockMax: string
@@ -65,6 +69,9 @@ export function InventoryFilterBar({
   location,
   onLocationChange,
   locations,
+  subCategory,
+  onSubCategoryChange,
+  subCategories,
   stockMin,
   onStockMinChange,
   stockMax,
@@ -80,7 +87,7 @@ export function InventoryFilterBar({
   // 所以「品类」下拉里除了「全部品类」什么都没有，等于**无法按分类筛选**。
   const categories = useAppStore((s) => s.categories)
   const activeAdvanced =
-    (brand !== allValue ? 1 : 0) + (location !== allValue ? 1 : 0) + (stockMin !== '' ? 1 : 0) + (stockMax !== '' ? 1 : 0)
+    (brand !== allValue ? 1 : 0) + (location !== allValue ? 1 : 0) + (subCategory !== allValue ? 1 : 0) + (stockMin !== '' ? 1 : 0) + (stockMax !== '' ? 1 : 0)
 
   return (
     <Card>
@@ -91,7 +98,7 @@ export function InventoryFilterBar({
             <Input
               value={keyword}
               onChange={(e) => onKeywordChange(e.target.value)}
-              placeholder="搜索SKU/品牌/型号/条码..."
+              placeholder="搜索SKU/品牌/型号/子类/条码..."
               className="pl-9"
             />
           </div>
@@ -191,6 +198,25 @@ export function InventoryFilterBar({
                 {locations.map((l) => (
                   <SelectItem key={l} value={l}>
                     {l}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {/* 子类（身份第三层）：候选 = 当前品类下**已经用过的**子类值。
+                刻意做成"建议"而不是受控字典：这些是老板真实输入的子类
+                （伊势尼/纺车轮/中通竿…），不新增一份真相来源。 */}
+            <Select value={subCategory} onValueChange={onSubCategoryChange}>
+              <SelectTrigger
+                className="w-44"
+                title="子类候选来自库存里已经用过的子类（按品类收敛）"
+              >
+                <SelectValue placeholder="子类" />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                <SelectItem value={allValue}>全部子类</SelectItem>
+                {subCategories.map((v) => (
+                  <SelectItem key={v} value={v}>
+                    {v}
                   </SelectItem>
                 ))}
               </SelectContent>

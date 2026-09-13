@@ -14,6 +14,8 @@
     "check:backfill": "node scripts/test-backfill-central.mjs",
     "check:login": "node scripts/verify-single-login.mjs",
     "check:category": "node scripts/verify-category-wiring.mjs",
+    "check:identity": "node scripts/verify-product-identity.mjs",
+    "check:identity:real": "node scripts/verify-subcategory-real.cjs",
     "check:update": "node scripts/verify-update-check.mjs",
     "release": "node scripts/release.mjs",
     "electron": "electron .",

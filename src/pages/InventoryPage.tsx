@@ -7,6 +7,7 @@ import { PriceLabelDialog } from '@/components/PriceLabel'
 import { SellQrLabelDialog } from '@/components/SellQrLabel'
 import { productName, csvCell } from '@/lib/formatters'
 import { computeExpiring } from '@/lib/expiry'
+import { subCategoryOptions } from '@/lib/subCategories'
 import {
   SPEC_FIELDS, collectSpecs, specsToForm, type SpecField,
 } from '@/lib/productSpecs'
@@ -53,6 +54,11 @@ export function InventoryPage() {
   const [expiringOnly, setExpiringOnly] = useState(false)
   const [brand, setBrand] = useState(ALL)
   const [location, setLocation] = useState(ALL)
+  // 子类筛选（2026-09-13）：子类以前**填了也在库存查询里看不见、搜不到，下一个商品还得重打**。
+  // 这里只做"派生候选 + 过滤"，**不改任何商品数据、也不加受控字典表** ——
+  // 150 个值经逐条核对是真实渔具子类（伊势尼/纺车轮/中通竿…），不是脏数据，
+  // 详见 src/lib/subCategories.ts 顶部说明。
+  const [subCategory, setSubCategory] = useState(ALL)
   const [stockMin, setStockMin] = useState('')
   const [stockMax, setStockMax] = useState('')
   const [searchParams] = useSearchParams()
@@ -336,6 +342,16 @@ export function InventoryPage() {
 
   const brands = useMemo(() => [...new Set(products.map((p) => p.brand).filter((b): b is string => !!b))].sort(), [products])
   const locations = useMemo(() => [...new Set(products.map((p) => p.location).filter((l): l is string => !!l))].sort(), [products])
+  // 子类候选：随选中的「品类」收敛（选了鱼钩就只建议鱼钩用过的子类）。
+  // 与品牌/货位同款派生方式 —— 不另存一份真相，也不加字典表。
+  const subCategoryChoices = useMemo(
+    () => subCategoryOptions(category !== ALL ? products.filter((p) => p.category === category) : products),
+    [products, category],
+  )
+  // 换品类后旧的子类可能已不在候选里：留着会筛出 0 条、下拉还显示空白 → 自动清掉
+  useEffect(() => {
+    if (subCategory !== ALL && !subCategoryChoices.includes(subCategory)) setSubCategory(ALL)
+  }, [subCategory, subCategoryChoices])
 
   // ---------- 两级分类（大分类 > 小分类）----------
   // 层级只存在 categories 表里（parent 列），这里全部派生，不另存一份真相。
@@ -359,6 +375,7 @@ export function InventoryPage() {
     setExpiringOnly(false)
     setBrand(ALL)
     setLocation(ALL)
+    setSubCategory(ALL)
     setStockMin('')
     setStockMax('')
   }
@@ -372,6 +389,7 @@ export function InventoryPage() {
       if (expiringOnly && !expiringMap.has(p.id)) return false
       if (brand !== ALL && p.brand !== (brand as string)) return false
       if (location !== ALL && p.location !== (location as string)) return false
+      if (subCategory !== ALL && (p.sub_category ?? '') !== subCategory) return false
       const stockNow = totalStockOf(p.id)
       if (stockMin !== '' && stockNow < Number(stockMin)) return false
       if (stockMax !== '' && stockNow > Number(stockMax)) return false
@@ -379,7 +397,7 @@ export function InventoryPage() {
         const kw = debouncedKeyword.toLowerCase()
         // 规格字段（长度/调性/线号等）也纳入搜索：搜"3.6"能找到 3.6m 的竿
         const haystack = [
-          p.sku_code, p.barcode, p.brand, p.model, p.category,
+          p.sku_code, p.barcode, p.brand, p.model, p.category, p.sub_category,
           ...SPEC_FIELDS.map((f) => p[f]),
         ]
           .filter(Boolean)
@@ -389,7 +407,7 @@ export function InventoryPage() {
       }
       return true
     })
-  }, [products, category, categoryGroup, groupOf, status, debouncedKeyword, lowOnly, expiringOnly, expiringMap, totalStockOf, brand, location, stockMin, stockMax])
+  }, [products, category, categoryGroup, groupOf, status, debouncedKeyword, lowOnly, expiringOnly, expiringMap, totalStockOf, brand, location, subCategory, stockMin, stockMax])
 
   // 表头排序（纯前端，不动数据层）：主表按总库存（批次子表排序在 InventoryTable 内部）
   const [stockSort, setStockSort] = useState<SortDir | null>(null)
@@ -406,12 +424,13 @@ export function InventoryPage() {
   // csvCell 已从 @/lib/formatters 导入（含逗号/引号/换行的字段包引号、引号双写）
 
   const exportCsv = () => {
-    const header = 'SKU,条码,品类,品牌,型号,状态,总库存,货位,最近进价(元),长度,调性,硬度,线号,钩号,颜色,材质,保质期'
+    const header = 'SKU,条码,品类,子类,品牌,型号,状态,总库存,货位,最近进价(元),长度,调性,硬度,线号,钩号,颜色,材质,保质期'
     const rows = filtered.map((p) =>
       [
         p.sku_code,
         p.barcode ?? '',
         p.category,
+        p.sub_category ?? '',
         p.brand ?? '',
         p.model ?? '',
         p.status,
@@ -507,6 +526,9 @@ export function InventoryPage() {
         location={location}
         onLocationChange={setLocation}
         locations={locations}
+        subCategory={subCategory}
+        onSubCategoryChange={setSubCategory}
+        subCategories={subCategoryChoices}
         stockMin={stockMin}
         onStockMinChange={setStockMin}
         stockMax={stockMax}

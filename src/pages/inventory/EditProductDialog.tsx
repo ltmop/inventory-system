@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -28,6 +28,7 @@ import {
   SPEC_LABELS, SPEC_PLACEHOLDERS, specFieldsFor, type SpecField,
 } from '@/lib/productSpecs'
 import { useAppStore } from '@/store/appStore'
+import { subCategoryOptions } from '@/lib/subCategories'
 import {
   PRICE_LEVELS, PRICE_LEVEL_LABELS,
   type Category, type PriceLevel, type Product, type ProductStatus, type Unit,
@@ -88,6 +89,13 @@ export function EditProductDialog({
   const [photoPreview, setPhotoPreview] = useState<string | null>(null) // 刚选完图的本地 dataUrl（含 mock 路径仅预览）
   const [photoBusy, setPhotoBusy] = useState(false)
   const [photoError, setPhotoError] = useState('')
+  // 子类候选：与新建商品同一份来源（lib/subCategories.ts），
+  // 只建议「当前品类下已用过的子类」，仍允许自由输入 —— 不把 150 个真值压成受控字典。
+  const products = useAppStore((s) => s.products)
+  const subCatChoices = useMemo(
+    () => subCategoryOptions(products, form.category),
+    [products, form.category],
+  )
 
   // 换商品/开关弹窗时重置图片区
   useEffect(() => {
@@ -184,7 +192,13 @@ export function EditProductDialog({
               value={form.sub_category}
               onChange={(e) => onFormChange((f) => ({ ...f, sub_category: e.target.value }))}
               placeholder="如：手竿 / 纺车轮"
+              list="sub-category-choices-edit"
             />
+            <datalist id="sub-category-choices-edit">
+              {subCatChoices.map((v) => (
+                <option key={v} value={v} />
+              ))}
+            </datalist>
           </div>
           <div className="space-y-2">
             <Label>品牌</Label>
