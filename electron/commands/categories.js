@@ -73,6 +73,22 @@ export function moveCategory(db, id, dir) {
   })
 }
 
+/** 设置分类所属的「大分类」（两级分类，2026-09-13）。
+ *  parent 传空串 = 不归组（界面会显示为「—」）。
+ *  大分类本身不是一张表，就是 parent 的取值集合 —— 店主写一个新名字就等于新建一个大分类，
+ *  这样不用维护第二张表，也不会出现"大分类表与分类表不一致"。 */
+export function setCategoryParent(db, id, { parent, operator }) {
+  const p = String(parent ?? '').trim()
+  return inTransaction(db, () => {
+    const c = db.prepare('SELECT * FROM categories WHERE id = ?').get(Number(id))
+    if (!c) throw new Error('分类不存在')
+    if (p && p === c.name) throw new Error('大分类不能是自己')
+    db.prepare('UPDATE categories SET parent = ? WHERE id = ?').run(p, Number(id))
+    logAudit(db, '改大分类', c.name + ' → ' + (p || '（不归组）'), null, operator)
+    return db.prepare('SELECT * FROM categories WHERE id = ?').get(Number(id))
+  })
+}
+
 /** 确保分类存在（自定义输入分类时自动补录） */
 export function ensureCategory(db, name) {
   const n = String(name || '').trim()

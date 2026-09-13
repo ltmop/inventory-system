@@ -84,6 +84,26 @@ ok('库存表格有大分类列', !!table && /TableHead>大分类</.test(table.t
 ok('两处都从 store 的 categories 派生（不另存一份真相）',
   !!bar && !!table && /s\.categories/.test(bar.text) && /s\.categories/.test(table.text))
 
+console.log('\n=== ⑦ 数据源链完整（这条是"空源换空源"的教训）===')
+// 光把 5 处改成 store.categories 是不够的 —— 必须证明 store.categories **真的会被填**。
+// 链路：loadAll() → backend.invoke('data:loadAll') → catalog.js 的 loadAll 返回 { categories } → set({...data})
+const catalog = fs.readFileSync(path.resolve(HERE, '..', 'electron', 'commands', 'catalog.js'), 'utf8')
+ok('catalog.js 的 loadAll 返回 categories', /categories:\s*q\(/.test(catalog) || /categories:/.test(catalog))
+const store = files.find((f) => f.rel === 'store/appStore.ts')
+ok('appStore.loadAll 用的是 data:loadAll 并整体 set', !!store && /invoke\('data:loadAll'\)/.test(store.text) && /set\(\{\s*\.\.\.data/.test(store.text))
+
+console.log('\n=== ⑧ 大分类编辑通道接齐 4 层（漏一层就不通）===')
+const cmds = fs.readFileSync(path.resolve(HERE, '..', 'electron', 'commands', 'categories.js'), 'utf8')
+const mainJs = fs.readFileSync(path.resolve(HERE, '..', 'electron', 'main.js'), 'utf8')
+const preload = fs.readFileSync(path.resolve(HERE, '..', 'electron', 'preload.cjs'), 'utf8')
+const serverJs = fs.readFileSync(path.resolve(HERE, '..', 'electron', 'server.js'), 'utf8')
+ok('① 命令层 setCategoryParent', /export function setCategoryParent/.test(cmds))
+ok('② IPC 层 main.js 注册 category:setParent', /'category:setParent'/.test(mainJs))
+ok('③ preload 白名单放行 category:setParent', /'category:setParent'/.test(preload))
+ok('④ server.js 暴露给中心库模式（INVOKE_CHANNELS）', /'category:setParent':\s*\(d,\s*p\)/.test(serverJs))
+ok('⑤ server.js 写入白名单（视图令牌不能改分类）', /'category:setParent'/.test(serverJs.split('WRITE_CHANNELS')[1]?.split('])')[0] ?? ''))
+ok('⑥ 分类管理的编辑界面存在', files.some((f) => f.rel === 'pages/CategoriesPage.tsx' && /category:setParent/.test(f.text)))
+
 console.log('\n================ 结果 ================')
 console.log('PASS ' + pass + '   FAIL ' + fail)
 process.exit(fail === 0 ? 0 : 1)

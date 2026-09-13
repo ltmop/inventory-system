@@ -1,7 +1,8 @@
-// 分类管理（通用版）：增删改/排序，建档/入库/开单/报表立即生效
-import { useCallback, useEffect, useState } from 'react'
+// 分类管理（通用版）：增删改/排序 + 「大分类」归属（两级分类），建档/入库/开单/报表立即生效
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ArrowUp, ArrowDown, Pencil, Plus, Trash2, Tags } from 'lucide-react'
 import { backend } from '@/lib/api'
+import { useAppStore } from '@/store/appStore'
 import { PageHeading } from '@/components/layout/FeatureGrid'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,6 +27,25 @@ export default function CategoriesPage() {
   }, [])
 
   useEffect(() => { void load() }, [load])
+
+  // 大分类候选：现有分类里出现过的 parent。
+  // 大分类**不是一张表**，它就是 parent 的取值集合 —— 所以"新建一个大分类"=
+  // 直接在下面输入一个新名字，不用维护第二张表，也不会出现两表不一致。
+  const groups = useMemo(
+    () => [...new Set(cats.map((c) => c.parent).filter((g): g is string => !!g))].sort(),
+    [cats],
+  )
+
+  const setParent = async (id: number, parent: string) => {
+    try {
+      await backend!.invoke('category:setParent', { id, parent })
+      await load()
+      // 同步刷新 store：库存查询的「大分类」筛选是从 store.categories 派生的
+      await useAppStore.getState().loadAll()
+    } catch (e) {
+      window.alert('改大分类失败：' + (e instanceof Error ? e.message : String(e)))
+    }
+  }
 
   const add = async () => {
     if (!newName.trim()) return
@@ -97,6 +117,26 @@ export default function CategoriesPage() {
                     <div className="text-[15px] font-bold text-slate-900">{c.name}</div>
                     <div className="text-xs text-slate-500">{c.product_count ?? 0} 个商品</div>
                   </div>
+                  {/* 大分类归属：可直接选已有的，也可以直接打一个新名字＝新建一个大分类。
+                      key 带 parent：值变了重新挂载，uncontrolled 输入框才会显示最新值。 */}
+                  <input
+                    key={c.id + ':' + (c.parent ?? '')}
+                    list={'cat-groups-' + c.id}
+                    defaultValue={c.parent ?? ''}
+                    placeholder="大分类"
+                    title="所属大分类（可直接输入新名字新建）"
+                    className="h-8 w-28 shrink-0 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700"
+                    onBlur={(e) => {
+                      const v = e.target.value.trim()
+                      if (v !== (c.parent ?? '')) void setParent(c.id, v)
+                    }}
+                    onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                  />
+                  <datalist id={'cat-groups-' + c.id}>
+                    {groups.map((g) => (
+                      <option key={g} value={g} />
+                    ))}
+                  </datalist>
                   <button className="rounded p-1.5 text-slate-400 hover:bg-slate-100 disabled:opacity-30" disabled={idx === 0} onClick={() => move(c.id, -1)} title="上移"><ArrowUp className="size-4" /></button>
                   <button className="rounded p-1.5 text-slate-400 hover:bg-slate-100 disabled:opacity-30" disabled={idx === cats.length - 1} onClick={() => move(c.id, 1)} title="下移"><ArrowDown className="size-4" /></button>
                   <button className="rounded p-1.5 text-slate-400 hover:bg-slate-100" onClick={() => { setEditingId(c.id); setEditName(c.name) }} title="改名"><Pencil className="size-4" /></button>

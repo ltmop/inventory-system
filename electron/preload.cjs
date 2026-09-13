@@ -15,6 +15,7 @@ const CHANNELS = new Set([
   'category:rename',
   'category:delete',
   'category:move',
+  'category:setParent',
   'unit:list',
   'unit:create',
   'unit:update',

@@ -165,6 +165,7 @@ function registerIpc() {
   handle('category:rename', (d, p) => commands.renameCategory(d, p.id, p))
   handle('category:delete', (d, p) => commands.deleteCategory(d, p.id, p.operator))
   handle('category:move', (d, p) => commands.moveCategory(d, p.id, p.dir))
+  handle('category:setParent', (d, p) => commands.setCategoryParent(d, p.id, p))
   // 通用版：单位管理
   handle('unit:list', (d) => commands.listUnits(d))
   handle('unit:create', (d, p) => commands.createUnit(d, p))

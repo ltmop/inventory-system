@@ -852,6 +852,9 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     // 会让只读账号（财务）点「收款对账」直接 403。已移出。
     'part:set','part:setMany','kit:save','kit:delete','receipt:register',
     'po:create','po:receive','po:cancel','priceTier:set','priceTier:delete','photo:save','photo:delete',
+    // 分类管理（2026-09-13 补）：这几条一直是写操作，但漏在白名单外 ——
+    // 后果是**只读/视图令牌也能改分类**。顺手补齐（与 receipt:reconcile 那条注释同一个道理）。
+    'category:create','category:rename','category:delete','category:move','category:setParent',
   ])
 
   function tokenOk(provided) {
@@ -1059,6 +1062,13 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     'product:mark': (d, p) => cmds.markProduct(d, p),
     'product:expiring': (d, p) => cmds.expiringProducts(d, p),
     'category:list': (d) => cmds.listCategories(d),
+    // 分类写通道（2026-09-13 补）：以前只暴露了 category:list，
+    // 于是**中心库模式下分类根本改不了**（分类管理页在中心库模式会打到一个不存在的通道）。
+    'category:create': (d, p) => cmds.createCategory(d, p),
+    'category:rename': (d, p) => cmds.renameCategory(d, p.id, p),
+    'category:delete': (d, p) => cmds.deleteCategory(d, p.id, p.operator),
+    'category:move': (d, p) => cmds.moveCategory(d, p.id, p.dir),
+    'category:setParent': (d, p) => cmds.setCategoryParent(d, p.id, p),
     'unit:list': (d) => cmds.listUnits(d),
     'inbound:create': (d, p) => cmds.createInbound(d, p),
     'outbound:confirm': (d, p) => cmds.confirmOutbound(d, p),
