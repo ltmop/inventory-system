@@ -13,6 +13,7 @@
     "check:offline": "node scripts/test-offline.mjs",
     "check:backfill": "node scripts/test-backfill-central.mjs",
     "check:login": "node scripts/verify-single-login.mjs",
+    "check:category": "node scripts/verify-category-wiring.mjs",
     "publish:update": "node scripts/publish-update.mjs",
     "electron": "electron .",
     "dev-electron": "node scripts/dev-electron.cjs",

@@ -11,7 +11,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { CATEGORIES, PRODUCT_STATUSES } from '@/types'
+import { PRODUCT_STATUSES } from '@/types'
+import { useAppStore } from '@/store/appStore'
 
 interface InventoryFilterBarProps {
   keyword: string
@@ -66,6 +67,11 @@ export function InventoryFilterBar({
   allValue,
 }: InventoryFilterBarProps) {
   const [advanced, setAdvanced] = useState(false)
+  // 分类选项取自 store 的 categories（由 loadAll 从 categories 表拉取）。
+  // 以前这里读的是 @/types 的 CATEGORIES 常量 —— 那个常量**从 v0.3.2 起就是空数组**
+  // （注释写着"运行时由 loadAll 填充"，但没有任何代码填充它），
+  // 所以「品类」下拉里除了「全部品类」什么都没有，等于**无法按分类筛选**。
+  const categories = useAppStore((s) => s.categories)
   const activeAdvanced =
     (brand !== allValue ? 1 : 0) + (location !== allValue ? 1 : 0) + (stockMin !== '' ? 1 : 0) + (stockMax !== '' ? 1 : 0)
 
@@ -88,9 +94,9 @@ export function InventoryFilterBar({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={allValue}>全部品类</SelectItem>
-              {CATEGORIES.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
+              {categories.map((c) => (
+                <SelectItem key={c.name} value={c.name}>
+                  {c.name}
                 </SelectItem>
               ))}
             </SelectContent>

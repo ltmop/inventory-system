@@ -18,7 +18,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { CATEGORIES, type Supplier } from '@/types'
+import { type Supplier } from '@/types'
+import { useAppStore } from '@/store/appStore'
 
 interface CreateStockTakeDialogProps {
   open: boolean
@@ -61,6 +62,8 @@ export function CreateStockTakeDialog({
   submitting,
   onSubmit,
 }: CreateStockTakeDialogProps) {
+  // 分类选项取自 store（loadAll 从 categories 表拉取），不用 @/types 里那个恒为空的 CATEGORIES 常量
+  const categories = useAppStore((s) => s.categories)
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -95,9 +98,9 @@ export function CreateStockTakeDialog({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={wholeShopValue}>全部品类</SelectItem>
-                {CATEGORIES.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
+                {categories.map((c) => (
+                  <SelectItem key={c.name} value={c.name}>
+                    {c.name}
                   </SelectItem>
                 ))}
               </SelectContent>

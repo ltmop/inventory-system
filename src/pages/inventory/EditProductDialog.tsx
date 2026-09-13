@@ -29,7 +29,7 @@ import {
 } from '@/lib/productSpecs'
 import { useAppStore } from '@/store/appStore'
 import {
-  CATEGORIES, PRICE_LEVELS, PRICE_LEVEL_LABELS,
+  PRICE_LEVELS, PRICE_LEVEL_LABELS,
   type Category, type PriceLevel, type Product, type ProductStatus, type Unit,
 } from '@/types'
 import { PRODUCT_STATUSES } from '@/types'
@@ -78,6 +78,9 @@ export function EditProductDialog({
   // 商品图片：选图即存（不跟表单一起等「保存」），photo_path 本地 state 跟弹窗走，
   // 因为 editing 是打开弹窗时的快照，store 刷新后它不会自己变
   const units = useAppStore((s) => s.units)
+  // 分类选项取自 store（由 loadAll 从 categories 表拉取）。
+  // 以前读的是 @/types 的 CATEGORIES 常量，那个常量从 v0.3.2 起就是空数组 → 下拉永远是空的。
+  const categories = useAppStore((s) => s.categories)
   const unitOptions = units.length > 0 ? units : [{ name: '件', allow_decimal: 0 }]
   const updateProduct = useAppStore((s) => s.updateProduct)
   const loadAll = useAppStore((s) => s.loadAll)
@@ -167,9 +170,9 @@ export function EditProductDialog({
                 <SelectValue placeholder="选择品类" />
               </SelectTrigger>
               <SelectContent>
-                {CATEGORIES.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
+                {categories.map((c) => (
+                  <SelectItem key={c.name} value={c.name}>
+                    {c.name}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -2,7 +2,6 @@ import { useState, useRef } from 'react'
 import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Download } from 'lucide-react'
 import { PageHeader, SuccessBanner } from '@/components/feedback'
 import { useAppStore } from '@/store/appStore'
-import { CATEGORIES } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -16,6 +15,10 @@ import {
 export function ImportPage() {
   const loadAll = useAppStore((s) => s.loadAll)
   const products = useAppStore((s) => s.products)
+  // 分类选项取自 store（loadAll 从 categories 表拉取）。
+  // 以前这里读 @/types 的 CATEGORIES 常量 —— 它从 v0.3.2 起就是空数组，
+  // 于是「品类须为以下之一：」后面一片空白。
+  const categories = useAppStore((s) => s.categories)
   const fileRef = useRef<HTMLInputElement>(null)
   const [rows, setRows] = useState<ImportRow[]>([])
   const [errors, setErrors] = useState<string[]>([])
@@ -203,7 +206,7 @@ export function ImportPage() {
             <p>支持 .xlsx / .csv 文件（老版 .xls 请先在 Excel 里另存为 .xlsx）；表头支持中英文（如"sku编码"或"sku_code"）。</p>
             <p>必要列：sku编码、品类、进价(元)、数量。可选列：条码、子类、品牌、型号、建议售价、货位，以及可选规格列（长度、型号、颜色、材质、保质期，空着也能导入）。</p>
             <p><strong>进价和售价单位为元</strong>（如 45.00），系统自动转换为分存储。</p>
-            <p>品类须为以下之一：{CATEGORIES.join('、')}</p>
+            <p>品类须为以下之一：{categories.map((c) => c.name).join('、') || '（分类表为空，请先到「分类管理」建分类）'}</p>
           </div>
         </CardContent>
       </Card>

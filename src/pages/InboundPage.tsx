@@ -10,7 +10,7 @@ import { backend } from '@/lib/api'
 import { uploadProductPhoto } from '@/lib/photo'
 import { playSound } from '@/lib/sounds'
 import { useOnline } from '@/lib/useOnline'
-import { CATEGORIES, type Category, type Product } from '@/types'
+import { type Category, type Product } from '@/types'
 import { validateQty, unitOf, isDecimalUnit } from '@/lib/quantity'
 import {
   SPEC_FIELDS, specFieldsFor, requiresExpiry,
@@ -60,6 +60,10 @@ export function InboundPage() {
   const transactions = useAppStore((s) => s.transactions)
   const batches = useAppStore((s) => s.batches)
   const products = useAppStore((s) => s.products)
+  // 分类选项取自 store（loadAll 从 categories 表拉取）。
+  // 以前这里读 @/types 的 CATEGORIES 常量 —— 它从 v0.3.2 起就是空数组，
+  // 导致下面导入建档时的 `CATEGORIES.includes(...)` 恒为 false → **每个导入商品的品类都被写成「其他」**。
+  const categories = useAppStore((s) => s.categories)
   const inboundMetrics = useMemo(() => {
     const todayIn = transactions.filter((t) => t.type === 'in' && isToday(t.timestamp))
     const todayQty = todayIn.reduce((s, t) => s + t.quantity, 0)
@@ -388,7 +392,7 @@ export function InboundPage() {
           const p = await addProduct({
             sku_code: '',
             barcode: null,
-            category: (CATEGORIES as string[]).includes(it.category) ? (it.category as Category) : '其他',
+            category: categories.some((c) => c.name === it.category) ? (it.category as Category) : '其他',
             sub_category: null,
             brand: it.brand,
             model: it.model,

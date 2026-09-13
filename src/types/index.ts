@@ -3,7 +3,13 @@
 // 通用版：分类由 categories 表驱动（用户可增删改/行业模板套用），前端动态读取
 export type Category = string
 
-export const CATEGORIES: Category[] = [] // 运行时由 loadAll 的 categories 填充
+// 【已删除】export const CATEGORIES: Category[] = []
+// 它从 v0.3.2（首次入库）起就一直是空数组：注释写着"运行时由 loadAll 的 categories 填充"，
+// 但**从来没有任何代码填充过它**。而它被 5 处当成分类选项来源：
+//   库存查询的品类筛选 / 编辑商品的品类下拉 / 新建盘点的品类下拉 /
+//   批量导入的提示文案 / 导入建档时的品类校验（那一处导致导入的品类一律变成「其他」）。
+// 正确来源是 store 的 categories 字段（loadAll 拉 categories 表，NewProductDialog 一直这么用）。
+// 删掉这个常量，避免以后又有人 import 它拿到一个空数组。
 
 // 品类代码速查（用于SKU自动生成；未匹配的统一用 QT）
 export const CATEGORY_CODES: Record<string, string> = {
