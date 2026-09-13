@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { Moon, Sun, Search, Settings, PanelLeftClose, PanelLeftOpen, AlertTriangle, UserCircle2, LogOut, CloudUpload } from 'lucide-react'
 import { useAppStore } from '@/store/appStore'
 import { OfflineChip } from './OfflineBanner'
+import { getCentralConfig } from '@/lib/api'
 
 // 路由 → 页面标题，顶栏左侧显示当前在哪一页
 const TITLE_MAP: Record<string, string> = {
@@ -49,14 +50,31 @@ export function TopBar({
   // 角色中文标签
   const roleLabel = currentUser?.role === 'owner' ? '老板' : currentUser?.role === 'manager' ? '高管' : '店员'
 
-  // 顶栏显示的「我是谁」。以前只看 currentUser（本地员工账号），于是**登录了云账号也显示「未登录」**
-  // —— 这正是 owner 反馈的症状①。云账号是现在唯一有意义的登录态（它才带得动同步与中心库），
-  // 所以优先显示云账号，其次才是本地员工身份。
+  // 顶栏显示的「我是谁」。四种真实状态，按优先级：
+  //   ① 云账号已登录（它才带得动多设备同步 + 云端备份）
+  //   ② 本地员工身份
+  //   ③ **中心库模式** —— 这一条以前缺了。老板的收银机跑中心库模式
+  //      （localStorage `fi-central-url=https://app.junchengzn.com`，桌面/手机/网页同一本账），
+  //      但没登云账号，于是顶栏一直显示「未登录」。owner 反馈「已经登录了，右上角仍然显示未登录」
+  //      —— 他说的"登录"就是"连上中心库"（账号页里也正是这么写的：「已连接中心库」）。
+  //      顶栏不认这一种状态，就会对着一台**正常在用的收银机**说"未登录"。
+  //   ④ 都没有 → 未登录（纯本地、未连任何东西）
+  const central = getCentralConfig()
   const identity = cloud.paired
     ? (cloud.username || '已登录') + '（云账号）'
     : currentUser
       ? currentUser.name + '（' + roleLabel + '）'
-      : '未登录'
+      : central.url
+        ? '已连接中心库'
+        : '未登录'
+  // 悬停说清"这代表什么"，避免把「已连接中心库」误当成"云账号也登了"
+  const identityHint = cloud.paired
+    ? '当前身份，点击切换'
+    : central.url
+      ? '本机连的是门店中心库（' +
+        central.url +
+        '），桌面/手机同一本账；云账号未登录 —— 云账号只影响「多设备同步 + 云端备份」'
+      : '当前身份，点击切换'
 
   const title = useMemo(() => {
     const exact = TITLE_MAP[location.pathname]
@@ -124,7 +142,7 @@ export function TopBar({
           <button
             onClick={() => setUserMenuOpen((o) => !o)}
             className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer"
-            title="当前身份，点击切换"
+            title={identityHint}
           >
             <UserCircle2 className="size-5" />
             <span className="max-w-28 truncate">{identity}</span>

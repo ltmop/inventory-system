@@ -113,6 +113,22 @@ ok('建立凭证的两条路径（注册/登录）都检查了落盘结果', gua
 ok('检查后返回 ok:false，不谎报成功',
   /if\s*\(\s*!saveLocalConfig\(\)\s*\)\s*return\s*\{\s*ok:\s*false/.test(cloudCode))
 
+console.log('\n=== ⑧ 顶栏不许对着一台在用的中心库收银机说「未登录」===')
+// 真机取证：收银机是中心库模式（localStorage fi-central-url=https://app.junchengzn.com，
+// 桌面/手机/网页同一本账），但没登云账号 → 顶栏只认「云账号 / 员工账号」两档，
+// 于是一直显示「未登录」。owner 说的"已经登录了"指的就是"连上中心库"（账号页也这么写）。
+const topbar = fs.readFileSync(path.join(SRC, 'components', 'layout', 'TopBar.tsx'), 'utf8')
+const topbarCode = strip(topbar)
+ok('TopBar 读了中心库配置', /getCentralConfig\(\)/.test(topbarCode))
+ok('getCentralConfig 从 @/lib/api 导入', /from\s+'@\/lib\/api'/.test(topbar) && /getCentralConfig/.test(topbar))
+ok('身份判据里有「已连接中心库」这一档', /已连接中心库/.test(topbarCode))
+ok('中心库那一档排在「未登录」之前（否则永远轮不到）',
+  topbarCode.indexOf('已连接中心库') < topbarCode.indexOf("'未登录'"))
+ok('云账号仍优先于中心库（登了云账号就显示账号名）',
+  topbarCode.indexOf('（云账号）') < topbarCode.indexOf('已连接中心库'))
+ok('有悬停说明，避免把「已连接中心库」误当成云账号也登了',
+  /identityHint/.test(topbarCode) && /云端备份/.test(topbarCode))
+
 console.log('\n================ 结果 ================')
 console.log('PASS ' + pass + '   FAIL ' + fail)
 process.exit(fail === 0 ? 0 : 1)
