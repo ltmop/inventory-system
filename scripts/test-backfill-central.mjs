@@ -50,6 +50,8 @@ const ok = (name, cond, extra = '') => {
 {
   const db = openDatabase(TARGET)
   db.prepare("INSERT INTO customers (id,name,phone,created_at) VALUES (9001,'★中央库自己的张记（应被保住）','13900000000',?)").run(new Date().toISOString())
+  // 同名不同 id：模拟"两库分叉后同一笔业务各拿了一个 id" → 必须触发重复预警
+  db.prepare("INSERT INTO customers (id,name,phone,created_at) VALUES (9500,'李四','13900000002',?)").run(new Date().toISOString())
   db.close()
 }
 
@@ -63,11 +65,12 @@ console.log('\n=== ① 只读盘点：不改数据、分类正确 ===')
 const before = scalar('SELECT COUNT(*) FROM customers')
 const r1 = run([])
 ok('只读模式未改目标库', scalar('SELECT COUNT(*) FROM customers') === before)
-ok('2 个新增客户（9002/9003）', /customers\s+源\s+3\s+目标\s+1\s+新增\s+2/.test(r1.out), r1.out.match(/customers.*/)?.[0])
+ok('2 个新增客户（9002/9003）', /customers\s+源\s+3\s+目标\s+2\s+新增\s+2/.test(r1.out), r1.out.match(/customers.*/)?.[0])
 ok('1 个冲突客户（9001）', /customers.*冲突\s+1/.test(r1.out))
 ok('2 个新增还款', /payments\s+源\s+2\s+目标\s+0\s+新增\s+2/.test(r1.out))
 ok('4 个新增流水', /transactions.*新增\s+4/.test(r1.out))
 ok('冲突行被列出，并明确提示不覆盖', /冲突（不覆盖/.test(r1.out))
+ok('同名不同 id 触发重复预警（防重复单）', /疑似重复 1 行/.test(r1.out), r1.out.match(/疑似重复.*/)?.[0])
 
 console.log('\n=== ② --plan：只打印 SQL，仍不改数据 ===')
 const r2 = run(['--plan'])

@@ -50,6 +50,16 @@ const SKIP = new Set(['settings', 'users', 'idem', 'ai_insights', 'ai_messages',
 // 比对时忽略：guid 是各库自己生成的，updated_at 是各机维护的，都不构成"业务内容不同"
 const IGNORE_IN_COMPARE = new Set(['guid', 'updated_at'])
 
+// 自然键重复预警。
+// 去重是按 id 做的，前提是两库同源（ids 对得上）。但两库一旦分叉过，
+// 同一笔业务可能在两边有**不同 id** —— 那样会当成新行插进去，变成重复单。
+// 这是本脚本最贵的错误（重复单要人工冲销），所以按业务自然键再扫一遍，只报警不拦。
+const NATURAL_KEY = {
+  customers: ['name'],
+  transactions: ['product_id', 'timestamp', 'quantity'],
+  payments: ['customer_id', 'amount', 'created_at'],
+}
+
 const src = new DatabaseSync(SRC, { readOnly: true })
 const dst = new DatabaseSync(DST, { readOnly: !APPLY })
 
@@ -89,8 +99,23 @@ for (const t of COPY_ORDER) {
   const same = srcRows.length - fresh.length - conflict.length
   totalNew += fresh.length; totalConflict += conflict.length; totalSame += same
 
+  // 自然键重复预警：新行里有没有和目标库某行"业务上像同一笔"的
+  const nk = NATURAL_KEY[t]
+  let dupRisk = []
+  if (nk && nk.every((c) => shared.includes(c)) && fresh.length) {
+    const keyOf = (r) => nk.map((c) => String(r[c] ?? '\u0000')).join('|')
+    const dstKeys = new Set(dstRows.map(keyOf))
+    dupRisk = fresh.filter((r) => dstKeys.has(keyOf(r)))
+  }
+
   console.log(t.padEnd(22) + ('源 ' + srcRows.length).padStart(10) + (' 目标 ' + dstRows.length).padStart(12) +
     (' 新增 ' + fresh.length).padStart(10) + (' 冲突 ' + conflict.length).padStart(9) + (' 已一致 ' + same).padStart(11))
+  if (dupRisk.length) {
+    console.log('    ⚠ 疑似重复 ' + dupRisk.length + ' 行（自然键 ' + nk.join('+') + ' 与目标库已有行相同，但 id 不同）——')
+    console.log('      这多半是两库分叉后同一笔业务各拿了一个 id。直接搬会产生重复单，请先人工确认：')
+    for (const r of dupRisk.slice(0, 3)) console.log('      src id=' + r.id + '  ' + nk.map((c) => c + '=' + r[c]).join(' '))
+    if (dupRisk.length > 3) console.log('      …还有 ' + (dupRisk.length - 3) + ' 行')
+  }
   if (conflict.length) {
     console.log('    ⚠ 冲突（不覆盖，请人工决定）：')
     for (const c of conflict.slice(0, 5)) console.log('      id=' + c.id + ' 字段不同: ' + c.fields.join(','))
