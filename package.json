@@ -14,7 +14,7 @@
     "check:backfill": "node scripts/test-backfill-central.mjs",
     "check:login": "node scripts/verify-single-login.mjs",
     "check:category": "node scripts/verify-category-wiring.mjs",
-    "publish:update": "node scripts/publish-update.mjs",
+    "release": "node scripts/release.mjs",
     "electron": "electron .",
     "dev-electron": "node scripts/dev-electron.cjs",
     "dist": "node scripts/dist.cjs"
