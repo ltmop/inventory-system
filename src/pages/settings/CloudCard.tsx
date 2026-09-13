@@ -18,6 +18,9 @@ export function CloudCard() {
 
   const [pairCode, setPairCode] = useState('')
   const [pairing, setPairing] = useState(false)
+  // 2026-09-14 扁平化：配对码是**旧方式**（代码里原本标着「旧①」，还漏给用户看了）。
+  // 身份统一之后账号登录是唯一入口，旧方式默认收起，只留一个小链接。
+  const [legacyPair, setLegacyPair] = useState(false)
   // 多设备账户登录（v2）：注册/登录绑定本机
   const [acctMode, setAcctMode] = useState<'login' | 'register'>('login')
   const [acctUsername, setAcctUsername] = useState('')
@@ -211,7 +214,7 @@ export function CloudCard() {
         <CardContent className="space-y-4">
           {centralOn && (
             <div className="rounded-lg bg-emerald-50 px-3 py-2 text-xs leading-relaxed text-emerald-700">
-              <b>已连接中心库：</b>桌面/手机/网页已同一本账（app.junchengzn.com），此处为本地模式备份/远程看店（旧①）。
+              <b>已连接中心库：</b>桌面/手机/网页已经是同一本账（app.junchengzn.com），日常不需要在这里再配对。
             </div>
           )}
           {/* 未配对 或 游客模式：显示账户登录（多设备）或配对码 */}
@@ -255,12 +258,16 @@ export function CloudCard() {
                 </div>
               </div>
 
-              {/* 配对码（老方式） */}
-              <div className="flex items-center gap-2">
-                <div className="h-px flex-1 bg-slate-200" />
-                <span className="text-[11px] text-slate-400">或使用配对码</span>
-                <div className="h-px flex-1 bg-slate-200" />
+              {/* 配对码（旧方式）：默认收起。原来它和账号登录并排摆着，用户不知道该点哪个。 */}
+              <div className="text-center">
+                <button
+                  onClick={() => setLegacyPair((v) => !v)}
+                  className="cursor-pointer text-[11px] text-slate-400 hover:text-slate-600 hover:underline"
+                >
+                  {legacyPair ? '收起旧方式 ↑' : '有旧的配对码？点这里 ↓'}
+                </button>
               </div>
+              {legacyPair && (
               <div>
                 <div className="mb-1 text-xs text-slate-500">配对码（从老板管理页获取）</div>
                 <div className="flex gap-2">
@@ -277,6 +284,7 @@ export function CloudCard() {
                   </Button>
                 </div>
               </div>
+              )}
             </div>
           )}
 

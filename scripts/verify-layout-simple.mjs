@@ -75,6 +75,26 @@ ok('桌面壁纸在 adv 之内', set.indexOf('{adv && (') < set.indexOf('<Wallpa
 ok('行业模板在 adv 之内', set.indexOf('{adv && (') < set.indexOf('<IndustryTemplateCard />'))
 ok('数据位置在 adv 之内（且位于第二个 adv 块里）', (set.match(/\{adv && \(/g) || []).length >= 2)
 
+console.log('\n=== ④ 账号页不许把内部编号和旧方式摊给用户 ===')
+// 真机截图取证：账号页顶上是一大段「4 步操作 + ※忘了密码」散文（约 1/4 屏），
+// 一卡片里并排放着「账户登录」和「配对码」两条路，还漏出一句内部编号「（旧①）」。
+const acct = strip(read('pages/AccountPage.tsx'))
+const cc = strip(read('pages/settings/CloudCard.tsx'))
+ok('账号页顶部说明默认收起（help 开关，默认 false）',
+  /const \[help, setHelp\] = useState\(false\)/.test(acct))
+ok('账号页保留一句白话说清怎么用', /多台电脑共用一个账号/.test(acct))
+ok('账号页"看详细步骤"是折叠入口', /看详细步骤/.test(acct))
+ok('旧配对码默认收起（legacyPair 开关，默认 false）',
+  /const \[legacyPair, setLegacyPair\] = useState\(false\)/.test(cc))
+ok('旧配对码只留一个小链接', /有旧的配对码？点这里/.test(cc))
+// 只查**内部编号本身**（旧①/旧②…）。不要只匹配「（旧」—— JSX 注释 {/* 配对码（旧方式） */}
+// 也含这两个字，但它不渲染给用户，会造成假失败（第一次写就是这么误报的）。
+const internalNo = ['旧①', '旧②', '旧③'].filter((s) => cc.includes(s) || acct.includes(s))
+ok('内部编号（旧①…）不再漏给用户看', internalNo.length === 0, internalNo.join(','))
+const ai = strip(read('components/ai/AiPanel.tsx'))
+ok('AI 建议问题收到 3 条且不再写死商品名',
+  (ai.match(/^\s*'[^']+？',\s*$/gm) || []).length <= 3 && !/赤刃/.test(ai))
+
 console.log('\n================ 结果 ================')
 console.log('PASS ' + pass + '   FAIL ' + fail)
 process.exit(fail === 0 ? 0 : 1)
