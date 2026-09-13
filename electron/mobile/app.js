@@ -325,6 +325,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('dateEl').textContent = new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })
   renderPage()
   flushOffline() // 开机先把上次离线攒下的单据重传一遍
+  // 启动 3 秒后静默检查更新（有新版才弹窗；浏览器页面直接跳过）
+  setTimeout(function () { checkUpdate(true) }, 3000)
   // 首次连上后问一次「这台手机谁在用」；不选就一直用「老板」，不再打扰
   try { if (!localStorage.getItem('fi-operator')) setTimeout(openOperatorPanel, 700) } catch (e) {}
 })
@@ -383,6 +385,59 @@ function phColor(p) { return COLORS[(p.id || 0) % COLORS.length] }
 function phChar(p) { const name = (((p.brand || '') + ' ' + (p.model || '')).trim() || p.sku_code || ''); return name[0] || '?' }
 function prodName(p) { const n = ((p.brand || '') + ' ' + (p.model || '')).trim(); return (n || p.sku_code || '未知') }
 
+// ========== 应用内更新（只对 APK 生效；浏览器 /m/ 页面不弹）==========
+// 版本号必须与 android/app/build.gradle 的 versionCode/versionName 一致 ——
+// 有 scripts/check-version-sync.mjs 强制校验，发版前必跑（否则会重演「版本号三处不一致、更新永远是哑的」）。
+const APP_VERSION = 'v1.1.1'
+const APP_VERSION_CODE = 1101
+const UPDATE_BASE = 'http://43.128.20.39:17533'
+
+// 拉更新清单：8 秒超时、不走缓存；任何异常都当作「连不上」，绝不阻塞使用
+function fetchUpdateManifest() {
+  return new Promise(function (resolve) {
+    var ctrl = new AbortController()
+    var t = setTimeout(function () { ctrl.abort() }, 8000)
+    fetch(UPDATE_BASE + '/update/version.json', { signal: ctrl.signal, cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null })
+      .then(function (d) { clearTimeout(t); resolve(d && typeof d.versionCode === "number" ? d : null) })
+      .catch(function () { clearTimeout(t); resolve(null) })
+  })
+}
+
+// 下载走原生通道：MainActivity 收到 adingupdate:// 后下载并拉起安装
+function doDownloadUpdate(meta) {
+  var url = meta && meta.apkUrl
+  if (!url) { toast('更新地址缺失'); return }
+  toast('开始下载，稍后弹出安装界面…')
+  location.href = 'adingupdate://download?url=' + encodeURIComponent(url)
+}
+
+function askUpdate(meta) {
+  var old = document.getElementById("up-panel"); if (old) old.remove()
+  var ov = document.createElement("div")
+  ov.id = "up-panel"
+  ov.style.cssText = "position:fixed;inset:0;background:rgba(10,22,40,.96);z-index:320;padding:22px;color:#e6edf5;overflow:auto"
+  var h = '<div style="font-size:22px;font-weight:800;margin-bottom:6px">发现新版本 ' + escHtml(meta.versionName || "") + '</div>' +
+    '<div style="font-size:13px;color:#8fa3c0;margin-bottom:14px">当前 ' + escHtml(APP_VERSION) + '</div>'
+  if (meta.changelog) h += '<div style="font-size:14px;line-height:1.8;color:#c7d2e0;background:rgba(255,255,255,.06);border-radius:10px;padding:12px;margin-bottom:14px">' + escHtml(meta.changelog) + '</div>'
+  h += '<button id="up-go" style="width:100%;height:60px;border-radius:14px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:19px;font-weight:800">下载更新</button>' +
+    '<button id="up-no" style="width:100%;height:50px;margin-top:10px;border-radius:12px;border:none;background:rgba(255,255,255,.12);color:#e6edf5;font-size:16px">稍后再说</button>'
+  ov.innerHTML = h
+  document.body.appendChild(ov)
+  ov.querySelector("#up-go").onclick = function () { ov.remove(); doDownloadUpdate(meta) }
+  ov.querySelector("#up-no").onclick = function () { ov.remove() }
+}
+
+// 手动检查：silent=false 时会给出「已是最新版 / 连不上」反馈
+function checkUpdate(silent) {
+  if (!SERVER) return            // 浏览器/局域网页面没有安装包可更新
+  if (!silent) toast("正在检查更新…")
+  fetchUpdateManifest().then(function (m) {
+    if (!m) { if (!silent) toast("连不上更新服务器，请稍后再试"); return }
+    if (m.versionCode > APP_VERSION_CODE) askUpdate(m)
+    else if (!silent) toast("已是最新版 " + APP_VERSION)
+  })
+}
 // ========== 扫码 ==========
 let scanCallback = null
 
@@ -511,6 +566,12 @@ page('more', (app) => {
     card.innerHTML = '<div class="font-bold">' + t + '</div><div class="text-sm text-muted mt-sm">' + d + '</div>'
     app.appendChild(card)
   })
+  if (SERVER) {   // APK 才显示：浏览器页面点它没有意义
+    const upCard = document.createElement('div')
+    upCard.className = 'card'; upCard.style.cursor = 'pointer'; upCard.onclick = function () { checkUpdate(false) }
+    upCard.innerHTML = '<div class="font-bold">🔄 检查更新</div><div class="text-sm text-muted mt-sm">当前 ' + APP_VERSION + ' · 有新版本会提示下载</div>'
+    app.appendChild(upCard)
+  }
   const connCard = document.createElement('div')
   connCard.className = 'card'; connCard.style.cursor = 'pointer'; connCard.onclick = function () { openConnectPanel() }
   connCard.innerHTML = '<div class="font-bold">🔗 连接设置</div><div class="text-sm text-muted mt-sm">' + (TOKEN ? '已连接店铺账本' : '还没连接') + ' · 换店铺或重新输入连接码' + '</div>'
