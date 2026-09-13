@@ -70,6 +70,20 @@ console.log('\n=== ⑤ 空数组兜底：下拉不能一个选项都没有 ===')
 const npd = files.find((f) => f.rel === 'pages/inbound/NewProductDialog.tsx')
 ok('NewProductDialog 有 categories.length > 0 的兜底（既有正确写法，作为参照）', !!npd && /categories\.length > 0/.test(npd.text))
 
+console.log('\n=== ⑥ 两级分类（大分类）已接上 ===')
+const dbjs = fs.readFileSync(path.resolve(HERE, '..', 'electron', 'db.js'), 'utf8')
+ok('categories 表有 parent 列（DDL）', /parent TEXT DEFAULT ''/.test(dbjs))
+ok('迁移 migrateCategoryParent 已注册', /migrateCategoryParent\]/.test(dbjs) || /'分类大分类补列（两级分类）',\s*migrateCategoryParent/.test(dbjs))
+const groups = ['竿轮', '线组钩漂', '饵料小药', '渔具装备', '电器工具', '其他']
+const missingGroup = groups.filter((g) => !dbjs.includes(g + ':') && !dbjs.includes(g + ' '))
+ok('6 个大分类都写进了预填表', missingGroup.length === 0, '缺: ' + missingGroup.join(','))
+const bar = files.find((f) => f.rel === 'pages/inventory/InventoryFilterBar.tsx')
+ok('库存查询筛选栏有大分类筛选', !!bar && /categoryGroup/.test(bar.text))
+const table = files.find((f) => f.rel === 'pages/inventory/InventoryTable.tsx')
+ok('库存表格有大分类列', !!table && /TableHead>大分类</.test(table.text))
+ok('两处都从 store 的 categories 派生（不另存一份真相）',
+  !!bar && !!table && /s\.categories/.test(bar.text) && /s\.categories/.test(table.text))
+
 console.log('\n================ 结果 ================')
 console.log('PASS ' + pass + '   FAIL ' + fail)
 process.exit(fail === 0 ? 0 : 1)

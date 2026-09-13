@@ -43,6 +43,9 @@ export function InventoryPage() {
   const [keyword, setKeyword] = useState('')
   const [debouncedKeyword, setDebouncedKeyword] = useState('')
   const [category, setCategory] = useState(ALL)
+  // 大分类（两级分类的上层，2026-09-13）：来自 categories.parent。
+  // 选某个大分类 = 选中它下面的所有小分类（层级只存在分类表里，商品数据不动）。
+  const [categoryGroup, setCategoryGroup] = useState(ALL)
   const [status, setStatus] = useState(ALL)
   // 低库存快捷筛选：仪表盘「低库存」卡片跳转过来时自动开启
   const [lowOnly, setLowOnly] = useState(false)
@@ -334,9 +337,23 @@ export function InventoryPage() {
   const brands = useMemo(() => [...new Set(products.map((p) => p.brand).filter((b): b is string => !!b))].sort(), [products])
   const locations = useMemo(() => [...new Set(products.map((p) => p.location).filter((l): l is string => !!l))].sort(), [products])
 
+  // ---------- 两级分类（大分类 > 小分类）----------
+  // 层级只存在 categories 表里（parent 列），这里全部派生，不另存一份真相。
+  const categories = useAppStore((s) => s.categories)
+  const categoryGroups = useMemo(
+    () => [...new Set(categories.map((c) => c.parent).filter((g): g is string => !!g))].sort(),
+    [categories],
+  )
+  const groupOf = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const c of categories) if (c.parent) m.set(c.name, c.parent)
+    return m
+  }, [categories])
+
   const resetFilters = () => {
     setKeyword('')
     setCategory(ALL)
+    setCategoryGroup(ALL)
     setStatus(ALL)
     setLowOnly(false)
     setExpiringOnly(false)
@@ -348,6 +365,7 @@ export function InventoryPage() {
 
   const filtered = useMemo(() => {
     return products.filter((p) => {
+      if (categoryGroup !== ALL && groupOf.get(p.category) !== categoryGroup) return false
       if (category !== ALL && p.category !== (category as Category)) return false
       if (status !== ALL && p.status !== (status as ProductStatus)) return false
       if (lowOnly && totalStockOf(p.id) >= (p.min_stock ?? LOW_STOCK_THRESHOLD)) return false
@@ -371,7 +389,7 @@ export function InventoryPage() {
       }
       return true
     })
-  }, [products, category, status, debouncedKeyword, lowOnly, expiringOnly, expiringMap, totalStockOf, brand, location, stockMin, stockMax])
+  }, [products, category, categoryGroup, groupOf, status, debouncedKeyword, lowOnly, expiringOnly, expiringMap, totalStockOf, brand, location, stockMin, stockMax])
 
   // 表头排序（纯前端，不动数据层）：主表按总库存（批次子表排序在 InventoryTable 内部）
   const [stockSort, setStockSort] = useState<SortDir | null>(null)
@@ -474,6 +492,9 @@ export function InventoryPage() {
         onKeywordChange={setKeyword}
         category={category}
         onCategoryChange={setCategory}
+        categoryGroup={categoryGroup}
+        onCategoryGroupChange={setCategoryGroup}
+        categoryGroups={categoryGroups}
         status={status}
         onStatusChange={setStatus}
         lowOnly={lowOnly}

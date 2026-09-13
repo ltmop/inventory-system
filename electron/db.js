@@ -22,13 +22,15 @@ PRAGMA temp_store = MEMORY;
 PRAGMA foreign_keys = ON;
 
 -- 分类表（通用版）：用户可增删改/排序，行业模板一键套用
+-- parent = 所属「大分类」（两级分类，2026-09-13 加）。空串=未归组（会被迁移归到「其他」）
 CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
     sort_order INTEGER NOT NULL DEFAULT 0,
     icon TEXT,
     template_type TEXT DEFAULT 'custom',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    parent TEXT DEFAULT ''
 );
 -- 计量单位表（通用版）：件/斤/米等，allow_decimal=1 支持小数数量
 CREATE TABLE IF NOT EXISTS units (
@@ -392,6 +394,7 @@ function runMigrations(db) {
     ['套装价格补列', migrateKitPrice],
     ['多门店预留补列', migrateStoreCode],
     ['销售渠道补列（首单判据）', migrateTransactionChannel],
+    ['分类大分类补列（两级分类）', migrateCategoryParent],
     ['批次生产日期补列', migrateBatchProductionDate],
     ['会员字段补列', migrateCustomerMember],
     ['分类/单位种子', seedCategoriesAndUnits],
@@ -715,6 +718,44 @@ const DEFAULT_UNITS = [
 ]
 // 通用默认分类（首次迁移/空库用；首启行业模板选择后可替换）
 const DEFAULT_CATEGORIES = ['食品饮料', '日用百货', '文具办公', '五金工具', '清洁用品', '其他']
+
+/**
+ * 商品两级分类（2026-09-13）：categories.parent —— 「大分类 > 小分类」。
+ *
+ * 为什么层级放在 categories 表、而不是给 products 加一列：
+ *   products.category 存的是分类**名字**（'鱼钩'/'饵料'…），层级是分类自身的属性。
+ *   放在分类表里 ⇒ 改层级不用动任何一个商品字段，也不会出现"商品与大分类不一致"。
+ *
+ * 预填的是「渔具店常用归组」六组（老板 2026-09-13 确认）；店主可在「分类管理」里随时改。
+ * **只填空值**：已经有 parent 的分类不动，避免覆盖店主自己的分组。
+ */
+const CATEGORY_GROUPS = {
+  竿轮: ['鱼竿', '渔轮'],
+  线组钩漂: ['鱼钩', '鱼线', '铅坠', '浮漂'],
+  饵料小药: ['饵料', '路亚假饵', '小药', '活饵'],
+  渔具装备: ['收纳包具', '服装穿戴', '渔网', '钓箱钓椅', '伞/遮阳', '支架'],
+  电器工具: ['工具配件', '灯具', '增氧保鲜'],
+  其他: ['其他'],
+}
+
+function migrateCategoryParent(db) {
+  try {
+    const cols = db.prepare('PRAGMA table_info(categories)').all().map((c) => c.name)
+    if (!cols.includes('parent')) db.exec("ALTER TABLE categories ADD COLUMN parent TEXT DEFAULT ''")
+  } catch { return /* 表不存在等，忽略 */ }
+  try {
+    // 「其他」这个分类商品里已经在用（历史上是代码兜底写进 products.category 的），
+    // 但分类表里没有它 → 补进去。否则那些商品在分类下拉里永远选不到、也筛不出来。
+    db.prepare("INSERT OR IGNORE INTO categories (name, sort_order, template_type, parent) VALUES ('其他', 999, 'custom', '其他')").run()
+    // 预填大分类：只填空值
+    const setP = db.prepare("UPDATE categories SET parent = ? WHERE name = ? AND (parent IS NULL OR parent = '')")
+    for (const [group, names] of Object.entries(CATEGORY_GROUPS)) {
+      for (const n of names) setP.run(group, n)
+    }
+    // 兜底：店主自建的分类 / 行业模板套出来的分类，不留空组
+    db.prepare("UPDATE categories SET parent = '其他' WHERE parent IS NULL OR parent = ''").run()
+  } catch { /* 忽略 */ }
+}
 
 /** 多门店预留：核心表补 store_code（只增不改；单店期恒为 ''） */
 function migrateStoreCode(db) {

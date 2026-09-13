@@ -513,6 +513,9 @@ export interface CategoryRow {
   icon: string | null
   template_type: string
   created_at?: string
+  /** 所属「大分类」（两级分类的上层，2026-09-13）。空串=未归组。
+   *  层级只存在分类表里，商品仍只存分类名 → 改层级不用动任何商品数据。 */
+  parent?: string
   /** 该分类下商品数（listCategoriesWithCount 返回） */
   product_count?: number
 }

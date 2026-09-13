@@ -25,6 +25,7 @@ import { EmptyState } from '@/components/EmptyState'
 import { productPhotoUrl } from '@/lib/photo'
 import { formatSpecs } from '@/lib/productSpecs'
 import { usePagination } from '@/lib/usePagination'
+import { useAppStore } from '@/store/appStore'
 import { cn } from '@/lib/utils'
 import type { ExpiringProduct, InventoryBatch, Product, ProductStatus, Supplier } from '@/types'
 
@@ -98,6 +99,9 @@ export function InventoryTable({
   onTogglePage,
 }: InventoryTableProps) {
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
+  // 两级分类：小分类名 → 大分类名（从 categories 表派生，不另存一份真相）
+  const categories = useAppStore((s) => s.categories)
+  const groupOf = new Map(categories.map((c) => [c.name, c.parent || '']))
   // 批次子表排序（纯前端，不动数据层）：按数量/单价/入库日期
   const [batchSort, setBatchSort] = useState<{ key: BatchSortKey; dir: SortDir } | null>(null)
   // 点缩略图弹大图预览（存的是 fi-img:// 地址，关弹窗即清）
@@ -167,6 +171,7 @@ export function InventoryTable({
                   <TableHead className="w-10" />
                   <TableHead className="w-14">图片</TableHead>
                   <TableHead>SKU</TableHead>
+                  <TableHead>大分类</TableHead>
                   <TableHead>品类</TableHead>
                   <TableHead>品牌</TableHead>
                   <TableHead>型号规格</TableHead>
@@ -241,6 +246,7 @@ export function InventoryTable({
                           })()}
                         </TableCell>
                         <TableCell className="py-1.5 font-mono text-xs">{p.sku_code}</TableCell>
+                        <TableCell className="py-1.5 text-slate-500">{groupOf.get(p.category) || '—'}</TableCell>
                         <TableCell className="py-1.5">{p.category}</TableCell>
                         <TableCell className="py-1.5">{p.brand ?? '—'}</TableCell>
                         <TableCell className="py-1.5">

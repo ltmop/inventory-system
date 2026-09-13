@@ -19,6 +19,10 @@ interface InventoryFilterBarProps {
   onKeywordChange: (v: string) => void
   category: string
   onCategoryChange: (v: string) => void
+  /** 大分类（两级分类的上层）；选它 = 选中其下所有小分类 */
+  categoryGroup: string
+  onCategoryGroupChange: (v: string) => void
+  categoryGroups: string[]
   status: string
   onStatusChange: (v: string) => void
   lowOnly: boolean
@@ -46,6 +50,9 @@ export function InventoryFilterBar({
   onKeywordChange,
   category,
   onCategoryChange,
+  categoryGroup,
+  onCategoryGroupChange,
+  categoryGroups,
   status,
   onStatusChange,
   lowOnly,
@@ -88,6 +95,20 @@ export function InventoryFilterBar({
               className="pl-9"
             />
           </div>
+          {/* 大分类（两级分类的上层）：选它 = 选中其下所有小分类 */}
+          <Select value={categoryGroup} onValueChange={onCategoryGroupChange}>
+            <SelectTrigger className="w-32">
+              <SelectValue placeholder="大分类" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={allValue}>全部大分类</SelectItem>
+              {categoryGroups.map((g) => (
+                <SelectItem key={g} value={g}>
+                  {g}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Select value={category} onValueChange={onCategoryChange}>
             <SelectTrigger className="w-36">
               <SelectValue placeholder="品类" />
