@@ -12,10 +12,6 @@ import {
   Snail,
   CircleDollarSign,
   Truck,
-  User,
-  Settings,
-  PackageSearch,
-  KeyRound,
 } from 'lucide-react'
 import {
   Area,
@@ -46,6 +42,7 @@ import { AdviceCard } from './dashboard/AdviceCard'
 import { computeRestockAdvice } from '@/lib/restockAdvice'
 import { computeTrend, computeTop } from '@/lib/analytics'
 import { VitalsBar } from '@/components/vitals/VitalsBar'
+import { countLowStock } from '@/lib/stockVitals'
 import { EmptyState } from '@/components/EmptyState'
 
 // 海洋系配色：深海蓝→湖蓝→湖水青→水草绿→沙滩金，像海面由深到浅的层次
@@ -121,7 +118,7 @@ export function DashboardPage() {
       .filter((t) => t.type === 'out' && isToday(t.timestamp))
       .reduce((s, t) => s + t.quantity, 0)
     const pendingCount = products.filter((p) => p.status === '待盘点').length
-    const lowStockCount = products.filter((p) => totalStockOf(p.id) < (p.min_stock ?? LOW_STOCK_THRESHOLD)).length
+    const lowStockCount = countLowStock(products, totalStockOf)
     // 滞销：有库存但最近 90 天没有出库记录
     const slowCount = products.filter((p) => {
       if (totalStockOf(p.id) <= 0) return false
@@ -293,6 +290,13 @@ export function DashboardPage() {
   const topProducts = useMemo(() => computeTop(transactions, products, 10), [transactions, products])
 
   const int = (v: number) => String(Math.round(v))
+
+  // 「更多经营数据」折叠开关：默认收起。
+  // 首页原先一屏叠了 13 个区块（体征条 → 今日经营 → AI → 6 个快捷入口 → 10 个指标卡
+  // → 采购提醒 → 临期提醒 → 经营建议 → 今日小结 → 品类饼图 → 出入库趋势 → 营收趋势 → 畅销榜）。
+  // owner 2026-09-14 反馈「布局太乱、太专业，除了开发者没人会用」。现在老板一进来只看三件事。
+  const [more, setMore] = useState(false)
+
   const cards: CardSpec[] = [
     { title: '总SKU', value: products.length, format: int, unit: '个商品', icon: Box,
       cardClass: 'border border-slate-200 bg-white', iconClass: 'bg-brand-50 text-brand-600', numClass: 'text-slate-900',
@@ -339,24 +343,23 @@ export function DashboardPage() {
       {/* 数据看板头：一个主行动 + 今日关键信息（Direction A：数据先行、去装饰） */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">经营看板</div>
-          <div className="mt-1.5 flex items-baseline gap-3">
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">今日经营</h1>
-            <span className="text-sm font-medium tabular-nums text-slate-500 dark:text-slate-400">
-              {new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })}
-            </span>
+          <div className="mt-1 flex items-baseline gap-3">
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+              {new Date().getHours() < 12 ? '早上好' : new Date().getHours() < 18 ? '下午好' : '晚上好'}，今天生意怎么样？
+            </h1>
           </div>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">数据来自本地库存与流水 · 实时</p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            {new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })} · 数字都是本店实时的
+          </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Button onClick={() => navigate('/outbound')} className="gap-1.5">
-            <PackageMinus className="size-4" /> 开单
+          {/* 两个大按钮：店里一天就这两件事。原先这里还并排一个「大屏」——
+              对收银的人来说是噪音，已挪进「更多经营数据」。 */}
+          <Button onClick={() => navigate('/outbound')} size="lg" className="gap-2 px-6 text-base">
+            <PackageMinus className="size-5" /> 开单
           </Button>
-          <Button variant="outline" onClick={() => navigate('/inbound')} className="gap-1.5">
-            <PackagePlus className="size-4" /> 入库
-          </Button>
-          <Button variant="outline" onClick={() => navigate('/bigscreen')} className="gap-1.5">
-            <MonitorPlay className="size-4" /> 大屏
+          <Button variant="outline" onClick={() => navigate('/inbound')} size="lg" className="gap-2 px-6 text-base">
+            <PackagePlus className="size-5" /> 入库
           </Button>
         </div>
       </div>
@@ -368,14 +371,14 @@ export function DashboardPage() {
       <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-card">
         <div className="flex items-end justify-between gap-4">
           <div className="min-w-0">
-            <div className="text-xs font-medium text-slate-500">今日经营</div>
+            <div className="text-sm font-medium text-slate-500">今天赚了多少</div>
             <div className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-slate-900 dark:text-white">
               {formatPrice(todaySales.revenue)}
             </div>
-            <div className="mt-1 text-sm text-slate-500">{todaySales.qty} 件卖出 · 数据来自本地流水</div>
+            <div className="mt-1 text-sm text-slate-500">卖出 {todaySales.qty} 件</div>
           </div>
           <div className="text-right">
-            <div className="text-xs text-slate-500">毛利</div>
+            <div className="text-sm font-medium text-slate-500">赚了（毛利）</div>
             <div className="mt-1 text-2xl font-bold tabular-nums text-emerald-600">{formatPrice(todaySales.profit)}</div>
             <div className="mt-1 text-xs text-slate-400">{todaySales.margin !== null ? `毛利率 ${(todaySales.margin * 100).toFixed(1)}%` : '还没有成交'}</div>
           </div>
@@ -393,33 +396,29 @@ export function DashboardPage() {
       {/* AI 助手卡：M2-1 前置——一打开就看见 AI 能帮他补货（AI 是能力不是页面） */}
       <AiPanel />
 
-      {/* 通用版快捷入口（AI 已并入首页卡 + 全局浮层，不再单列） */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        {[
-          { to: '/inbound-hub', label: '入库', desc: '进货/收货/供应商', icon: PackagePlus },
-          { to: '/sales-hub', label: '销售', desc: '开单/客户/收款', icon: PackageMinus },
-          { to: '/stock-hub', label: '库存', desc: '查询/盘点/报损', icon: PackageSearch },
-          { to: '/mine-hub', label: '我的', desc: '报表/备份/云同步', icon: User },
-          { to: '/account', label: '账号', desc: '登录/同步/远程看店', icon: KeyRound },
-          { to: '/settings', label: '设置', desc: '行业/主题/系统', icon: Settings },
-        ].map((q) => (
-          <Link
-            key={q.to}
-            to={q.to}
-            className="group flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-md"
-          >
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-brand-50 text-brand-600">
-              <q.icon className="size-4.5" />
-            </div>
-            <div className="min-w-0">
-              <div className="text-[15px] font-bold text-slate-900">{q.label}</div>
-              <div className="truncate text-xs text-slate-500">{q.desc}</div>
-            </div>
-          </Link>
-        ))}
-      </div>
+      {/* 下面这些默认**收起**。原先它们直接摊在首页上，一共 13 个区块，
+          owner 反馈「太乱、太专业，除了开发者没人会用」。
+          另外原来的 6 个快捷入口卡片（入库/销售/库存/我的/账号/设置）已删 ——
+          左侧栏本来就是同样 6 个入口，等于重复了一遍。 */}
+      <button
+        onClick={() => setMore((v) => !v)}
+        className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white/60 px-4 py-3 text-sm font-medium text-slate-500 transition-colors hover:border-brand-400 hover:text-brand-700"
+      >
+        {more ? '收起更多经营数据 ↑' : '更多经营数据（指标 / 小结 / 图表 / 排行）↓'}
+      </button>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {more && (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => navigate('/bigscreen')} className="gap-1.5">
+              <MonitorPlay className="size-4" /> 经营大屏
+            </Button>
+            <Link to="/reports" className="text-sm text-brand-700 hover:underline">
+              看经营报表 →
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {cards.map((spec, i) => (
           <StatCard key={spec.title} spec={spec} index={i} />
         ))}
@@ -582,6 +581,8 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+        </>
+      )}
     </div>
   )
 }

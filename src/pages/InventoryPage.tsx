@@ -8,6 +8,7 @@ import { SellQrLabelDialog } from '@/components/SellQrLabel'
 import { productName, csvCell } from '@/lib/formatters'
 import { computeExpiring } from '@/lib/expiry'
 import { subCategoryOptions } from '@/lib/subCategories'
+import { countLowStock } from '@/lib/stockVitals'
 import {
   SPEC_FIELDS, collectSpecs, specsToForm, type SpecField,
 } from '@/lib/productSpecs'
@@ -72,7 +73,8 @@ export function InventoryPage() {
   // 库存看板指标（Direction A）：总库存 / 低库存 / 临期 / 待盘点
   const inventoryMetrics = useMemo(() => {
     const totalStock = batches.reduce((s, b) => s + b.quantity, 0)
-    const lowCount = products.filter((p) => totalStockOf(p.id) <= (p.min_stock ?? LOW_STOCK_THRESHOLD)).length
+    // 低库存：**唯一判据**在 lib/stockVitals.ts（此前这里用 `<=`、顶栏用 `<`，同屏两个数）
+    const lowCount = countLowStock(products, totalStockOf)
     const pending = products.filter((p) => p.status === '待盘点').length
     return { totalStock, lowCount, expiring: expiringMap.size, pending }
   }, [products, batches, totalStockOf, expiringMap])

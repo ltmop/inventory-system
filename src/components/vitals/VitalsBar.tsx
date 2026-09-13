@@ -1,111 +1,90 @@
 import { useMemo } from 'react'
-import { HeartPulse, Droplets, TriangleAlert, Cloud } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { TriangleAlert, Boxes } from 'lucide-react'
 import { useAppStore } from '@/store/appStore'
-import { isToday } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
+import { countLowStock } from '@/lib/stockVitals'
 
-/** 经营体征条：销售心跳 / 库存水位 / 警戒呼吸 / 云同步新鲜度 —— 每个动画都绑定真实业务字段。 */
+/**
+ * 首页体征条（2026-09-14 扁平化重做）。
+ *
+ * 原先这里有 **4 张卡**：今日成交 / 库存水位 / 库存警戒 / 云同步新鲜度。三个问题：
+ *   ① 「今日成交 0 笔」与下面「今天赚了多少」的卡片数字重复；
+ *   ② 「云同步新鲜度」看的是**云账号**（cloud.paired），于是中心库模式下
+ *      顶栏写「已连接中心库」、这张卡却写「未连接云端」—— **同一个画面两种结论**；
+ *   ③ 「库存水位（约 ¥584 万）」+ 百分比进度条 + 「低于 30% 变红」是内部指标，
+ *      老板看不懂，而且 ¥100,000 当"满水位"是个拍出来的常数。
+ * 现在只留老板真正会看的两件事，用大白话：**该补什么货** / **店里的货**。
+ * 连接状态归顶栏（那里已经有「已连接中心库」），不再重复。
+ */
 export function VitalsBar() {
   const products = useAppStore((s) => s.products)
   const batches = useAppStore((s) => s.batches)
-  const transactions = useAppStore((s) => s.transactions)
   const totalStockOf = useAppStore((s) => s.totalStockOf)
-  const cloud = useAppStore((s) => s.cloud)
 
-  // 今日成交（销售心跳）
-  const todayOutCount = useMemo(
-    () => transactions.filter((t) => t.type === 'out' && isToday(t.timestamp)).length,
-    [transactions],
-  )
-  // 库存水位（货值 + 总件数）
-  const { totalValue, totalStock } = useMemo(() => {
-    let v = 0, q = 0
-    for (const b of batches) { if (b.quantity > 0) { q += b.quantity; v += b.quantity * b.cost_price } }
-    return { totalValue: v, totalStock: q }
-  }, [batches])
-  // 水位百分比：以 ¥100,000 为满水位，低于 30% 变红
-  const water = Math.min(100, Math.round((totalValue / 100000) * 100))
-  const waterLow = water < 30
-  // 警戒
-  const lowCount = products.filter((p) => totalStockOf(p.id) <= (p.min_stock ?? 5)).length
-  const expiringCount = useMemo(
-    () => products.filter((p) => (p as any).expiry_date && new Date((p as any).expiry_date) <= new Date(Date.now() + 30 * 86400000)).length,
-    [products],
-  )
-  // 同步新鲜度
-  const sync = useMemo(() => {
-    if (cloud.syncing) return { cls: 'text-emerald-500', dot: 'bg-emerald-500', label: '正在同步…' }
-    if (cloud.error) return { cls: 'text-red-500', dot: 'bg-red-500', label: '同步异常' }
-    if (!cloud.paired) return { cls: 'text-amber-500', dot: 'bg-amber-500', label: '未连接云端' }
-    if (cloud.lastSyncAt) {
-      const mins = Math.round((Date.now() - new Date(cloud.lastSyncAt).getTime()) / 60000)
-      const t = mins < 1 ? '刚刚' : mins < 60 ? mins + ' 分钟前' : mins < 1440 ? Math.round(mins / 60) + ' 小时前' : Math.round(mins / 1440) + ' 天前'
-      const cls = mins < 5 ? 'text-emerald-500' : mins < 60 ? 'text-amber-500' : 'text-red-500'
-      const dot = mins < 5 ? 'bg-emerald-500' : mins < 60 ? 'bg-amber-500' : 'bg-red-500'
-      return { cls, dot, label: '已同步 ' + t }
+  // 低库存：**唯一判据**在 lib/stockVitals.ts（此前这里用 `<=`、顶栏用 `<`，
+  // 同屏出现「顶栏 28 缺货」和「首页低库存 42」，已统一为 `<`）
+  const lowCount = useMemo(() => countLowStock(products, totalStockOf), [products, totalStockOf])
+
+  const { totalQty, totalValue } = useMemo(() => {
+    let q = 0
+    let v = 0
+    for (const b of batches) {
+      if (b.quantity > 0) {
+        q += b.quantity
+        v += b.quantity * b.cost_price
+      }
     }
-    return { cls: 'text-amber-500', dot: 'bg-amber-500', label: '云端已连接' }
-  }, [cloud])
+    return { totalQty: q, totalValue: v }
+  }, [batches])
 
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-      {/* 销售心跳 */}
-      <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 dark:border-white/10 dark:bg-white/5">
-        <HeartPulse className={cn('size-5', todayOutCount > 0 ? 'text-red-500' : 'text-slate-400')} />
-        <div>
-          <div className="flex items-center gap-1">
-            <span className="relative flex size-2.5">
-              {todayOutCount > 0 && <span className="absolute inline-flex size-full animate-ping rounded-full bg-red-400 opacity-75" />}
-              <span className="relative inline-flex size-2.5 rounded-full bg-red-500" />
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+      {/* 该补什么货 */}
+      <Link
+        to="/inventory?filter=low"
+        className={cn(
+          'flex items-center gap-4 rounded-2xl border px-5 py-4 transition-colors',
+          lowCount > 0
+            ? 'border-red-200 bg-red-50 hover:bg-red-100'
+            : 'border-slate-200 bg-white hover:bg-slate-50',
+        )}
+      >
+        <div
+          className={cn(
+            'flex size-11 shrink-0 items-center justify-center rounded-xl',
+            lowCount > 0 ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-400',
+          )}
+        >
+          <TriangleAlert className="size-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm text-slate-500">该补什么货</div>
+          <div className="mt-0.5 flex items-baseline gap-2">
+            <span className={cn('text-2xl font-bold tabular-nums', lowCount > 0 ? 'text-red-600' : 'text-slate-900')}>
+              {lowCount}
             </span>
-            <span className="text-lg font-bold tabular-nums text-slate-900 dark:text-slate-100">{todayOutCount}</span>
+            <span className="text-sm text-slate-500">个快卖完了{lowCount > 0 ? '，点这里看是哪些' : ''}</span>
           </div>
-          <div className="text-xs text-slate-500">今日成交 · 来一单快一拍</div>
         </div>
-      </div>
+      </Link>
 
-      {/* 库存水位 */}
-      <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 dark:border-white/10 dark:bg-white/5">
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <Droplets className={cn('size-4', waterLow ? 'text-red-500' : 'text-lake-600')} />
-          库存水位（约 ¥{Math.round(totalValue / 10000)} 万）
+      {/* 店里的货 */}
+      <div className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-4">
+        <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
+          <Boxes className="size-5" />
         </div>
-        <div className="mt-2 flex items-center gap-2">
-          <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-white/10">
-            <div
-              className={cn('h-full rounded-full transition-all duration-1000', waterLow ? 'bg-red-500' : 'bg-lake-500')}
-              style={{ width: water + '%' }}
-            />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm text-slate-500">店里的货</div>
+          <div className="mt-0.5 flex items-baseline gap-2">
+            <span className="text-2xl font-bold tabular-nums text-slate-900">
+              {Math.round(totalQty).toLocaleString()}
+            </span>
+            <span className="text-sm text-slate-500">件</span>
           </div>
-          <span className={cn('text-sm font-bold tabular-nums', waterLow ? 'text-red-500' : 'text-slate-800 dark:text-slate-100')}>{water}%</span>
-        </div>
-        <div className="mt-1 text-xs text-slate-400">{totalStock.toLocaleString()} 件 · 低于 30% 变红</div>
-      </div>
-
-      {/* 警戒呼吸 */}
-      <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 dark:border-white/10 dark:bg-white/5">
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <TriangleAlert className="size-4 text-amber-500" /> 库存警戒
-        </div>
-        <div className="mt-2 flex gap-2">
-          <span className={cn('flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold', lowCount > 0 ? 'animate-pulse bg-red-50 text-red-600 dark:bg-red-500/20 dark:text-red-400' : 'bg-slate-50 text-slate-400 dark:bg-white/5')}>
-            <span className="size-1.5 rounded-full bg-current" /> 低库存 {lowCount}
-          </span>
-          <span className={cn('flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold', expiringCount > 0 ? 'animate-pulse bg-amber-50 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400' : 'bg-slate-50 text-slate-400 dark:bg-white/5')}>
-            <span className="size-1.5 rounded-full bg-current" /> 临期 {expiringCount}
-          </span>
-        </div>
-      </div>
-
-      {/* 云同步新鲜度 */}
-      <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 dark:border-white/10 dark:bg-white/5">
-        <Cloud className={cn('size-5', sync.cls)} />
-        <div>
-          <div className="flex items-center gap-1.5">
-            <span className={cn('size-2.5 animate-pulse rounded-full', sync.dot)} />
-            <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{sync.label}</span>
+          <div className="mt-0.5 text-xs text-slate-400">
+            按进价算约 ¥{Math.round(totalValue / 10000)} 万 · 共 {products.length} 种商品
           </div>
-          <div className="text-xs text-slate-500">多台电脑共享 · 数据实时</div>
         </div>
       </div>
     </div>

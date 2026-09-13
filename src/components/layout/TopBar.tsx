@@ -4,6 +4,7 @@ import { Moon, Sun, Search, Settings, PanelLeftClose, PanelLeftOpen, AlertTriang
 import { useAppStore } from '@/store/appStore'
 import { OfflineChip } from './OfflineBanner'
 import { getCentralConfig } from '@/lib/api'
+import { countLowStock } from '@/lib/stockVitals'
 
 // 路由 → 页面标题，顶栏左侧显示当前在哪一页
 const TITLE_MAP: Record<string, string> = {
@@ -40,7 +41,9 @@ export function TopBar({
   const navigate = useNavigate()
   const darkMode = useAppStore((s) => s.darkMode)
   const setDarkMode = useAppStore((s) => s.setDarkMode)
-  const lowStockCount = useAppStore((s) => s.products.filter((p) => s.totalStockOf(p.id) < (p.min_stock ?? 5)).length)
+  // 低库存：**唯一判据**在 lib/stockVitals.ts。
+  // 此前首页体征条用 `<=`、这里用 `<`，于是同一屏出现「顶栏 28 缺货」和「首页低库存 42」。
+  const lowStockCount = useAppStore((s) => countLowStock(s.products, s.totalStockOf))
   const currentUser = useAppStore((s) => s.currentUser)
   const staffLogout = useAppStore((s) => s.staffLogout)
   // 云账号（多设备同步用）
