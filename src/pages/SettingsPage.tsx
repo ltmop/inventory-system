@@ -62,6 +62,9 @@ export function SettingsPage() {
   const [updateChecking, setUpdateChecking] = useState(false)
   const [lastCheckAt, setLastCheckAt] = useState('')
   const [updateMsg, setUpdateMsg] = useState('')
+  // 检查结果的状态机：idle=还没查过 / latest=已是最新 / hasNew=有新版 / failed=检查失败（带原因）
+  // 为什么要显式记状态：以前只用「有没有 version」推断，失败（没有 version）会被显示成"已是最新"。
+  const [updateResult, setUpdateResult] = useState<'idle' | 'latest' | 'hasNew' | 'failed'>('idle')
   // 修复 2026-09-01：设置页「发现新版本」后直接给下载入口（此前只有文字提示，用户无从下载）
   const [newVersion, setNewVersion] = useState<string | null>(null)
   const [downloadingUpdate, setDownloadingUpdate] = useState(false)
@@ -72,17 +75,34 @@ export function SettingsPage() {
     setUpdateMsg('')
     setNewVersion(null)
     setUpdateDownloaded(false)
+    setUpdateResult('idle')
+    const stamp = () => {
+      const t = new Date()
+      return `${t.getMonth() + 1}/${t.getDate()} ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`
+    }
     try {
+      // 后端返回三种结果（见 electron/updater.js）：已是最新 / 有新版 / 检查失败（带原因）
       const r = backend
         ? await backend.invoke('update:check')
-        : { version: null, checkedAt: new Date().toISOString() }
-      const t = new Date(r.checkedAt)
-      setLastCheckAt(`${t.getMonth() + 1}/${t.getDate()} ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`)
-      const hasNew = r.version && r.version !== APP_VERSION
-      setNewVersion(hasNew ? r.version : null)
-      setUpdateMsg(hasNew ? '发现新版本 v' + r.version : '已是最新')
-    } catch {
-      setUpdateMsg('检查失败，请稍后再试')
+        : { ok: false, error: '当前环境没有桌面后端（浏览器里打开时无法检查更新）', currentVersion: APP_VERSION, checkedAt: new Date().toISOString() }
+      // ⚠️ 失败也必须设 lastCheckAt —— 下面那行的显示条件依赖它，
+      //    以前 catch 分支不设它，导致"点了没反应"（消息其实设了，只是不渲染）。
+      setLastCheckAt(stamp())
+      if (r?.ok && r.hasUpdate && r.latestVersion) {
+        setNewVersion(r.latestVersion)
+        setUpdateMsg(`发现新版本 v${r.latestVersion}`)
+        setUpdateResult('hasNew')
+      } else if (r?.ok) {
+        setUpdateMsg('已是最新')
+        setUpdateResult('latest')
+      } else {
+        setUpdateMsg(`检查失败：${r?.error || '未知原因'}`)
+        setUpdateResult('failed')
+      }
+    } catch (e) {
+      setLastCheckAt(stamp())
+      setUpdateMsg(`检查失败：${e instanceof Error ? e.message : String(e)}`)
+      setUpdateResult('failed')
     } finally {
       setUpdateChecking(false)
     }
@@ -304,9 +324,25 @@ export function SettingsPage() {
               {downloadingUpdate ? '下载中...' : '下载更新 v' + newVersion}
             </button>
           )}
-          {lastCheckAt && updateMsg && (
-            <span className="text-xs text-slate-500">{updateMsg}</span>
-          )}
+          {/* 更新状态：**始终可见**（含当前版本号），三种结果各有明确措辞与颜色。
+              以前渲染条件是 `lastCheckAt && updateMsg`，而失败分支从不设 lastCheckAt，
+              于是"检查失败"的消息设了却不显示 —— 点按钮就像没反应。 */}
+          <span
+            className={
+              'text-xs ' +
+              (updateResult === 'failed'
+                ? 'text-red-600'
+                : updateResult === 'hasNew'
+                  ? 'font-medium text-brand-700'
+                  : 'text-slate-500')
+            }
+          >
+            当前 v{APP_VERSION}
+            {updateResult === 'latest' && ` · ${updateMsg}（${lastCheckAt} 检查）`}
+            {updateResult === 'hasNew' && ` → ${updateMsg}（${lastCheckAt} 检查）`}
+            {updateResult === 'failed' && ` · ${updateMsg}`}
+            {updateResult === 'idle' && !updateChecking && ' · 点「检查更新」看看有没有新版'}
+          </span>
         </div>
       </div>
 

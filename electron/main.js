@@ -463,9 +463,16 @@ function registerIpc() {
     inventoryServer ? inventoryServer.setEnabled(!!p?.enabled) : { enabled: false, running: false },
   )
   ipcMain.handle('server:regenerateToken', () => inventoryServer?.regenerateToken() ?? null)
-  // 自动更新通道：检查 / 下载安装（挂掉静默降级）
+  // 自动更新通道：检查 / 下载安装
+  // update:check **不再吞异常** —— checkForUpdates() 自己就把结果分成
+  // 已是最新 / 有新版 / 检查失败(带原因) 三种，界面要能显示"为什么失败"。
+  // 以前这里 catch 成 { checkedAt }（没有 ok、没有 version），界面于是把失败当成"已是最新"。
   ipcMain.handle('update:check', async () => {
-    try { return await checkForUpdates() } catch { return { checkedAt: new Date().toISOString() } }
+    try {
+      return await checkForUpdates()
+    } catch (e) {
+      return { ok: false, error: (e && e.message) ? e.message : String(e), checkedAt: new Date().toISOString() }
+    }
   })
   ipcMain.handle('update:downloadAndInstall', async () => {
     try { await downloadAndInstall() } catch (e) { throw new Error(e?.message ?? '下载失败') }

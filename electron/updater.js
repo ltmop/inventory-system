@@ -3,9 +3,20 @@
 // electron-updater 是 CJS 包（main=out/main.js），ESM 命名导入拿不到 autoUpdater，
 // 必须走 default 导入再解构（打包环境已实测命名导入直接启动崩溃）
 import electronUpdater from 'electron-updater'
-import { dialog, BrowserWindow } from 'electron'
+import { app, dialog, BrowserWindow } from 'electron'
 
 const { autoUpdater } = electronUpdater
+
+/** 版本号比较（1.0.10 vs 1.0.9 这种不能被字符串比较糊弄过去）：a>b 返回正数 */
+function cmpVersion(a, b) {
+  const pa = String(a || '').split('.').map((x) => parseInt(x, 10) || 0)
+  const pb = String(b || '').split('.').map((x) => parseInt(x, 10) || 0)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0)
+    if (d !== 0) return d
+  }
+  return 0
+}
 
 /** 初始化自动更新（COS generic provider，URL 在 package.json build.publish 配置） */
 export function initAutoUpdater() {
@@ -70,16 +81,39 @@ export function initAutoUpdater() {
   }
 }
 
-/** 手动检查更新（设置页按钮触发） */
+/**
+ * 手动检查更新（设置页按钮触发）。
+ *
+ * 返回结构明确区分三种结果，**绝不把"检查失败"伪装成"已是最新"**：
+ *   { ok:true,  hasUpdate:false, currentVersion, latestVersion, checkedAt }  已经是最新
+ *   { ok:true,  hasUpdate:true,  currentVersion, latestVersion, checkedAt }  有新版可更新
+ *   { ok:false, error,           currentVersion, checkedAt }                 检查失败（带原因，供界面显示）
+ *
+ * 两个曾经的坑：
+ *  ① 以前 catch 里只返回 { checkedAt }（没有 version）→ 界面把"没有 version"当成"没有新版"→
+ *     **网络不通/配置缺失时反而显示"已是最新"**，比不显示更糟：它让人以为已经查过了。
+ *  ② 以前用渲染层的 APP_VERSION 比对。那是**构建时写死**的版本号，与当前真正在跑的包可能不一致；
+ *     改用主进程的 app.getVersion()（当前安装版本的真值）。
+ */
 export async function checkForUpdates() {
+  const checkedAt = new Date().toISOString()
+  let currentVersion = ''
+  try { currentVersion = app.getVersion() } catch { currentVersion = '' }
   try {
     const result = await autoUpdater.checkForUpdates()
-    return {
-      version: result?.updateInfo?.version,
-      checkedAt: new Date().toISOString(),
+    const latestVersion = result?.updateInfo?.version ?? null
+    if (!latestVersion) {
+      return { ok: false, error: '更新源没有返回版本号（latest.yml 可能有问题）', currentVersion, checkedAt }
     }
-  } catch {
-    return { checkedAt: new Date().toISOString() }
+    return {
+      ok: true,
+      hasUpdate: cmpVersion(latestVersion, currentVersion) > 0,
+      currentVersion,
+      latestVersion,
+      checkedAt,
+    }
+  } catch (e) {
+    return { ok: false, error: (e && e.message) ? e.message : String(e), currentVersion, checkedAt }
   }
 }
 
