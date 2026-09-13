@@ -81,8 +81,33 @@ function syntaxCheckMainProcess() {
     .sort((a, b) => b.m - a.m)
   const installer = candidates[0]?.f
   if (!installer) throw new Error(`未找到安装包产物（期望文件名含 "Setup ${version}"）`)
-  fs.copyFileSync(path.join(tmpOut, installer), path.join(releaseDir, installer))
+
+  // 发布不只靠 .exe：应用内更新（electron-updater）要读 latest.yml + .blockmap。
+  // 以前只拷 .exe，结果 release/latest.yml 停在旧版本（实测停在 8/14 的 1.0.9），
+  // 想发布就得去 %TEMP% 里翻 —— 所以这里一并产物化，并当场校验版本号对得上。
+  const ymlPath = path.join(tmpOut, 'latest.yml')
+  if (!fs.existsSync(ymlPath)) throw new Error('未找到 latest.yml —— 应用内更新清单缺失，不能发布')
+  const yml = fs.readFileSync(ymlPath, 'utf8')
+  if (!new RegExp(`^version:\\s*['"]?${version.replace(/\./g, '\\.')}['"]?\\s*$`, 'm').test(yml)) {
+    throw new Error(`latest.yml 里的 version 与 package.json(${version}) 不一致 —— 会自动更新到错误版本，已中止\n${yml.slice(0, 300)}`)
+  }
+  if (!yml.includes(installer)) {
+    throw new Error(`latest.yml 指向的安装包不是本次构建的 ${installer}，已中止\n${yml.slice(0, 300)}`)
+  }
+
+  const toCopy = [installer, `${installer}.blockmap`, 'latest.yml']
+  for (const f of toCopy) {
+    const src = path.join(tmpOut, f)
+    if (!fs.existsSync(src)) { if (f === 'latest.yml') throw new Error('缺 latest.yml'); console.warn(`  跳过（不存在）: ${f}`); continue }
+    fs.copyFileSync(src, path.join(releaseDir, f))
+  }
+
+  const sha256 = (p) => require('crypto').createHash('sha256').update(fs.readFileSync(p)).digest('hex')
   console.log(`\n安装包已就绪: release/${installer}`)
+  console.log(`  sha256 : ${sha256(path.join(releaseDir, installer))}`)
+  console.log(`  大小   : ${fs.statSync(path.join(releaseDir, installer)).size} 字节`)
+  console.log(`  更新清单: release/latest.yml（version=${version}，已校验与本包一致）`)
+  console.log(`  同目录已放 .blockmap —— 发布时三个文件一起传，应用内更新才生效`)
 })().catch((e) => {
   console.error('打包失败:', e.message)
   process.exit(1)

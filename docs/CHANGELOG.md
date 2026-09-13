@@ -1,5 +1,45 @@
 # 进销存系统 CHANGELOG
 
+## v1.0.12 (2026-09-13) — 重打安装包 / 销售渠道 / 发布可追溯
+
+### 发布
+- **1.0.12 安装包产出**，取代作废的 1.0.11。1.0.11 是 09-12 手工 bump 的、**没落进任何提交**
+  （`package.json` 停 1.0.10、`package-lock` 停 1.0.11，互相矛盾），之后又落了 12 提交 / 46 文件 / +3190 行，
+  离线、渠道、幂等修复、B1 运维都不在里面 → 已移到 `release/旧版本/` 防误发。
+- 本次把版本落进 git（`2d23986`）再打包，并新建 `docs/发布记录.md` 记「安装包 ↔ 提交 ↔ sha256」，
+  补上以前查不出包对应哪份代码的缺口。
+- `scripts/dist.cjs`：过去只拷 `.exe`，`release/latest.yml` 一直停在旧版本（实测停在 8/14 的 1.0.9），
+  发布要自己去 `%TEMP%` 翻。现在一并产物化 `.blockmap` + `latest.yml`，并**当场校验**
+  `latest.yml` 的 `version` 与 `package.json` 一致、指向本次构建的 exe，不一致直接中止（防自动更新到错版本）。
+- 逐字节探针确认同步引擎 / 离线层 / 渠道字段**确实在 1.0.12 的 `app.asar` 内**，不只是源码里有。
+
+### 销售渠道 channel（首单北极星判据的前置）
+- 「开出首单」的判据是 `type=out 且 selling_price>0 且 渠道=Shopee`，但**全库原本没有渠道字段**
+  （中央库 27 表、桌面库 28 表逐表核实；此前 grep 到的 10 处 `channel` 是同名不同义）。
+- 新增 `electron/channels.js`（取值 线下/Shopee/优选仓/其他，单一事实源）+ `transactions.channel` 列
+  + DB 层默认触发器（出库空渠道 → 线下）+ 单品出库与**多品开单两条命令路径**的落库
+  + 开单界面渠道选择器。**Shopee 只能显式选**，禁止按金额/客户/时间推断。
+- 生产两库均已补列回填并各自 `VACUUM INTO` 备份自证。中央库实测：优选仓 31 / 线下 1 / 入库 NULL 333，
+  `渠道=Shopee` **0 行**。⚠️ 中央库存 1 笔 `type=out 且 金额>0`（¥7.50 现金）——
+  **去掉渠道条件北极星今天就会被误判成「已出」**，判据里的渠道条件是承重的。
+
+### 修掉一个会让「加字段」白加的静默缺陷
+- `scripts/migrate-sync-changelog.mjs` 只用「触发器在不在」判断，且建表用 `CREATE TRIGGER IF NOT EXISTS`
+  → 表加了新列后 `trg_*_upd` 的 WHEN 子句**永远不会更新**，该列的改动不进 `sync_changelog`，
+  多端同步静默漏掉（实测它仍报「0 个需要改」，而触发器里确实没有 channel）。
+- 改为按当前列现算期望 SQL 与 `sqlite_master` 原文归一化比对，报 最新/过旧→重建/缺失→新建，
+  执行时先 DROP 再 CREATE。修后实测 56 最新 / 恰好 1 过旧（正是加了列的 transactions）。
+- 两个迁移脚本的预迁移备份从 `fs.copyFileSync`（拷活 WAL 库会漏最近事务）改为 `VACUUM INTO` + 自证不一致即 exit 1。
+
+### 运维
+- 新增 `docs/运维-中心库归一-翻转Runbook.md`：核实了「默认走本地 IPC、中心库是设置里 opt-in」，
+  并给出安全翻转顺序。
+- **更正本节下方 v1.0.9 的说法**：「登录即 `setCentralConfig`（默认切中心库入口）」**不准确**。
+  实测 `CloudLoginGate.tsx` 里登录与「连接中心库」是两个独立的手动动作，**登录不会**把机器切到中心库。
+  原描述会让人以为登录是安全的，从而在没备份的情况下放心登录 —— 属危险描述。
+- 新增 `scripts/server/snapshot-db.mjs`（通用在线一致快照，自证行数一致）、
+  `scripts/server/central-data-audit.mjs`（中央库数据缺口体检）、`scripts/inspect-sync-trigger.mjs`（同步触发器巡检）。
+
 ## 未发布 — 定价建议引擎（决策层 MVP-2）+ T1 工作树归位
 
 ### 定价建议引擎（MVP-2，2026-09-10）
