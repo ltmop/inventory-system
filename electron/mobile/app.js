@@ -271,7 +271,8 @@ function openConnectPanel(firstRun) {
     '<button id="cn-go" style="width:100%;height:60px;border-radius:14px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:19px;font-weight:800">连接</button>' +
     '<button id="cn-off" style="width:100%;height:50px;margin-top:12px;border-radius:12px;border:none;background:rgba(248,113,113,.18);color:#ffd9d9;font-size:15px">断开本机连接</button>' +
     '<div style="font-size:12px;color:#8fa3c0;margin-top:14px;line-height:1.8">当前：' + (TOKEN ? '已连接' : '还没连接') + '<br>连接码在店主那台电脑上，或让店主发你一条链接。' +
-    (firstRun ? '<br><br>连上以后，开单、查库存、看今天赚多少都能用。' : '') + '</div>'
+    (firstRun ? '<br><br>连上以后，开单、查库存、看今天赚多少都能用。' : '') + '</div>' +
+    (SERVER ? '<button id="cn-up" style="width:100%;height:44px;margin-top:12px;border-radius:12px;border:none;background:rgba(255,255,255,.08);color:#b9c8dd;font-size:14px">🔄 检查更新（当前 ' + APP_VERSION + '）</button>' : '')
   document.body.appendChild(ov)
   const inp = ov.querySelector('#cn-in'), echo = ov.querySelector('#cn-echo')
   function refresh() {
@@ -302,6 +303,8 @@ function openConnectPanel(firstRun) {
     openScanner(function (code) { if (code) { inp.value = code; refresh() } }, '扫描店主给的二维码')
   }
   ov.querySelector('#cn-go').onclick = connect
+  const upBtn = ov.querySelector('#cn-up')   // 还没连上时的更新入口（1.1.2 起；浏览器页面没有这个按钮）
+  if (upBtn) upBtn.onclick = function () { checkUpdate(false) }
   ov.querySelector('#cn-off').onclick = function () {
     try { localStorage.removeItem('fi-mobile-token'); localStorage.removeItem('fi-server') } catch (e) {}
     toast('已断开，重开 APP 再连一次')
@@ -319,14 +322,15 @@ let renderGen = 0 // 页面代次：切页后旧请求的续写一律丢弃，�
 function navigate(hash) { location.hash = hash }
 window.addEventListener('hashchange', () => renderPage())
 document.addEventListener('DOMContentLoaded', () => {
+  // 更新检查**不依赖「是否已连上」**：卡在连接面板的机器也要能收到新版本（1.1.2 修）。
+  // 仍然只对装了 APP 的机器生效（SERVER 有值），浏览器 / 局域网 /m/ 直接跳过。
+  setTimeout(function () { checkUpdate(true) }, 3000)
   // 没有连接码：用页内面板（可粘整条链接 / 扫码），不再用系统弹窗 —— 店主不会打长串；
   // 官网 / 局域网 /m/ 也一样走这里（粘连接码即可，SERVER 留空=同源）。
   if (!TOKEN) { openConnectPanel(true); return }
   document.getElementById('dateEl').textContent = new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })
   renderPage()
   flushOffline() // 开机先把上次离线攒下的单据重传一遍
-  // 启动 3 秒后静默检查更新（有新版才弹窗；浏览器页面直接跳过）
-  setTimeout(function () { checkUpdate(true) }, 3000)
   // 首次连上后问一次「这台手机谁在用」；不选就一直用「老板」，不再打扰
   try { if (!localStorage.getItem('fi-operator')) setTimeout(openOperatorPanel, 700) } catch (e) {}
 })
@@ -388,8 +392,8 @@ function prodName(p) { const n = ((p.brand || '') + ' ' + (p.model || '')).trim(
 // ========== 应用内更新（只对 APK 生效；浏览器 /m/ 页面不弹）==========
 // 版本号必须与 android/app/build.gradle 的 versionCode/versionName 一致 ——
 // 有 scripts/check-version-sync.mjs 强制校验，发版前必跑（否则会重演「版本号三处不一致、更新永远是哑的」）。
-const APP_VERSION = 'v1.1.1'
-const APP_VERSION_CODE = 1101
+const APP_VERSION = 'v1.1.2'
+const APP_VERSION_CODE = 1102
 const UPDATE_BASE = 'http://43.128.20.39:17533'
 
 // 拉更新清单：8 秒超时、不走缓存；任何异常都当作「连不上」，绝不阻塞使用
