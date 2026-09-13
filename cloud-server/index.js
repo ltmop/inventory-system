@@ -13,6 +13,17 @@ if (!ADMIN_KEY) {
 
 const MAX_BODY = 100 * 1024 * 1024 // 100MB（备份用）
 
+// ---------- 中心库（inventory-app:3200）连接信息 ----------
+// 账号体系在 inventory-cloud(3100)，数据在 inventory-app(3200)，后者只有一个全局静态 token、
+// 没有身份概念（第二步才解决）。这里读它 data 目录里的 token，供 /api/cockpit/central-config
+// 凭会话下发 —— 用户永远不需要知道 token 是什么。
+// 路径可用环境变量覆盖，便于换机器；token 本身绝不写进日志。
+const CENTRAL_URL = process.env.CENTRAL_URL || 'https://app.junchengzn.com'
+const CENTRAL_DATA_DIR = process.env.CENTRAL_DATA_DIR || '/opt/inventory-app/data'
+function readCentralToken(file) {
+  try { return fs.readFileSync(path.join(CENTRAL_DATA_DIR, file), 'utf8').trim() } catch { return '' }
+}
+
 // ---------- 启动守卫与开关（安全加固 2026-09-10） ----------
 // CAPTCHA_REQUIRED=1 时发码接口强制图形验证码（需客户端已支持；默认关，见 /api/cockpit/sendCode）
 const CAPTCHA_REQUIRED = process.env.CAPTCHA_REQUIRED === '1'
@@ -32,8 +43,8 @@ if (process.env.COCKPIT_SMS_MOCK === '1') {
 
 // ---------- 工具 ----------
 
-function json(res, status, body) {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': ALLOW_ORIGIN })
+function json(res, status, body, extraHeaders) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': ALLOW_ORIGIN, ...(extraHeaders || {}) })
   res.end(JSON.stringify(body))
 }
 
@@ -468,14 +479,24 @@ const server = http.createServer(async (req, res) => {
       // 短信绕行：adminKey 有效 = 店长/管理员担保建号，免短信验证码（未接真实 SMS 前的降级路径；客户自助注册仍需短信码）
       const ak = checkAdminKey(req, body, url)
       if (ak.status === 429) return json(res, 429, { ok: false, error: ak.error })
-      const isAdmin = ak.ok
+      // 邀请码（2026-09-13）：店长生成的邀请码等价于「担保建号」→ 免短信验证码；
+      // 但【不授予店主】：owner 仍只认 ADMIN_KEY 路径（见下方 owner 判定用 ak.ok）。
+      let isAdmin = ak.ok
+      let inviteOk = false
+      if (!isAdmin && body.invite_code) {
+        const iv = store.verifyInvite(body.invite_code)
+        if (!iv.ok) return json(res, 400, { ok: false, error: iv.error || '邀请码无效' })
+        isAdmin = true; inviteOk = true
+      }
       if (!isAdmin) {
         const codeOk = store.verifyCode(body.phone, body.sms_code)
         if (!codeOk.ok) return json(res, 400, { ok: false, error: codeOk.error || '验证码错误或已过期' })
       }
-      const owner = !!body.isOwner && isAdmin
+      const owner = !!body.isOwner && ak.ok
       const r = store.createCockpitAcc({ phone: body.phone, name: body.name, password: body.password, isOwner: owner })
       if (r.error) return json(res, 400, { ok: false, error: r.error })
+      // 建号成功后再消费邀请码，避免「校验过但建号失败」白扣次数
+      if (inviteOk) { try { store.consumeInvite(body.invite_code, r.account.phone) } catch (e) {} }
       if (owner) { store.migrateSharedSlotToOwner(r.account.userId); store.getCockpitSlotKey(r.account.userId) }
       store.touchCockpitSeen(r.account.phone)
       const token = randomHex(32)
@@ -528,6 +549,40 @@ const server = http.createServer(async (req, res) => {
       store.clearCockpitFail(acc.phone) // 已用短信码验证身份，重置后清除登录锁定，用户可立即用新密码登录
       store.audit('cockpit.forgot', acc.name, acc.phone, acc.userId)
       return json(res, 200, { ok: true, message: '密码已重置，请用新密码登录' })
+    }
+
+    // ======== POST /api/cockpit/invite（店长生成邀请码；ADMIN_KEY 或店主会话） ========
+    if (req.method === 'POST' && pathname === '/api/cockpit/invite') {
+      const body = JSON.parse((await readBody(req)).toString())
+      const ak = checkAdminKey(req, body, url)
+      const sess = store.validateCockpitSession(req.headers['x-token'] || body.token || '')
+      const byOwner = !!(sess && sess.isOwner)
+      if (!ak.ok && !byOwner) return json(res, 401, { ok: false, error: '仅店主可生成邀请码（需 ADMIN_KEY 或店主登录）' })
+      const iv = store.createInvite({ role: body.role, note: body.note, maxUses: body.maxUses, ttlHours: body.ttlHours, createdBy: byOwner ? (sess.name || sess.phone) : 'admin' })
+      store.audit('cockpit.invite.create', iv.code, '', '')
+      return json(res, 201, { ok: true, invite: iv })
+    }
+
+    // ======== GET /api/cockpit/invite/list（店主查看邀请码） ========
+    if (req.method === 'GET' && pathname === '/api/cockpit/invite/list') {
+      const ak = checkAdminKey(req, null, url)
+      const sess = store.validateCockpitSession(req.headers['x-token'] || url.searchParams.get('token') || '')
+      const byOwner = !!(sess && sess.isOwner)
+      if (!ak.ok && !byOwner) return json(res, 401, { ok: false, error: '仅店主可查看邀请码' })
+      return json(res, 200, { ok: true, invites: store.listInvites() })
+    }
+
+    // ======== POST /api/cockpit/invite/revoke（停用邀请码） ========
+    if (req.method === 'POST' && pathname === '/api/cockpit/invite/revoke') {
+      const body = JSON.parse((await readBody(req)).toString())
+      const ak = checkAdminKey(req, body, url)
+      const sess = store.validateCockpitSession(req.headers['x-token'] || body.token || '')
+      const byOwner = !!(sess && sess.isOwner)
+      if (!ak.ok && !byOwner) return json(res, 401, { ok: false, error: '仅店主可停用邀请码' })
+      const r = store.revokeInvite(body.code)
+      if (r.error) return json(res, 400, { ok: false, error: r.error })
+      store.audit('cockpit.invite.revoke', r.invite.code, '', '')
+      return json(res, 200, { ok: true, invite: r.invite })
     }
 
     // ======== POST /api/cockpit/owner（ADMIN_KEY 指定/绑定店主账号为 KB 持有者；迁移旧共享槽 KB） ========
@@ -596,6 +651,25 @@ const server = http.createServer(async (req, res) => {
       if (!sess) return json(res, 401, { ok: false, error: '未登录或会话已过期' })
       const role = store.sessionRole(sess)
       return json(res, 200, { ok: true, role, memberId: sess.memberId || '', tenantUserId: sess.userId, actions: store.roleMatrix()[role] || [], matrix: store.roleMatrix() })
+    }
+
+    // GET /api/cockpit/central-config（凭会话换中心库连接配置 —— 用户从此不用手填 token）
+    // 鉴权两条并列，与 /api/tenant/sync 同一套约定，行为互不影响：
+    //   1) 驾驶舱会话 x-token
+    //   2) 进销存设备令牌 x-user-id + x-token
+    // 为什么必须有第 2 条：实测进销存桌面端登录走的是 POST /api/device/bind，拿到的是**设备令牌**
+    // （electron/cloud.js 的 uploadToken/viewToken），根本没有驾驶舱会话 —— 只认第 1 条的话，
+    // 客户端永远调不通本接口，"登录后自动配中心库"就落不了地。
+    // 只读：不写任何数据；token 不进日志；响应 no-store，避免被缓存或落盘。
+    if (req.method === 'GET' && pathname === '/api/cockpit/central-config') {
+      // 驾驶舱会话 或 进销存设备令牌，二者通过其一即可（与 /api/tenant/sync 同一套约定）
+      if (!store.validateCockpitSession(req.headers['x-token'])) {
+        const deviceUserId = requireUploadAuth(req, res)
+        if (!deviceUserId) return
+      }
+      const token = readCentralToken('server-token.txt')
+      if (!token) return json(res, 503, { ok: false, error: '中心库 token 不可读：' + CENTRAL_DATA_DIR })
+      return json(res, 200, { ok: true, url: CENTRAL_URL, token, viewToken: readCentralToken('server-view-token.txt') }, { 'Cache-Control': 'no-store' })
     }
 
     // POST /api/cockpit/members（店主添加成员 -> 返回邀请码，由店主转达给员工）
