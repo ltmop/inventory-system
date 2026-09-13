@@ -156,6 +156,7 @@ const CHANNELS = new Set([
   'cloud:regenViewLink',
   'cloud:registerAccount',
   'cloud:loginAccount',
+  'cloud:centralConfig',
   'cloud:logout',
   'cloud:dismissRestore',
 ])

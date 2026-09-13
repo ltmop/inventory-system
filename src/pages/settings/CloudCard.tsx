@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
 import { Cloud, Copy, RefreshCw, Download, Key, CheckCircle, XCircle, AlertTriangle } from 'lucide-react'
-import { backend, isGuestMode, setGuestMode, getCentralConfig } from '@/lib/api'
+import { backend, isGuestMode, setGuestMode, getCentralConfig, setCentralConfig } from '@/lib/api'
 import { useAppStore } from '@/store/appStore'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -82,6 +82,15 @@ export function CloudCard() {
           pendingBackup: r.latestBackup ?? null,
         })
         setAcctPassword('')
+        // 任务2：登录成功即自动配中心库（用户不再手填 URL+token）。
+        // 待处理「恢复云端数据 / 我是新店」时不重载，先让用户把这一步走完；
+        // 取不到中心库配置就按本地模式继续 —— 绝不因为云配置拿不到而挡住登录。
+        if (!r.needsRestore) {
+          try {
+            const c = await backend.invoke('cloud:centralConfig')
+            if (c?.ok && c.url && c.token) { setCentralConfig(c.url, c.token); window.location.reload(); return }
+          } catch { /* 忽略：退回本地模式 */ }
+        }
       } else {
         setCloud({ error: r?.error || (acctMode === 'register' ? '注册失败' : '登录失败') })
       }

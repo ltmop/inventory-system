@@ -59,6 +59,8 @@ export function CloudLoginGate() {
           return
         }
         setCloudAuth('logged')
+        // 登录成功 → 自动配中心库 → 重载让 api.ts 走中心库模式（与原来的「手填地址+token」同一个生效机制）
+        if (await applyCentralConfig()) { window.location.reload(); return }
       } else {
         setError(r?.error || (mode === 'register' ? '注册失败' : '登录失败'))
       }
@@ -73,6 +75,22 @@ export function CloudLoginGate() {
     // 本地模式：不登录也能全功能使用（数据在本机）；随时可在「账号」页登录同步
     setGuestMode(true)
     setCloudAuth('guest')
+  }
+
+  // 登录成功后自动配中心库：凭设备令牌向云服务换 {url, token}，写进 fi-central-*，
+  // 用户从此不需要知道 token 是什么（这是本单 D2）。
+  // 拿不到时返回 false，调用方按本地模式继续 —— **绝不因为云配置取不到而挡住登录**
+  // （owner 2026-09-13 定：不强制登录，未登录仍可用本机）。
+  const applyCentralConfig = async (): Promise<boolean> => {
+    if (!backend) return false
+    try {
+      const c = await backend.invoke('cloud:centralConfig')
+      if (c?.ok && c.url && c.token) {
+        setCentralConfig(c.url, c.token)
+        return true
+      }
+    } catch { /* 忽略：退回本地模式 */ }
+    return false
   }
 
   // P0 数据同步：连接中心库（与手机/网页同一本账），保存后重载让 api.ts 走中心库模式
@@ -170,6 +188,7 @@ export function CloudLoginGate() {
                 await backend.invoke('cloud:dismissRestore').catch(() => {})
                 setCloud({ needsRestore: false, pendingBackup: null })
                 setCloudAuth('logged')
+                if (await applyCentralConfig()) { window.location.reload(); return }
               }}
               variant="outline"
               className="w-full"

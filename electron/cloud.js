@@ -590,6 +590,27 @@ export async function loginAccount(username, password, deviceName = '') {
   }
 }
 
+// ---------- 中心库连接配置：凭设备令牌换取，登录后自动配好，用户不再手填 token ----------
+//
+// 走 inventory-cloud 的 GET /api/cockpit/central-config。该接口接受两种鉴权（与 /api/tenant/sync 同一套约定）：
+//   ① 驾驶舱会话 x-token  ② 进销存设备令牌 x-user-id + x-token
+// 桌面端登录走的是 POST /api/device/bind，拿到的是**设备令牌**（cloudState.userId + uploadToken），
+// 所以这里用第 ② 种。拿不到就返回 ok:false，**调用方按本地模式继续，绝不因为云配置拿不到而挡住登录**。
+export async function fetchCentralConfig() {
+  try {
+    if (!cloudState.userId || !cloudState.uploadToken) return { ok: false, error: '尚未登录云账号' }
+    const r = await fetch(`${CLOUD_URL}/api/cockpit/central-config`, {
+      headers: { 'x-user-id': String(cloudState.userId), 'x-token': String(cloudState.uploadToken) },
+    })
+    const data = await r.json().catch(() => ({}))
+    if (!r.ok || !data.ok) return { ok: false, error: data.error || `中心库配置获取失败（HTTP ${r.status}）` }
+    if (!data.url || !data.token) return { ok: false, error: '中心库配置不完整' }
+    return { ok: true, url: data.url, token: data.token, viewToken: data.viewToken ?? null }
+  } catch (e) {
+    return { ok: false, error: `中心库配置请求失败: ${e.message}` }
+  }
+}
+
 // ---------- 退出登录（解绑本机）：清空本地凭证，回到未配对 ----------
 
 export function logoutAccount() {
