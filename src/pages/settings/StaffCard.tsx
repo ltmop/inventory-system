@@ -29,13 +29,10 @@ const EMPTY_FORM = { name: '', username: '', password: '', role: 'staff' as User
 /** 员工账号管理卡：开关 + 员工列表 + 新建/改/删（自包含，不走 SettingsPage props） */
 export function StaffCard() {
   const currentUser = useAppStore((s) => s.currentUser)
-  const staffLoginOn = useAppStore((s) => s.staffLoginOn)
-  const setStaffLogin = useAppStore((s) => s.setStaffLogin)
   const listUsers = useAppStore((s) => s.listUsers)
   const createUser = useAppStore((s) => s.createUser)
   const updateUser = useAppStore((s) => s.updateUser)
   const deleteUser = useAppStore((s) => s.deleteUser)
-  const staffLogout = useAppStore((s) => s.staffLogout)
 
   const [users, setUsers] = useState<User[]>([])
   const [form, setForm] = useState(EMPTY_FORM)
@@ -59,28 +56,10 @@ export function StaffCard() {
     setTimeout(() => setOk(''), 3000)
   }
 
-  const toggleLogin = async (on: boolean) => {
-    if (busy) return
-    setBusy(true)
-    setError('')
-    try {
-      if (on) {
-        // 开启前检查：至少有 1 个老板账号才让开，否则登录门一开没人进得去
-        const list = await listUsers()
-        const hasOwner = list.some((u) => u.role === 'owner' && u.active)
-        if (!hasOwner) {
-          setError('先建一个「老板」账号（角色选老板）再开启登录，不然开完谁都进不来')
-          return
-        }
-      }
-      await setStaffLogin(on)
-      flash(on ? '员工登录已开启：下次启动要选人登录' : '员工登录已关闭：恢复直接进软件')
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
-  }
+  // 「开启/关闭员工登录」开关已退休（身份统一第一步 2026-09-13）：
+  // 它控制的是那道全屏员工登录门，而门已删——全软件只保留一个登录入口（账号页），
+  // 且 owner 定「不强制登录，未登录仍可用本机」。下面的人员名单继续用于给单据署名。
+  // 实测：本机库与中央库的 staff_login 都是 off、users 表 0 行 → 这一步对现网零影响。
 
   const submitCreate = async () => {
     if (busy) return
@@ -160,27 +139,10 @@ export function StaffCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {/* 开关 + 退出登录 */}
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            variant={staffLoginOn ? 'outline' : 'default'}
-            onClick={() => toggleLogin(!staffLoginOn)}
-            disabled={busy}
-            className={staffLoginOn ? '' : 'bg-brand-600 hover:bg-brand-700'}
-          >
-            {staffLoginOn ? '关闭员工登录' : '开启员工登录'}
-          </Button>
-          {staffLoginOn && currentUser && (
-            <Button
-              variant="ghost"
-              onClick={() => void staffLogout().then(() => flash('已退出，回到登录界面'))}
-            >
-              退出登录（换人）
-            </Button>
-          )}
-          <span className="text-xs text-slate-400">
-            {staffLoginOn ? '已开启：启动必须登录' : '已关闭：打开软件直接用'}
-          </span>
+        {/* 开关已下线：唯一的登录入口在「账号」页，且不强制登录 */}
+        <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+          <b>「启动必须登录」已下线</b>（身份统一第一步）：本软件现在只有一个登录入口——顶栏 →「账号」，
+          而且<b>不强制登录</b>，打开就能用。下面的人员名单继续用于给单据署名（谁记的账）。
         </div>
         {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
         {ok && <div className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">{ok}</div>}

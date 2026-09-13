@@ -1,7 +1,11 @@
-// 账号与云同步（独立页面）：登录账户 / 注册 / 立即同步 / 云端备份 / 远程看店
+// 账号与云同步（独立页面）：登录账户 / 注册 / 立即同步 / 云端备份 / 远程看店 / 员工名单
+// 身份统一第一步（2026-09-13）：这一页是**全软件唯一的账号入口**（D1）。
+// 原 LoginGate（全屏员工登录门）与 CloudLoginGate（全屏云账号门）都已删除，
+// StaffCard（员工名单）从设置页挪到这里 —— 登录、注册、退出、员工管理都在同一页。
 import { KeyRound, RefreshCcw } from 'lucide-react'
 import { PageHeading } from '@/components/layout/FeatureGrid'
 import { CloudCard } from './settings/CloudCard'
+import { StaffCard } from './settings/StaffCard'
 import { backend, setGuestMode } from '@/lib/api'
 import { useAppStore } from '@/store/appStore'
 import { Button } from '@/components/ui/button'
@@ -56,6 +60,8 @@ export default function AccountPage() {
         </div>
       </div>
       <CloudCard />
+      {/* 员工名单（原在设置页）：给单据署名用；「启动必须登录」开关已随登录门一起下线 */}
+      <StaffCard />
     </div>
   )
 }

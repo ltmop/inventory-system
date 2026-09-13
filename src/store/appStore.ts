@@ -180,24 +180,18 @@ interface AppState {
   supplierPayments: SupplierPayment[]
   /** 员工账号（v0.1）：当前登录用户；null=未启用员工登录或未登录 */
   currentUser: User | null
-  /** 员工登录开关是否开启（决定要不要弹登录门） */
+  /** 员工登录开关（决定要不要弹登录门）。**登录门已于身份统一第一步删除**，此开关不再驱动任何界面；
+   *  保留字段是为了不动后端 staff_login 语义（staffLoginEnabled 仍读它）。 */
   staffLoginOn: boolean
-  /** 手动打开的登录门（店员随时可登录，不依赖开关） */
-  loginGateOpen: boolean
-  setLoginGateOpen: (v: boolean) => void
   // AI 全局浮层（M2-2）：任何业务页右下角悬浮球；aiContext 记录当前页，让 AI 知道你在哪页
   aiFloatOpen: boolean
   setAiFloatOpen: (v: boolean) => void
   aiContext: string | null
   setAiContext: (v: string | null) => void
-  /** 云账号登录态：local=本地模式（默认，全功能，数据在本机）/ none=打开登录门 / guest=从登录门跳过 / logged=已登录云账号 */
+  /** 云账号登录态：local=本地模式（默认，全功能，数据在本机）/ guest=从本地模式横幅点过跳过 / logged=已登录云账号。
+   *  'none' 保留是为了兼容存量状态，但**已没有对应的全屏门**（身份统一第一步删掉了 CloudLoginGate）。 */
   cloudAuth: 'none' | 'guest' | 'local' | 'logged'
   setCloudAuth: (v: 'none' | 'guest' | 'local' | 'logged') => void
-  /** 云账号门要以哪个 tab 打开：'login' 登录 / 'register' 注册；null=默认登录。
-   *  供右上角头像菜单直接叫出「登录云账号 / 注册云账号」（修：以前只有内容区横幅能进，右上角无入口）。 */
-  cloudGateIntent: 'login' | 'register' | null
-  /** 打开云账号门（登录或注册）；会同时把 cloudAuth 置为 none 让 CloudLoginGate 挂载 */
-  openCloudGate: (intent: 'login' | 'register') => void
   stockTakes: StockTake[]
   stockTakeItems: StockTakeItem[]
   /** 客户列表（带欠款统计）；loadAll 不含客户，Electron 环境由 loadCustomers 单独拉取 */
@@ -548,16 +542,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   supplierPayments: [],
   currentUser: null,
   staffLoginOn: false,
-  loginGateOpen: false,
-  setLoginGateOpen: (v) => set({ loginGateOpen: v }),
   aiFloatOpen: false,
   setAiFloatOpen: (v) => set({ aiFloatOpen: v }),
   aiContext: null,
   setAiContext: (v) => set({ aiContext: v }),
   cloudAuth: 'local',
   setCloudAuth: (v) => set({ cloudAuth: v }),
-  cloudGateIntent: null,
-  openCloudGate: (intent) => set({ cloudGateIntent: intent, cloudAuth: 'none' }),
   stockTakes: [],
   stockTakeItems: [],
   customers: [],

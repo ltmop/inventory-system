@@ -7,11 +7,10 @@ import { TopBar } from './TopBar'
 import { CommandPalette } from '@/components/CommandPalette'
 import { AiFloat } from '@/components/ai/AiFloat'
 import { FirstOrderCelebration } from '@/components/FirstOrderCelebration'
-import { CloudLoginGate } from '@/components/CloudLoginGate'
 import { LowStockAlert } from '@/components/LowStockAlert'
 import { useAppStore } from '@/store/appStore'
 import { useWallpaper } from '@/lib/wallpaper'
-import { backend, setGuestMode, isGuestMode, getCentralConfig } from '@/lib/api'
+import { backend, setGuestMode } from '@/lib/api'
 
 export function Layout() {
   const [collapsed, setCollapsed] = useState(false)
@@ -35,12 +34,11 @@ export function Layout() {
     if (cloudPaired && cloudAuth !== 'logged') setCloudAuth('logged')
   }, [cloudPaired, cloudAuth, setCloudAuth])
 
-  // P0 数据同步：首启（未连中心库、且未选择本地跳过）默认弹「连接中心库」门，引导桌面与手机/网页同一本账
-  useEffect(() => {
-    if (cloudAuth === 'local' && !isGuestMode() && !getCentralConfig().url) {
-      setCloudAuth('none')
-    }
-  }, [cloudAuth, setCloudAuth])
+  // 这里原本有一条「首启自动弹全屏门引导连接中心库」的逻辑（cloudAuth==='local' 且未连中心库 → 设成 'none'）。
+  // 身份统一第一步（2026-09-13）删掉了它，原因有两个：
+  //   ① 它弹的那道门要求用户手填「中心库地址 + token」—— 任务2 已改成登录后自动配，用户不该再见 token；
+  //   ② owner 定「不强制登录，未登录仍可用本机」—— 启动时不该有任何拦路的东西。
+  // 现在唯一的账号入口在「账号」页（顶栏菜单 → 账号）。
 
   return (
     <div className="flex h-screen overflow-hidden bg-gradient-to-br from-[#f2f6f9] via-[#eef3f8] to-[#e6eef5] dark:from-[#0a1628] dark:via-[#0c1a2e] dark:to-[#0a1628]">
@@ -89,8 +87,6 @@ export function Layout() {
       <LowStockAlert />
       {/* Ctrl+K 全局命令面板 */}
       <CommandPalette />
-      {/* 云账号登录门：未登录/未跳过时全屏弹出 */}
-      <CloudLoginGate />
       {/* 全局 AI 浮层（M2-2）：任何业务页右下角悬浮球 */}
       <AiFloat />
       {/* 首单庆祝彩带（M4）：开单成功首次触发 */}
@@ -102,6 +98,7 @@ export function Layout() {
 /** 本地模式提示横幅：从登录门跳过（guest）后显示在内容区顶部，提醒数据在本机、可登录同步 */
 function GuestBanner() {
   const cloudAuth = useAppStore((s) => s.cloudAuth)
+  const navigate = useNavigate()
   if (cloudAuth !== 'guest') return null
   return (
     <div className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-lake-200 bg-lake-50 px-4 py-2.5 text-sm text-lake-800">
@@ -112,7 +109,8 @@ function GuestBanner() {
         className="shrink-0 font-medium text-lake-700 hover:text-lake-900 cursor-pointer"
         onClick={() => {
           setGuestMode(false)
-          useAppStore.setState({ cloudAuth: 'none' })
+          // 去唯一的账号页登录（不再打开已删除的全屏登录门）
+          navigate('/account')
         }}
       >
         去登录

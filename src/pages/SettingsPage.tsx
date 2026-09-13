@@ -14,7 +14,6 @@ import { FeedbackCard } from './settings/FeedbackCard'
 import { MobileServerCard, type ServerStatus } from './settings/MobileServerCard'
 import { PaymentQrCard } from './settings/PaymentQrCard'
 import { CentralModeCard } from './settings/CentralModeCard'
-import { StaffCard } from './settings/StaffCard'
 import { IndustryTemplateCard } from './settings/IndustryTemplateCard'
 import { WallpaperCard } from './settings/WallpaperCard'
 import { PreferenceRow } from './settings/PreferenceRow'
@@ -438,9 +437,8 @@ export function SettingsPage() {
         <h2 className="mb-2 text-sm font-semibold text-slate-700">👤 账户与支持</h2>
         <div className="space-y-6">
 
-      {/* 员工账号（v0.1）：多用户登录 + 老板/店员角色 */}
-      <StaffCard />
-
+      {/* 员工账号卡已挪到「账号」页（身份统一第一步 2026-09-13）：
+          全软件只留一个账号入口，姓名/角色/员工名单都在那一页，设置页不再重复出现。 */}
       {/* 意见反馈 */}
       <FeedbackCard
         hasBackend={!!backend}

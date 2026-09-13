@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
-import { LoginGate } from '@/components/LoginGate'
 import { UpdateBanner } from '@/components/UpdateBanner'
 import { ToastProvider } from '@/components/ui/toast'
 import { SplashScreen } from '@/components/SplashScreen'
@@ -136,8 +135,9 @@ function App() {
   return (
     <ErrorBoundary>
       <ToastProvider>
-      {/* 员工登录门（v0.1）：开着员工登录且没人登录时覆盖全屏 */}
-      <LoginGate />
+      {/* 全屏「员工登录门」已删（身份统一第一步 2026-09-13）：
+          它和云账号门是两个登录入口，owner 原话「都不知道左上角登录还是账号里面的登录」。
+          现在唯一的账号入口是「账号」页，且**不强制登录**（未登录仍可用本机）。 */}
       {/* 自动更新提示条：检测到新版本时底部弹出（preload 暴露 onUpdateAvailable 后生效） */}
       <UpdateBanner />
       {!splashDone && <SplashScreen onFinish={() => setSplashDone(true)} />}

@@ -1,11 +1,13 @@
 // 本地模式提示卡：未登录云账号时，在操作页顶部提示「数据仅在本机」，可随时登录同步（不再拦截操作）
 import { CloudOff } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/store/appStore'
 import { setGuestMode } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 
 export function GuestBlockCard({ title }: { title: string }) {
   const cloudAuth = useAppStore((s) => s.cloudAuth)
+  const navigate = useNavigate()
   if (cloudAuth !== 'guest') return null
   return (
     <div className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-lake-200 bg-lake-50 px-5 py-4">
@@ -25,7 +27,8 @@ export function GuestBlockCard({ title }: { title: string }) {
         className="shrink-0 bg-lake-600 hover:bg-lake-700"
         onClick={() => {
           setGuestMode(false)
-          useAppStore.setState({ cloudAuth: 'none' })
+          // 去唯一的账号页登录（全屏登录门已删除）
+          navigate('/account')
         }}
       >
         去登录
