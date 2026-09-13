@@ -103,6 +103,41 @@ const naive = scalar("SELECT COUNT(*) FROM transactions WHERE type='out' AND sel
 ok('补进 Shopee 零售后判据从 0 变 1（搬运解开了 P0）', crit === 1, 'crit=' + crit)
 ok('线下零售也同时进来了 → 渠道条件是承重的', naive > crit, 'naive=' + naive + ' crit=' + crit)
 
+console.log('\n=== ⑧ 冲突判定落地（apply-conflicts）===')
+const APPLY_C = path.join(HERE, 'server', 'apply-conflicts.mjs')
+const JF = path.join(work, 'judgments.json')
+// 夹具里唯一的冲突是 customers.id=9001（两边名字不同）
+fs.writeFileSync(JF, JSON.stringify({ note: 'test', judgments: [{ table: 'customers', id: 9001, take: 'src', why: '取源' }] }), 'utf8')
+const runC = (args) => {
+  const r = spawnSync(process.execPath, [APPLY_C, '--src', SHOP, '--dst', TARGET, '--judgments', JF, ...args], { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' })
+  return { out: (r.stdout || '') + (r.stderr || ''), code: r.status }
+}
+const beforeName = scalar('SELECT name FROM customers WHERE id=9001')
+const rc1 = runC([])
+ok('预演列出将改的字段（取源：名字）', /取源：name/.test(rc1.out))
+ok('预演不改数据', scalar('SELECT name FROM customers WHERE id=9001') === beforeName)
+
+const rc2 = runC(['--apply', '--yes'])
+ok('执行成功', rc2.code === 0, 'exit=' + rc2.code + ' ' + rc2.out.split('\n')[0])
+ok('冲突行已按判定改为源库的值', scalar('SELECT name FROM customers WHERE id=9001') === '张记渔具',
+  '实际=' + scalar('SELECT name FROM customers WHERE id=9001'))
+ok('备份自证通过', /integrity_check=ok/.test(rc2.out))
+
+const rc3 = runC(['--apply', '--yes'])
+ok('判定已过期（该行不再冲突）→ 拒绝执行 exit 2', rc3.code === 2, 'exit=' + rc3.code)
+ok('被拒后数据未被改动', scalar('SELECT name FROM customers WHERE id=9001') === '张记渔具')
+
+// take=dst：登记"目标库对"，不写
+fs.writeFileSync(JF, JSON.stringify({ judgments: [{ table: 'customers', id: 9002, take: 'dst', why: '取目标' }] }), 'utf8')
+{
+  const d = new DatabaseSync(TARGET)
+  d.prepare("UPDATE customers SET name='李四(目标版)' WHERE id=9002").run()
+  d.close()
+}
+const rc4 = runC(['--apply', '--yes'])
+ok('take=dst 时不写库（走的是"没有需要写入的行"）', /没有需要写入的行/.test(rc4.out), rc4.out.match(/合计：.*/)?.[0])
+ok('take=dst 后目标库的值保持目标版', scalar('SELECT name FROM customers WHERE id=9002') === '李四(目标版)')
+
 try { fs.rmSync(work, { recursive: true, force: true }) } catch {}
 
 console.log('\n================ 结果 ================')
