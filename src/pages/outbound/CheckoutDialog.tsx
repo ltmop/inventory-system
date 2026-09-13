@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/select'
 import { formatPrice, productName } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
-import { PAYMENT_METHODS, type CustomerWithStats, type PaymentMethod } from '@/types'
+import { PAYMENT_METHODS, SALES_CHANNELS, type CustomerWithStats, type PaymentMethod, type SalesChannel } from '@/types'
 import type { CartItem } from './CartPanel'
 
 function yuanToCents(v: string): number | null {
@@ -42,6 +42,8 @@ interface CheckoutDialogProps {
   onPayModeChange: (mode: 'full' | 'partial' | 'credit') => void
   payMethod: PaymentMethod
   onPayMethodChange: (m: PaymentMethod) => void
+  channel: SalesChannel
+  onChannelChange: (c: SalesChannel) => void
   paidYuan: string
   onPaidYuanChange: (v: string) => void
   confirmError: string
@@ -64,6 +66,8 @@ export function CheckoutDialog({
   onPayModeChange,
   payMethod,
   onPayMethodChange,
+  channel,
+  onChannelChange,
   paidYuan,
   onPaidYuanChange,
   confirmError,
@@ -189,6 +193,34 @@ export function CheckoutDialog({
               </div>
             </div>
           )}
+          {/* 销售渠道：老板「开出首单」北极星判据 = 出库 且 售价>0 且 渠道=Shopee。
+              所以「Shopee」必须人手显式点选 —— 不做任何按金额/客户/时间的自动推断，
+              否则北极星会从「未出」变成「已出」，催办会因此停下来。 */}
+          <div className="space-y-1">
+            <Label>销售渠道</Label>
+            <div className="grid grid-cols-4 gap-2">
+              {SALES_CHANNELS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => onChannelChange(c)}
+                  className={cn(
+                    'h-11 cursor-pointer rounded-xl border text-sm font-medium transition-colors',
+                    channel === c
+                      ? 'border-indigo-600 bg-indigo-600 text-white shadow-sm'
+                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100',
+                  )}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+            {channel === 'Shopee' && (
+              <div className="text-xs text-indigo-600">
+                这单按 Shopee 渠道记账（会计入「首单」判据）
+              </div>
+            )}
+          </div>
           {confirmError && <div className="text-sm text-red-600">{confirmError}</div>}
         </div>
 

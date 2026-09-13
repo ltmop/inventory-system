@@ -15,7 +15,7 @@ import { validateQty, unitOf, isDecimalUnit } from '@/lib/quantity'
 import { playSound } from '@/lib/sounds'
 import { formatPrice, isToday, productName } from '@/lib/formatters'
 import type { CreditOptions } from '@/store/appStore'
-import { type Customer, type PaymentMethod, type PriceLevel, type Product } from '@/types'
+import { DEFAULT_SALES_CHANNEL, type Customer, type PaymentMethod, type PriceLevel, type Product, type SalesChannel } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { CartPanel, type CartItem } from './outbound/CartPanel'
@@ -149,6 +149,8 @@ export function OutboundPage() {
   const [custKey, setCustKey] = useState(WALK_IN)
   const [payMode, setPayMode] = useState<'full' | 'partial' | 'credit'>('full')
   const [payMethod, setPayMethod] = useState<PaymentMethod>('现金')
+  // 销售渠道：默认线下；Shopee 必须人手显式点选（首单北极星判据靠它，不做自动推断）
+  const [channel, setChannel] = useState<SalesChannel>(DEFAULT_SALES_CHANNEL)
   const [paidYuan, setPaidYuan] = useState('')
   const [confirmError, setConfirmError] = useState('')
   // 「+ 新客户」快捷建档
@@ -292,6 +294,7 @@ export function OutboundPage() {
     setCustKey(WALK_IN)
     setPayMode('full')
     setPayMethod('现金')
+    setChannel(DEFAULT_SALES_CHANNEL)
     setPaidYuan(((qty * price) / 100).toFixed(2))
     setConfirmError('')
     setConfirmOpen(true)
@@ -371,6 +374,8 @@ export function OutboundPage() {
     if (!(custId !== null && payMode === 'credit')) {
       credit = { ...(credit ?? {}), payMethod }
     }
+    // 渠道与收款方式不同：赊账也照样是某个渠道的销售，所以无条件带上
+    credit = { ...(credit ?? {}), channel }
     // 带上当前选中的价格档：显式售价优先，档仅作兜底/留痕（与后端 tier 口径一致）
     if (credit && activeTier) credit.tier = activeTier
     setExecuting(true)
@@ -529,6 +534,7 @@ export function OutboundPage() {
     setCustKey(WALK_IN)
     setPayMode('full')
     setPayMethod('现金')
+    setChannel(DEFAULT_SALES_CHANNEL)
     setPaidYuan((cartTotal / 100).toFixed(2))
     setConfirmError('')
     setCheckoutOpen(true)
@@ -561,6 +567,7 @@ export function OutboundPage() {
     if (!(custId !== null && payMode === 'credit')) {
       credit = { ...(credit ?? {}), payMethod }
     }
+    credit = { ...(credit ?? {}), channel }
     setCheckoutExecuting(true)
     try {
       const lines = cart.map((i) => ({ productId: i.product.id, quantity: i.quantity, sellingPrice: i.priceCents }))
@@ -1128,6 +1135,8 @@ export function OutboundPage() {
         onPaidYuanChange={setPaidYuan}
         payMethod={payMethod}
         onPayMethodChange={setPayMethod}
+        channel={channel}
+        onChannelChange={setChannel}
         confirmError={confirmError}
         customers={customers}
         executing={executing}
@@ -1151,6 +1160,8 @@ export function OutboundPage() {
         }}
         payMethod={payMethod}
         onPayMethodChange={setPayMethod}
+        channel={channel}
+        onChannelChange={setChannel}
         paidYuan={paidYuan}
         onPaidYuanChange={setPaidYuan}
         confirmError={confirmError}

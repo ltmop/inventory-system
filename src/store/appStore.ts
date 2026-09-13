@@ -16,6 +16,7 @@ import type {
   KitItem,
   Payment,
   PaymentMethod,
+  SalesChannel,
   PriceLevel,
   PriceTier,
   Product,
@@ -38,7 +39,15 @@ import type {
 import { computeFifoPlan, type FifoAllocation } from '@/lib/fifo'
 import { productName } from '@/lib/formatters'
 import { backend } from '@/lib/api'
-import { PRODUCT_STATUSES, EXPENSE_CATEGORIES, PAYMENT_METHODS, type CategoryRow, type UnitRow } from '@/types'
+import {
+  PRODUCT_STATUSES,
+  EXPENSE_CATEGORIES,
+  PAYMENT_METHODS,
+  SALES_CHANNELS,
+  DEFAULT_SALES_CHANNEL,
+  type CategoryRow,
+  type UnitRow,
+} from '@/types'
 
 export interface InboundInput {
   productId: number
@@ -95,12 +104,14 @@ export interface BatchUpdateInput {
 
 /** 赊账出库的记账参数：customerId=记账客户（散客为 null）；paidAmount=实收（分），省略=全额付清；
  * tier=价格档（可选）：显式售价优先，没传售价时按这档定价，没设这档回退建议零售价（与后端 confirmOutbound 口径一致）；
- * payMethod=到账方式（可选）：只有真正收到钱才落库，纯赊账强制落空（与后端口径一致） */
+ * payMethod=到账方式（可选）：只有真正收到钱才落库，纯赊账强制落空（与后端口径一致）；
+ * channel=销售渠道（可选）：不传=线下。Shopee 必须显式传，绝不自动推断（首单北极星判据靠它） */
 export interface CreditOptions {
   customerId?: number | null
   paidAmount?: number | null
   tier?: PriceLevel | null
   payMethod?: PaymentMethod | null
+  channel?: SalesChannel | null
   /** 出库拦截过期：true 表示老板确认过含过期批次，放行（临期/过期低价处理） */
   allowExpired?: boolean
   /** 无库存强制出库：true 表示店里实际有货但没录库存，允许超卖（记负库存提醒补录） */
@@ -802,6 +813,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         paidAmount: credit?.paidAmount ?? null,
         tier: credit?.tier ?? null,
         payMethod: credit?.payMethod ?? null,
+        channel: credit?.channel ?? null,
         allowExpired: credit?.allowExpired,
       })
       if (result.ok) {
@@ -831,6 +843,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     const isCredit = totalDue != null && paidAmount != null && paidAmount < totalDue
     // 纯赊账没有现金移动，到账方式强制落空（与后端口径一致）
     const methodForTx = isCredit && paidAmount === 0 ? null : (credit?.payMethod ?? null)
+    // 渠道只对出库有意义。本地路径没有数据库触发器兜默认值，所以这里自己补，
+    // 保证「本地记账」与「走后端」最终落库的渠道一致（都是默认线下）。
+    const channelForTx = credit?.channel ?? DEFAULT_SALES_CHANNEL
+    if (!SALES_CHANNELS.includes(channelForTx)) {
+      throw new Error(`销售渠道必须是：${SALES_CHANNELS.join(' / ')}`)
+    }
 
     let txId = nextId(state.transactions)
     const now = new Date().toISOString()
@@ -854,6 +872,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         customer_id: credit?.customerId ?? null,
         paid_amount: linePaid,
         pay_method: methodForTx,
+        channel: channelForTx,
       }
     })
     const deductBy = new Map(plan.allocations.map((a) => [a.batch_id, a.remaining_after]))
@@ -895,6 +914,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         customerId: credit?.customerId ?? null,
         paidAmount: credit?.paidAmount ?? null,
         payMethod: credit?.payMethod ?? null,
+        channel: credit?.channel ?? null,
         allowExpired: credit?.allowExpired,
         allowNoStock: credit?.allowNoStock,
       })) as CheckoutResult
@@ -931,6 +951,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     const isCredit = paidAmount != null && paidAmount < totalDue
     // 纯赊账没有现金移动，到账方式强制落空（与后端口径一致）
     const methodForTx = isCredit && paidAmount === 0 ? null : (credit?.payMethod ?? null)
+    // 渠道只对出库有意义。本地路径没有数据库触发器兜默认值，所以这里自己补，
+    // 保证「本地记账」与「走后端」最终落库的渠道一致（都是默认线下）。
+    const channelForTx = credit?.channel ?? DEFAULT_SALES_CHANNEL
+    if (!SALES_CHANNELS.includes(channelForTx)) {
+      throw new Error(`销售渠道必须是：${SALES_CHANNELS.join(' / ')}`)
+    }
     let paidLeft = isCredit ? paidAmount! : 0
     let txId = nextId(state.transactions)
     const now = new Date().toISOString()
@@ -956,6 +982,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           customer_id: credit?.customerId ?? null,
           paid_amount: linePaid,
           pay_method: methodForTx,
+          channel: channelForTx,
         })
         deductBy.set(a.batch_id, a.remaining_after)
       }

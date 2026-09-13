@@ -98,7 +98,25 @@ export interface Transaction {
   customer_id?: number | null // 赊账包：赊账/记账客户；散客为 null
   paid_amount?: number | null // 单位：分；实收金额，null=已全额付清（含赊账前的老数据）
   pay_method?: PaymentMethod | null // 收款/退款方式；null=未记录或没有现金移动（纯赊/冲减欠款）
+  channel?: SalesChannel | null // 销售渠道；出库才有意义，入库/退货为 null
 }
+
+// ---------- 销售渠道 ----------
+
+/**
+ * 销售渠道。***「Shopee」必须由人手显式选***，绝不按金额/客户/时间自动推断。
+ *
+ * 原因：老板的「开出首单」这个北极星指标，判据是
+ *   `type=out 且 selling_price>0 且 channel='Shopee'`
+ * 一旦有人想"差不多了就算 Shopee"，北极星会从"未出"变成"已出" ——
+ * 这种假的"已完成"比没完成更危险，因为它会让催办停下来。
+ */
+export type SalesChannel = '线下' | 'Shopee' | '优选仓' | '其他'
+
+export const SALES_CHANNELS: SalesChannel[] = ['线下', 'Shopee', '优选仓', '其他']
+
+/** 不选时的默认渠道（与数据库层触发器的默认值一致） */
+export const DEFAULT_SALES_CHANNEL: SalesChannel = '线下'
 
 // ---------- 赊账包：客户与还款（客户余额模型） ----------
 

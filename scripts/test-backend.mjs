@@ -2269,6 +2269,29 @@ ok('preload 白名单含 product:batchUpdate', preloadSrc.includes("'product:bat
   ok('入库单 channel 保持 NULL（渠道只对销售有意义）',
     cdb.prepare("SELECT channel FROM transactions WHERE type='in' ORDER BY id DESC LIMIT 1").get().channel === null)
 
+  // ---- 多品开单（收银台 confirmCheckout）是主路径：只改单品出库会漏掉最常见的开单方式 ----
+  ok('（前置）此时首单判据为 1', crit() === 1)
+
+  cmd.confirmCheckout(cdb, { items: [{ productId: cp.id, quantity: 2, sellingPrice: 8000 }], operator: '测试' })
+  ok('多品开单不传渠道 → 落「线下」',
+    cdb.prepare("SELECT channel FROM transactions WHERE type='out' ORDER BY id DESC LIMIT 1").get().channel === '线下')
+  ok('多品开单走线下不顶替首单判据（仍为 1）', crit() === 1)
+
+  cmd.confirmCheckout(cdb, { items: [{ productId: cp.id, quantity: 1, sellingPrice: 9500 }], channel: 'Shopee', operator: '测试' })
+  ok('多品开单显式 Shopee → 落库且不被触发器覆盖',
+    cdb.prepare("SELECT channel FROM transactions WHERE type='out' ORDER BY id DESC LIMIT 1").get().channel === 'Shopee')
+  ok('多品开单的 Shopee 单计入首单判据（变 2）', crit() === 2)
+
+  let ccErr = null
+  try { cmd.confirmCheckout(cdb, { items: [{ productId: cp.id, quantity: 1, sellingPrice: 8000 }], channel: '淘宝', operator: '测试' }) } catch (e) { ccErr = e }
+  ok('多品开单非法渠道拒绝', ccErr !== null && ccErr.message.includes('渠道'))
+
+  // 无库存强行出库走的是另一条 INSERT（batch_id=NULL），渠道也必须带上
+  cmd.confirmCheckout(cdb, { items: [{ productId: cp.id, quantity: 999, sellingPrice: 8000 }], channel: 'Shopee', operator: '测试', allowNoStock: true })
+  const noStockRow = cdb.prepare("SELECT channel, batch_id FROM transactions WHERE type='out' AND batch_id IS NULL ORDER BY id DESC LIMIT 1").get()
+  ok('无库存强行出库那条流水也带渠道（两条 INSERT 都补到了）',
+    noStockRow != null && noStockRow.batch_id === null && noStockRow.channel === 'Shopee')
+
   cdb.close()
 }
 

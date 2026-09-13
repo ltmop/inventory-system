@@ -168,10 +168,13 @@ export function confirmOutbound(db, { productId, quantity: rawQuantity, sellingP
  * 返回 { ok, lines:[{productId, quantity, sellingPrice, allocations}], totalDue, paidAmount, creditAmount }
  * 或 { ok:false, shortages:[{productId, name, shortage}] }（哪几个商品不够、各差多少，一次说清）
  */
-export function confirmCheckout(db, { items, customerId, paidAmount, payMethod, operator, allowExpired, allowNoStock }) {
+export function confirmCheckout(db, { items, customerId, paidAmount, payMethod, channel, operator, allowExpired, allowNoStock }) {
   if (!Array.isArray(items) || items.length === 0) throw new Error('开单商品列表不能为空')
   if (items.length > 50) throw new Error(`一单最多 50 种商品，收到：${items.length}`)
   payMethod = assertPayMethod(payMethod)
+  // 渠道同单品出库：传了必须在取值集合内；不传交给 DB 触发器兜「线下」。
+  // Shopee 只能显式传 —— 「开出首单」北极星判据靠这个字段，绝不允许推断。
+  channel = assertChannel(channel)
   const lines = items.map((it, i) => {
     // 计量单位：允许小数单位开单
     const prod0 = db.prepare('SELECT unit FROM products WHERE id = ?').get(it.productId)
@@ -251,9 +254,9 @@ export function confirmCheckout(db, { items, customerId, paidAmount, payMethod, 
           paidLeft -= paid
         }
         db.prepare(
-          `INSERT INTO transactions (product_id, batch_id, type, quantity, unit_price, selling_price, timestamp, operator, notes, customer_id, paid_amount, pay_method)
-           VALUES (?, ?, 'out', ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
-        ).run(l.productId, b.id, deduct, b.cost_price, l.sellingPrice, ts, operator ?? null, customerId ?? null, paid, methodForTx)
+          `INSERT INTO transactions (product_id, batch_id, type, quantity, unit_price, selling_price, timestamp, operator, notes, customer_id, paid_amount, pay_method, channel)
+           VALUES (?, ?, 'out', ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
+        ).run(l.productId, b.id, deduct, b.cost_price, l.sellingPrice, ts, operator ?? null, customerId ?? null, paid, methodForTx, channel ?? null)
         allocations.push({ batch_id: b.id, batch_no: b.batch_no, deduct, remaining_after: b.quantity - deduct, cost_price: b.cost_price })
         remaining -= deduct
       }
@@ -269,8 +272,8 @@ export function confirmCheckout(db, { items, customerId, paidAmount, payMethod, 
         const needBackfill = !(lastCost?.unit_price != null) && !(fallbackProd?.cost_price != null)
         const costNote = '无库存强制出库' + (needBackfill ? '（待补成本：无历史进价，按0记账，请尽快补录入库单修正成本）' : '')
         db.prepare(
-          "INSERT INTO transactions (product_id, batch_id, type, quantity, unit_price, selling_price, timestamp, operator, notes, customer_id, paid_amount, pay_method) VALUES (?, NULL, 'out', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ).run(l.productId, remaining, estCost, l.sellingPrice, ts, operator ?? null, costNote, customerId ?? null, isCredit ? 0 : null, isCredit ? null : methodForTx)
+          "INSERT INTO transactions (product_id, batch_id, type, quantity, unit_price, selling_price, timestamp, operator, notes, customer_id, paid_amount, pay_method, channel) VALUES (?, NULL, 'out', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ).run(l.productId, remaining, estCost, l.sellingPrice, ts, operator ?? null, costNote, customerId ?? null, isCredit ? 0 : null, isCredit ? null : methodForTx, channel ?? null)
         allocations.push({ batch_id: null, batch_no: costNote, deduct: remaining, remaining_after: -remaining, cost_price: estCost })
       }
       resultLines.push({ productId: l.productId, quantity: l.quantity, sellingPrice: l.sellingPrice, allocations })

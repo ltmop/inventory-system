@@ -102,8 +102,39 @@ if (!YES) { console.error('\n拒绝执行：--apply 必须同时带 --yes（且�
 
 const stamp = new Date().toISOString().replace(/[:.]/g, '-')
 const backup = DB + '.bak-preplacechannel-' + stamp
-fs.copyFileSync(DB, backup)
+// 优先 VACUUM INTO：对**活库**做在线一致快照。直接 copyFileSync 拷 WAL 库拿到的是
+// 「主库文件 + 尚未 checkpoint 的 WAL」，拷出来可能缺最近事务、甚至在事务中途，不能当备份用。
+let backupHow = 'VACUUM INTO（在线一致快照）'
+try {
+  db.exec("VACUUM INTO '" + backup.replace(/'/g, "''") + "'")
+} catch (e) {
+  backupHow = 'copyFileSync 回退（VACUUM INTO 失败：' + e.message + '）—— 请确认客户端已关闭'
+  fs.copyFileSync(DB, backup)
+}
+const bkSize = fs.statSync(backup).size
 console.log('\n已整库备份: ' + backup)
+console.log('  方式: ' + backupHow)
+console.log('  大小: ' + bkSize + ' 字节')
+
+// 备份可信度自证：能独立打开、integrity_check 通过、表数一致 —— 否则宁可不改
+try {
+  const bdb = new DatabaseSync(backup, { readOnly: true })
+  const ic = bdb.prepare('PRAGMA integrity_check').get()
+  const icv = Object.values(ic)[0]
+  const bt = bdb.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE type='table'").get().n
+  const st = db.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE type='table'").get().n
+  const bc = bdb.prepare('SELECT COUNT(*) n FROM transactions').get().n
+  const sc = db.prepare('SELECT COUNT(*) n FROM transactions').get().n
+  bdb.close()
+  console.log('  自证: integrity_check=' + icv + '，表 ' + bt + '/' + st + '，transactions ' + bc + '/' + sc + ' 行')
+  if (icv !== 'ok' || bt !== st || bc !== sc) {
+    console.error('\n拒绝执行：备份与源库不一致，不能拿它当退路。');
+    process.exit(1)
+  }
+} catch (e) {
+  console.error('\n拒绝执行：备份打开失败（' + e.message + '），不能拿它当退路。')
+  process.exit(1)
+}
 
 db.exec('BEGIN IMMEDIATE')
 try {
