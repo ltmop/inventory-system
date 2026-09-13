@@ -392,8 +392,8 @@ function prodName(p) { const n = ((p.brand || '') + ' ' + (p.model || '')).trim(
 // ========== 应用内更新（只对 APK 生效；浏览器 /m/ 页面不弹）==========
 // 版本号必须与 android/app/build.gradle 的 versionCode/versionName 一致 ——
 // 有 scripts/check-version-sync.mjs 强制校验，发版前必跑（否则会重演「版本号三处不一致、更新永远是哑的」）。
-const APP_VERSION = 'v1.1.2'
-const APP_VERSION_CODE = 1102
+const APP_VERSION = 'v1.1.3'
+const APP_VERSION_CODE = 1103
 const UPDATE_BASE = 'http://43.128.20.39:17533'
 
 // 拉更新清单：8 秒超时、不走缓存；任何异常都当作「连不上」，绝不阻塞使用

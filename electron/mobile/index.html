@@ -12,12 +12,23 @@
 :root{--paper:#f7f2e8;--card:#fffdf7;--ink:#2b2620;--sub:#8a7f6e;--line:#e2d9c8;--red:#c0392b;--green:#1faa59;--blue:#1677ff;--gold:#b7791f;font-size:17px}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#d8d2c4;color:var(--ink);display:flex;justify-content:center;font-size:17px}
-.phone{width:100%;max-width:430px;background:var(--paper);min-height:100vh;display:flex;flex-direction:column;position:relative;box-shadow:0 0 30px rgba(0,0,0,.25)}
+.phone{width:100%;max-width:430px;background:var(--paper);height:100vh;height:100dvh;display:flex;flex-direction:column;position:relative;overflow:hidden;box-shadow:0 0 30px rgba(0,0,0,.25)}
 .sign{background:var(--card);border-bottom:3px solid var(--ink);padding:14px 16px 12px;display:flex;align-items:center;gap:12px}
 .sign h1{font-family:"STKaiti","KaiTi","SimSun",serif;font-size:32px;font-weight:900;letter-spacing:2px}
 .seal{margin-left:auto;width:58px;height:58px;border:3px solid var(--red);border-radius:50%;color:var(--red);display:flex;align-items:center;justify-content:center;text-align:center;font-family:"STKaiti","KaiTi",serif;font-size:14px;font-weight:900;line-height:1.1;transform:rotate(8deg);opacity:.85}
 .date{font-size:12px;color:var(--sub);margin-top:3px}
 .page-title{font-family:"STKaiti","KaiTi",serif;font-size:22px;font-weight:900;margin-left:auto;background:var(--ink);color:var(--paper);padding:4px 12px;border-radius:4px;font-size:13px}
+
+/* 固定骨架：招牌（顶部）与底部导航恒在，只有中间的 #app 滚动。
+   以前 .phone 是 min-height:100vh，内容一长就整页滚 —— 招牌被顶出去、底部功能得滑到底才看得见。
+   现在 .phone 锁一屏高，.sign / #netBanner / .tabs 都是不伸缩的固定项，#app 吃掉剩余高度并自己滚。 */
+.sign{flex:none}
+#netBanner{flex:none}
+#app{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column}
+/* #app 的直接子块默认不参与伸缩：长列表照内容排布，不会被压扁 */
+#app>*{flex:0 0 auto}
+/* 开单页的购物车吃掉剩余高度（内容少就把结账键顶到最底部，内容多就自己滚） */
+#app>.cart{flex:1 1 auto;min-height:0}
 
 .scanrow{display:flex;gap:10px;padding:14px 16px 4px}
 .scanbtn{flex:1.15;height:60px;border:3px solid var(--ink);border-radius:12px;background:var(--ink);color:var(--paper);font-size:19px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:3px 3px 0 rgba(43,38,32,.25);cursor:pointer}
@@ -49,7 +60,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 .qty button:active{background:var(--paper)}
 .qty .n{width:30px;text-align:center;font-size:16px;font-weight:800}
 
-.checkout{background:var(--card);border-top:3px solid var(--ink);padding:14px 16px calc(12px + env(safe-area-inset-bottom))}
+.checkout{background:var(--card);border-top:3px solid var(--ink);padding:14px 16px calc(12px + env(safe-area-inset-bottom));position:sticky;bottom:0;z-index:6}
 .total{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px}
 .total .t{font-size:15px;color:var(--sub);font-weight:700}
 .total .v{font-size:30px;font-weight:900;font-family:"STKaiti","KaiTi",serif}
@@ -62,7 +73,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 .pay.ali{background:var(--blue);transform:rotate(-1deg)}
 .pay.credit{background:#3a3a3a;transform:rotate(2deg)}
 
-.tabs{display:grid;grid-template-columns:repeat(5,1fr);background:var(--card);border-top:3px solid var(--ink)}
+.tabs{display:grid;grid-template-columns:repeat(5,1fr);background:var(--card);border-top:3px solid var(--ink);flex:none}
 .tab{padding:10px 0 calc(9px + env(safe-area-inset-bottom));text-align:center;font-size:13px;color:var(--sub);font-weight:700;cursor:pointer;text-decoration:none}
 .tab svg{width:24px;height:24px;display:block;margin:0 auto 3px}
 .tab.on{color:var(--red)}
