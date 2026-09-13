@@ -4,6 +4,8 @@ release/
 spike/
 sync-workbench.mjs
 *.log
+# sync-workbench.mjs（驾驶舱同步脚本，不入库）的运行期标记：记"首单状态已通知过"的日期
+.first-order-notified
 
 # 激活码私钥（泄露=任何人都能发码），只留在老板发码机
 scripts/license-private.pem
