@@ -10,6 +10,7 @@ import { backend } from '@/lib/api'
 import { uploadProductPhoto } from '@/lib/photo'
 import { playSound } from '@/lib/sounds'
 import { useOnline } from '@/lib/useOnline'
+import { countLowStock } from '@/lib/stockVitals'
 import { type Category, type Product } from '@/types'
 import { validateQty, unitOf, isDecimalUnit } from '@/lib/quantity'
 import {
@@ -68,7 +69,7 @@ export function InboundPage() {
     const todayIn = transactions.filter((t) => t.type === 'in' && isToday(t.timestamp))
     const todayQty = todayIn.reduce((s, t) => s + t.quantity, 0)
     const pending = products.filter((p) => p.status === '待盘点').length
-    const low = products.filter((p) => totalStockOf(p.id) <= (p.min_stock ?? 5)).length
+    const low = countLowStock(products, totalStockOf)
     return { todayQty, todayCnt: todayIn.length, pending, low, suppliers: suppliers.length }
   }, [transactions, products, totalStockOf, suppliers])
 

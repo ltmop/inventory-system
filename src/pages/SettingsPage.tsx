@@ -20,8 +20,8 @@ import { PreferenceRow } from './settings/PreferenceRow'
 
 // 设置页分类（2026-09-01 重构：10 个区块按 4 组归类，顶部导航条点击定位）
 const SETTINGS_SECTIONS = [
-  { id: 'appearance', label: '外观与操作', icon: '🎨', desc: '提示音、字号、深色模式、行业模板' },
-  { id: 'data', label: '数据与备份', icon: '💾', desc: '自动备份、第二位置、数据位置' },
+  { id: 'appearance', label: '外观与操作', icon: '🎨', desc: '提示音、字号、深色模式' },
+  { id: 'data', label: '数据与备份', icon: '💾', desc: '自动备份、从备份恢复' },
   { id: 'connect', label: '连接与共享', icon: '📱', desc: '手机看店、收款码、员工账号' },
   { id: 'account', label: '账户与支持', icon: '👤', desc: '激活授权、意见反馈、关于' },
 ] as const
@@ -49,6 +49,10 @@ export function SettingsPage() {
   // 备份状态（backup:status）：上次时间/份数/第二位置可用性/超期提醒
   const [bStatus, setBStatus] = useState<BackupStatus | null>(null)
   const [extraBusy, setExtraBusy] = useState(false)
+  // 「高级设置」折叠开关（2026-09-14 扁平化）。
+  // 壁纸 SVG、行业模板、数据位置（还带 SQLite/WAL 这种词）都是**装机时折腾一次**的东西，
+  // 老板和店员日常不看。owner 原话「太专业，除了开发者没人会用」——默认收起，需要时点开。
+  const [adv, setAdv] = useState(false)
 
   // 使用偏好（本机保存，刷新/重启后仍生效）
   const soundEnabled = useAppStore((s) => s.soundEnabled)
@@ -350,6 +354,15 @@ export function SettingsPage() {
       <section id="set-appearance" className="scroll-mt-4">
         <h2 className="mb-2 text-sm font-semibold text-slate-700">🎨 外观与操作</h2>
         <div className="space-y-6">
+      {/* 高级设置开关：默认收起壁纸 / 行业模板 / 数据位置 */}
+      <button
+        onClick={() => setAdv((v) => !v)}
+        className="w-full cursor-pointer rounded-xl border border-dashed border-slate-300 bg-white/60 px-4 py-2.5 text-sm font-medium text-slate-500 transition-colors hover:border-brand-400 hover:text-brand-700"
+      >
+        {adv ? '收起高级设置 ↑' : '高级设置（桌面壁纸 / 行业模板 / 数据位置）↓'}
+      </button>
+      {adv && (
+        <>
       {/* 桌面壁纸：SVG 背景，选内置/上传自定义，cover 缩放 + 压暗不遮功能 */}
       <WallpaperCard />
       {/* 使用偏好：提示音 + 大字模式，本机保存 */}
@@ -388,6 +401,8 @@ export function SettingsPage() {
 
       {/* 行业模板（通用版）：一键切换行业 */}
       <IndustryTemplateCard />
+        </>
+      )}
         </div>
       </section>
 
@@ -412,7 +427,8 @@ export function SettingsPage() {
         onClearExtraDir={handleClearExtraDir}
       />
 
-      {/* 数据位置 */}
+      {/* 数据位置：也收在「高级设置」里（含 SQLite/WAL 这种词，日常不看） */}
+      {adv && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -440,6 +456,7 @@ export function SettingsPage() {
           )}
         </CardContent>
       </Card>
+      )}
         </div>
       </section>
 

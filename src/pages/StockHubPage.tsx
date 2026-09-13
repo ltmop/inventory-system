@@ -5,6 +5,7 @@ import { PageHeading, FeatureGrid } from '@/components/layout/FeatureGrid'
 import { MetricStrip } from '@/components/layout/MetricStrip'
 import { useAppStore } from '@/store/appStore'
 import { computeExpiring } from '@/lib/expiry'
+import { countLowStock } from '@/lib/stockVitals'
 
 export default function StockHubPage() {
   const products = useAppStore((s) => s.products)
@@ -12,7 +13,7 @@ export default function StockHubPage() {
   const transactions = useAppStore((s) => s.transactions)
   const totalStockOf = useAppStore((s) => s.totalStockOf)
   const expiringList = useMemo(() => computeExpiring(products, totalStockOf, 30), [products, totalStockOf])
-  const lowCount = useMemo(() => products.filter((p) => totalStockOf(p.id) <= (p.min_stock ?? 5)).length, [products, totalStockOf])
+  const lowCount = useMemo(() => countLowStock(products, totalStockOf), [products, totalStockOf])
   const totalStock = useMemo(() => batches.reduce((s, b) => s + b.quantity, 0), [batches])
   const slowCount = useMemo(() => products.filter((p) => {
     if (totalStockOf(p.id) <= 0) return false

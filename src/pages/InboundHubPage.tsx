@@ -5,6 +5,7 @@ import { PageHeading, FeatureGrid } from '@/components/layout/FeatureGrid'
 import { MetricStrip } from '@/components/layout/MetricStrip'
 import { useAppStore } from '@/store/appStore'
 import { isToday, formatPrice } from '@/lib/formatters'
+import { countLowStock } from '@/lib/stockVitals'
 
 export default function InboundHubPage() {
   const products = useAppStore((s) => s.products)
@@ -16,7 +17,7 @@ export default function InboundHubPage() {
     const todayIn = transactions.filter((t) => t.type === 'in' && isToday(t.timestamp))
     const todayInQty = todayIn.reduce((s, t) => s + t.quantity, 0)
     const pending = products.filter((p) => p.status === '待盘点').length
-    const low = products.filter((p) => totalStockOf(p.id) <= (p.min_stock ?? 5)).length
+    const low = countLowStock(products, totalStockOf)
     const now = new Date()
     const mk = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
     const exp = expenses.filter((e) => (e.expense_date || '').startsWith(mk)).reduce((s, e) => s + e.amount, 0)

@@ -7,6 +7,7 @@ import { formatPrice } from '@/lib/formatters'
 import { computeOverview, computeTrend, computeStockValue } from '@/lib/analytics'
 import { RollingNumber } from '@/components/RollingNumber'
 import { cn } from '@/lib/utils'
+import { countLowStock } from '@/lib/stockVitals'
 
 /** 经营驾驶舱·大屏页：真实经营指标大数 + 近14天趋势（壁纸由 Layout 全局接管）。 */
 export default function BigScreenPage() {
@@ -19,7 +20,7 @@ export default function BigScreenPage() {
   const overview = useMemo(() => computeOverview(transactions, batches, products), [transactions, batches, products])
   const stock = useMemo(() => computeStockValue(batches, products), [batches, products])
   const trend = useMemo(() => computeTrend(transactions, 14).map((d) => ({ revenue: d.revenue, profit: d.profit, day: d.date.slice(5) })), [transactions])
-  const lowCount = products.filter((p) => totalStockOf(p.id) <= (p.min_stock ?? 5)).length
+  const lowCount = countLowStock(products, totalStockOf)
   const expiringCount = useMemo(() => products.filter((p) => (p as any).expiry_date && new Date((p as any).expiry_date) <= new Date(Date.now() + 30 * 86400000)).length, [products])
 
   const cards = [
