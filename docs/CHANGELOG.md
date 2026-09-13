@@ -1,5 +1,31 @@
 # 进销存系统 CHANGELOG
 
+## v1.0.12 已发布 (2026-09-13) — 发布链路 + 中心库服务端补齐渠道
+
+### 发布（已完成）
+- **1.0.12 已发布到自动更新源**：`https://sync.junchengzn.com/updates/`，
+  公网 `latest.yml` = 1.0.12 已校验（version 与 sha512 均与本地一致），安装包 200。
+  上线名 `inventory-system-setup-1.0.12.exe`（ASCII 约定），旧清单已备份可回滚。
+- 新增 `scripts/publish-update.mjs`：发布只有一条命令。它负责
+  把中文名包改成服务端约定的 ASCII 名、按文件真实值重写 `latest.yml`
+  （sha512/size 现算，不抄）、上传三个产物、并**公网回读校验** version 与 sha512。
+  以前这一步要靠人记约定 + 手工改 yml，且 `release/latest.yml` 会一直停在旧版本。
+- 更正 CHANGELOG 历史：线上更新源在 2026-09-11 就已发到 1.0.10，不是 v1.0.9 段写的 1.0.9。
+
+### 中心库服务端补齐渠道（重要，先于客户端发布）
+- 实测：中心库服务端 `/opt/inventory-app/electron/commands/outbound.js` 里 `channel` 命中 **0**，
+  也没有 `channels.js`。也就是说**先发客户端、再有人用中心库模式开单**，
+  渠道会被服务端 INSERT 丢掉、再被 DB 触发器兜成「线下」→ **Shopee 单静默变线下，且看起来正常**。
+- 已部署 `electron/channels.js`（新增）+ `electron/db.js` + `electron/commands/outbound.js`，
+  备份在 `/opt/inventory-app/electron.bak-channel-20260913-103439/`。
+  部署前逐行 diff：24 行"服务端独有"内容全部可归因于旧实现，**未丢失任何服务端热修**。
+- 部署后：pm2 `inventory-app` online、`central db opened, products: 324`、
+  中央库 `integrity_check: ok` 且数据未变。
+- 结论写进 `docs/发布记录.md` 的「部署顺序」一节：**先服务端，后客户端。**
+
+### 仍未做
+- **两台机器尚未实际升级到 1.0.12**（需现场）。不升级则同步/离线/渠道都不生效。
+
 ## v1.0.12 (2026-09-13) — 重打安装包 / 销售渠道 / 发布可追溯
 
 ### 发布

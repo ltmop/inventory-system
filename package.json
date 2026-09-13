@@ -12,6 +12,7 @@
     "check:assertions": "node scripts/check-assertions.mjs",
     "check:offline": "node scripts/test-offline.mjs",
     "check:backfill": "node scripts/test-backfill-central.mjs",
+    "publish:update": "node scripts/publish-update.mjs",
     "electron": "electron .",
     "dev-electron": "node scripts/dev-electron.cjs",
     "dist": "node scripts/dist.cjs"
