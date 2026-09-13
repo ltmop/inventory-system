@@ -2224,6 +2224,54 @@ ok('preload 白名单含 product:batchUpdate', preloadSrc.includes("'product:bat
   mdb.close()
 }
 
+// 41. 销售渠道（channel）：首单北极星判据的前置 —— 补列 + 默认「线下」+ Shopee 必须显式传
+//     为什么值得单独测：台账 line 25 的首单判据是 `type=out 且 amount>0 且 channel=Shopee`，
+//     并自带「不得用 amount>0 顶替」的警告。这里把判据**两个方向**都验一遍：
+//     没有 Shopee 单时必须为 0；真录一笔 Shopee 单后必须变 1（否则判据永远为 0，等于没有判据）。
+{
+  const cdb = openDatabase(path.join(tmp, 'channel.db'))
+
+  // 口径单一事实源（db.js 建表/触发器、outbound.js 校验、迁移脚本都从这里取）
+  const chMod = await import('../electron/channels.js')
+  ok('channels.js 导出取值集合（含 线下/Shopee）与默认值「线下」',
+    Array.isArray(chMod.CHANNELS) && chMod.CHANNELS.includes('线下') && chMod.CHANNELS.includes('Shopee') && chMod.DEFAULT_CHANNEL === '线下')
+  ok('assertChannel 不传/空 → undefined（交给触发器兜默认）',
+    chMod.assertChannel(undefined) === undefined && chMod.assertChannel('') === undefined)
+  ok('assertChannel 非法值抛错并列出取值',
+    (() => { try { chMod.assertChannel('淘宝'); return false } catch (e) { return e.message.includes('线下') && e.message.includes('Shopee') } })())
+
+  ok('新库 transactions 带 channel 列',
+    cdb.prepare('PRAGMA table_info(transactions)').all().some((c) => c.name === 'channel'))
+  ok('新库已建渠道默认触发器 trg_transactions_channel_default',
+    !!cdb.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name='trg_transactions_channel_default'").get())
+
+  const cp = cmd.createProduct(cdb, { sku_code: '', category: '鱼竿', cost_price: 4000 })
+  cmd.createInbound(cdb, { productId: cp.id, quantity: 10, costPrice: 4000, operator: '测试' })
+
+  const crit = () => cdb.prepare("SELECT COUNT(*) n FROM transactions WHERE type='out' AND selling_price > 0 AND channel='Shopee'").get().n
+  const naive = () => cdb.prepare("SELECT COUNT(*) n FROM transactions WHERE type='out' AND selling_price > 0").get().n
+
+  cmd.confirmOutbound(cdb, { productId: cp.id, quantity: 1, sellingPrice: 8000, operator: '测试' })
+  ok('不传渠道 → 落库为「线下」（数据库层触发器兜默认）',
+    cdb.prepare("SELECT channel FROM transactions WHERE type='out' ORDER BY id DESC LIMIT 1").get().channel === '线下')
+  ok('此时首单判据为 0（线下的单不满足 渠道=Shopee）', crit() === 0)
+  ok('对照：去掉渠道条件则 >0 —— 这正是「不得用 amount>0 顶替」要挡的', naive() > 0)
+
+  cmd.confirmOutbound(cdb, { productId: cp.id, quantity: 1, sellingPrice: 9000, channel: 'Shopee', operator: '测试' })
+  ok('显式 channel=Shopee 落库且不被触发器覆盖',
+    cdb.prepare("SELECT channel FROM transactions WHERE type='out' ORDER BY id DESC LIMIT 1").get().channel === 'Shopee')
+  ok('录到 Shopee 单后首单判据变 1（判据两个方向都成立，不是永远为 0）', crit() === 1)
+
+  let chErr = null
+  try { cmd.confirmOutbound(cdb, { productId: cp.id, quantity: 1, sellingPrice: 8000, channel: '淘宝', operator: '测试' }) } catch (e) { chErr = e }
+  ok('非法渠道拒绝', chErr !== null && chErr.message.includes('渠道'))
+
+  ok('入库单 channel 保持 NULL（渠道只对销售有意义）',
+    cdb.prepare("SELECT channel FROM transactions WHERE type='in' ORDER BY id DESC LIMIT 1").get().channel === null)
+
+  cdb.close()
+}
+
 // 41. 一单多商品收银台（confirmCheckout）：通道注册 + 校验 + 原子性 + 赊账摊销 + 方式落库
 ok('main.js 注册 outbound:checkout 通道', mainSrc.includes("'outbound:checkout'"))
 ok('preload 白名单含 outbound:checkout', preloadSrc.includes("'outbound:checkout'"))

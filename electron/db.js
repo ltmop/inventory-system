@@ -5,6 +5,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
+import { DEFAULT_CHANNEL } from './channels.js'
 import {
   SEED_SUPPLIERS,
   SEED_PRODUCTS,
@@ -162,7 +163,11 @@ CREATE TABLE IF NOT EXISTS transactions (
     -- NULL=未记录（老数据/纯赊账/冲减欠款等没有现金移动的流水）
     pay_method TEXT CHECK (pay_method IN ('现金','微信','支付宝','其他')),
     -- 多门店预留
-    store_code TEXT DEFAULT ''
+    store_code TEXT DEFAULT '',
+    -- 销售渠道（老库由 migrateTransactionChannel 补）：线下 / Shopee / 优选仓 / 其他，
+    -- NULL=不适用（入库等非销售流水）或未标注。首单北极星判据
+    -- 「type=out 且 amount>0 且 channel=Shopee」依赖本列；口径见 electron/channels.js
+    channel TEXT
 );
 
 CREATE TABLE IF NOT EXISTS stock_takes (
@@ -386,6 +391,7 @@ function runMigrations(db) {
     ['客户偏好补列', migrateCustomerPreferences],
     ['套装价格补列', migrateKitPrice],
     ['多门店预留补列', migrateStoreCode],
+    ['销售渠道补列（首单判据）', migrateTransactionChannel],
     ['批次生产日期补列', migrateBatchProductionDate],
     ['会员字段补列', migrateCustomerMember],
     ['分类/单位种子', seedCategoriesAndUnits],
@@ -726,6 +732,34 @@ function migrateStoreCode(db) {
   addCol('payments', 'store_code', "store_code TEXT DEFAULT ''")
   addCol('expenses', 'store_code', "store_code TEXT DEFAULT ''")
   addCol('waste_logs', 'store_code', "store_code TEXT DEFAULT ''")
+}
+
+/**
+ * 销售渠道补列（通用版）：transactions.channel —— 首单北极星判据的前置。
+ *
+ * 为什么用触发器兜默认值、而不是去改 14 处写入点：
+ *   transactions 的写入面有 14 处（开单/退货/换货/报损/采购收货/导入…），逐个改既漏又危险；
+ *   触发器是数据库层兜底，一处不漏，且 app 代码零改动（与 migrate-sync-changelog 同一取舍）。
+ *
+ * 语义边界：
+ *   · 只对 type='out' 兜默认值「线下」；type='in' 等非销售流水保持 NULL（渠道不适用）
+ *   · **显式传入的 channel 不会被覆盖**（Shopee 必须由调用方显式写，绝不自动推断 ——
+ *     否则北极星会被"接近了就算"翻成已出，比误报更危险）
+ *   · 历史数据不在启动时回填：回填是一次性数据操作，见 scripts/migrate-transaction-channel.mjs
+ */
+function migrateTransactionChannel(db) {
+  try {
+    const cols = db.prepare('PRAGMA table_info(transactions)').all().map((c) => c.name)
+    if (!cols.includes('channel')) db.exec('ALTER TABLE transactions ADD COLUMN channel TEXT')
+    db.exec(
+      'CREATE TRIGGER IF NOT EXISTS trg_transactions_channel_default\n' +
+      'AFTER INSERT ON transactions\n' +
+      'BEGIN\n' +
+      "  UPDATE transactions SET channel = '" + DEFAULT_CHANNEL + "'\n" +
+      "   WHERE rowid = NEW.rowid AND type = 'out' AND (channel IS NULL OR channel = '');\n" +
+      'END',
+    )
+  } catch { /* 表不存在等，忽略 */ }
 }
 
 /** 批次生产日期补列（通用版）：保质期商品入库记录生产日期 */

@@ -10,6 +10,7 @@ import {
   logAudit,
   addBackToLatestBatch,
 } from './helpers.js'
+import { assertChannel } from '../channels.js'
 
 /**
  * 按入库日期升序扣减批次；跨批次拆成多条 transactions
@@ -29,13 +30,16 @@ import {
  * 全额付清记各条流水；部分付款且实收>0 同样记；纯赊账（paidAmount=0）强制记 NULL（没有现金移动）。
  * 老数据/未传的一律 NULL=未记录，日结拆分单独归入"未记录"。
  */
-export function confirmOutbound(db, { productId, quantity: rawQuantity, sellingPrice, operator, customerId, paidAmount, tier, payMethod, allowExpired, allowNoStock }) {
+export function confirmOutbound(db, { productId, quantity: rawQuantity, sellingPrice, operator, customerId, paidAmount, tier, payMethod, channel, allowExpired, allowNoStock }) {
   // 入口先校验：数量为 0/负数时直接抛错；允许小数单位出库
   const prod0 = db.prepare('SELECT unit FROM products WHERE id = ?').get(productId)
   if (!prod0) throw new Error('商品不存在')
   const quantity = assertQuantity(rawQuantity, '出库数量', prod0.unit === '米' ? '米' : '件')
   if (sellingPrice != null) assertFen(sellingPrice, '出库售价')
   payMethod = assertPayMethod(payMethod)
+  // 销售渠道：不传 → undefined（交给数据库层触发器兜默认「线下」）；
+  // 传了必须是 electron/channels.js 里的取值。Shopee 只能显式传，绝不自动推断。
+  channel = assertChannel(channel)
   if (tier != null) {
     if (!PRICE_TIERS.includes(tier)) throw new Error(`价格档次必须是：${PRICE_TIERS.join(' / ')}，收到：${tier}`)
     if (sellingPrice == null) {
@@ -111,9 +115,9 @@ export function confirmOutbound(db, { productId, quantity: rawQuantity, sellingP
         paidLeft -= paid
       }
       db.prepare(
-        `INSERT INTO transactions (product_id, batch_id, type, quantity, unit_price, selling_price, timestamp, operator, notes, customer_id, paid_amount, pay_method)
-         VALUES (?, ?, 'out', ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
-      ).run(productId, b.id, deduct, b.cost_price, sellingPrice ?? null, ts, operator ?? null, customerId ?? null, paid, methodForTx)
+        `INSERT INTO transactions (product_id, batch_id, type, quantity, unit_price, selling_price, timestamp, operator, notes, customer_id, paid_amount, pay_method, channel)
+         VALUES (?, ?, 'out', ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
+      ).run(productId, b.id, deduct, b.cost_price, sellingPrice ?? null, ts, operator ?? null, customerId ?? null, paid, methodForTx, channel ?? null)
       allocations.push({
         batch_id: b.id,
         batch_no: b.batch_no,
@@ -137,8 +141,8 @@ export function confirmOutbound(db, { productId, quantity: rawQuantity, sellingP
       const needBackfill = !(lastCost?.unit_price != null) && !(fallbackProd?.cost_price != null)
       const costNote = '无库存强制出库' + (needBackfill ? '（待补成本：无历史进价，按0记账，请尽快补录入库单修正成本）' : '')
       db.prepare(
-        "INSERT INTO transactions (product_id, batch_id, type, quantity, unit_price, selling_price, timestamp, operator, notes, customer_id, paid_amount, pay_method) VALUES (?, NULL, 'out', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      ).run(productId, remaining, estCost, sellingPrice ?? null, ts, operator ?? null, costNote, customerId ?? null, isCredit ? 0 : null, isCredit ? null : methodForTx)
+        "INSERT INTO transactions (product_id, batch_id, type, quantity, unit_price, selling_price, timestamp, operator, notes, customer_id, paid_amount, pay_method, channel) VALUES (?, NULL, 'out', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(productId, remaining, estCost, sellingPrice ?? null, ts, operator ?? null, costNote, customerId ?? null, isCredit ? 0 : null, isCredit ? null : methodForTx, channel ?? null)
       allocations.push({ batch_id: null, batch_no: costNote, deduct: remaining, remaining_after: -remaining, cost_price: estCost })
     }
     const outProd = db.prepare('SELECT * FROM products WHERE id = ?').get(productId)
