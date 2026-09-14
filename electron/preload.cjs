@@ -160,6 +160,10 @@ const CHANNELS = new Set([
   'cloud:centralConfig',
   'cloud:logout',
   'cloud:dismissRestore',
+  // 阶段2.3：多端同步冲突列出/逐条解决/立即同步（main.js 已注册；此前漏放行，前端调用会被拒）
+  'cloud:syncConflicts',
+  'cloud:resolveSyncConflict',
+  'cloud:syncBusinessNow',
 ])
 
 contextBridge.exposeInMainWorld('fi', {
