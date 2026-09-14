@@ -21,6 +21,7 @@
     "check:cli": "node scripts/verify-cli.mjs",
     "cli": "node scripts/inv-cli.mjs",
     "check:update": "node scripts/verify-update-check.mjs",
+    "check:web": "node scripts/verify-download-page.mjs",
     "release": "node scripts/release.mjs",
     "electron": "electron .",
     "dev-electron": "node scripts/dev-electron.cjs",

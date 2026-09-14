@@ -115,8 +115,8 @@
 |---|---|
 | 服务器 IP | 43.128.20.39 |
 | 登录用户 | ubuntu |
-| SSH 私钥 | C:\Users\Administrator\.ssh\skey-junchengzn.pem（ssh config: Host juncheng） |
-| 连接方式 | ssh -i "C:\Users\Administrator\.ssh\skey-junchengzn.pem" -o StrictHostKeyChecking=no ubuntu@43.128.20.39（工具 ssh_exec/ssh_list 有序列化 bug，用原生 ssh） |
+| SSH 私钥 | C:\Users\Administrator\.ssh\junchengzn.pem（ssh config: Host juncheng）—— **不是** `skey-junchengzn.pem`，那个已不存在（2026-09-14 更正） |
+| 连接方式 | ssh -i "C:\Users\Administrator\.ssh\junchengzn.pem" -o StrictHostKeyChecking=no ubuntu@43.128.20.39（工具 ssh_exec/ssh_list 有序列化 bug，用原生 ssh） |
 | 中心库 token | 服务器 /opt/inventory-app/data/server-token.txt（写）/ server-view-token.txt（只读） |
 | ADMIN_KEY（cloud-server） | 服务器 pm2 inventory-cloud 的 env/env-file（本机没有，不回显） |
 | Node22（服务器 SQLite） | /opt/node22/bin/node --experimental-sqlite（系统 node 是 v18，无 sqlite） |

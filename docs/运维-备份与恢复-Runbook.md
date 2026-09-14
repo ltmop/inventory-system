@@ -70,7 +70,11 @@ Error: ENOENT: no such file or directory, copyfile
 
 改完这些脚本要重新上传到服务器并 `node --check`（2026-09-12 核对过：仓库副本与服务器版 sha256 一致）。
 
-连接方式：`ssh juncheng`（`~/.ssh/config` 已配：43.128.20.39 / ubuntu / `skey-junchengzn.pem`）。
+连接方式：`ssh juncheng`（`~/.ssh/config` 已配：43.128.20.39 / ubuntu / `junchengzn.pem`）。
+
+> ⚠️ 2026-09-14 更正：私钥是 **`~/.ssh/junchengzn.pem`**。文档与 `release.mjs` 里曾写
+> `skey-junchengzn.pem`，那个文件**已不存在** —— 发布脚本因此报「SSH 连不上服务器」，
+> 白查了一轮网络。`release.mjs` 现在按候选列表找钥匙（两个名字都试），找不到会明说「找不到服务器私钥」。
 
 ---
 

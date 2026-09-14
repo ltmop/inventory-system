@@ -24,6 +24,15 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
+// 官网下载页的版本号改写逻辑已抽到 scripts/lib/download-page.mjs（纯函数，可单测）——
+// 这块踩过三次坑，`npm run check:web` 用固定夹具 + 线上实页把它钉住，不用真发一版才知道改坏没有。
+import {
+  desktopMentions,
+  replaceDesktopMentions,
+  rewriteDownloadPage,
+  pointMainButtonAtLocal,
+  assertPageCurrent,
+} from './lib/download-page.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
@@ -75,19 +84,7 @@ function compareVer(a, b) {
   return 0
 }
 
-// 官网页面上「桌面版本号」的全部已知写法（官网改版时看这里）：
-//   ① 文件名  inventory-system-setup-<v>.exe / general-inventory-setup-<v>.exe
-//   ② 文案    桌面 v<v> / 桌面版 v<v> / Windows 版 v<v>
-// ⚠️ 2026-09-14（1.1.6）踩坑：以前只换 ① 和「桌面 v」，于是 meta description 的
-//    「桌面版 v1.1.4」、底部「当前版本 桌面版 v1.1.4」、主按钮「免费下载 Windows 版 v1.1.4」
-//    三条都留在页面上 —— exe/href/chip 都换成 1.1.6 了，用户真正会读的那几行还在骗人。
-//    而且旧守卫只查「页面含本版本号」，页面上别处有个 1.1.6 就把它骗过去了。
-// ⚠️ 这两个必须放在**模块级**：deployWeb 与 verifyWeb 两个函数都要用。
-//    曾经写在 deployWeb 里，结果 verifyWeb 抛 ReferenceError、退出码 1 —— 页面其实已经修好了，
-//    却因为一个作用域错误看起来像发布失败。
-const DESKTOP_MENTION_RE = /((?:桌面版|桌面|Windows 版)\s?v)([0-9][0-9.]*)/g
-// ⚠️ 别写成 DESKTOP_MENTION_RE.test(...)：带 /g 的正则有 lastIndex，连用两次结果不同。
-const desktopMentions = (t) => [...new Set([...t.matchAll(DESKTOP_MENTION_RE)].map(m => m[2]))]
+// 官网下载页的版本号改写逻辑在 scripts/lib/download-page.mjs（见文件顶部 import）
 
 function preCheck({ webOnly = false } = {}) {
   console.log('=== [1/5] 前置检查 ===')
@@ -196,41 +193,12 @@ function deployWeb(a) {
   const pagePath = DOWNLOAD_DIR + '/index.html'
   const rd = ssh('cat ' + pagePath)
   if (rd.status !== 0) throw new Error('读取下载页失败: ' + pagePath)
-  let page = rd.stdout
-  const mv = page.match(/inventory-system-setup-([0-9][0-9.]*)\.exe/)
-  if (!mv) throw new Error('下载页里找不到 inventory-system-setup-x.y.z.exe —— 页面结构可能又变了，请人工确认后再发')
-  const oldV = mv[1]
-  // ⚠️ 2026-09-14 第二次踩坑：**不许整页盲替换版本号**。
-  //   旧实现是 `page = page.split(oldV).join(version)` —— 它会把页面上**任何**出现
-  //   `1.1.2` 的地方都改成 `1.1.3`，包括手机版文件名 `fishing-inventory-mobile-1.1.2.apk`！
-  //   第一次（桌面版号撞上硬编码的手机版号）只是**误报中止**；
-  //   修好误报后，盲替换的**真身**才露出来：它确实改了手机版号，守卫这次报的是真的
-  //   「手机版版本号被误改（5 → 12）」。两次都导致 exe 已换、页面没换 → 官网按钮 404。
-  //   现在改成**只替换桌面安装包名**（两种命名）+ 桌面版本文案，绝不碰别处。
-  // 守卫按**完整 apk 文件名**计数，不能按裸版本号 ——
-  // 手机版号可能与桌面版号**相同**（这次两边都是 1.1.3），裸号会把桌面 exe 文件名也算进来，
-  // 于是「把 general-inventory-setup-1.1.2.exe 改成 1.1.3.exe」也被误判成改了手机版号。
-  const mobileFiles = [...new Set(page.match(/fishing-inventory-mobile-[0-9][0-9.]*\.apk/g) || [])]
-  const mobileCount = (t) => mobileFiles.reduce((n, f) => n + (t.split(f).length - 1), 0)
-  const mobileBefore = mobileCount(page)
-  // 桌面版本号文案统一收口（正则与 helper 在模块级 —— deployWeb 与 verifyWeb 共用，见文件上方注释）
-  const desktopBefore = desktopMentions(page)
-  if (oldV !== version) {
-    page = page
-      .split('inventory-system-setup-' + oldV + '.exe').join('inventory-system-setup-' + version + '.exe')
-      .split('general-inventory-setup-' + oldV + '.exe').join('general-inventory-setup-' + version + '.exe')
-  }
-  page = page.replace(DESKTOP_MENTION_RE, '$1' + version)
-  if (desktopBefore.length) console.log('  桌面版本号文案：' + desktopBefore.join(' / ') + ' → ' + version)
-  const desktopAfter = desktopMentions(page)
-  if (desktopAfter.some(v => v !== version)) throw new Error('下载页仍残留旧桌面版本号：' + desktopAfter.join(' / '))
-  const mobileAfter = mobileCount(page)
-  if (mobileBefore !== mobileAfter) throw new Error('手机版版本号被误改（' + mobileBefore + ' → ' + mobileAfter + '），已中止')
+  // 改写逻辑（含三条守卫）在 scripts/lib/download-page.mjs，`npm run check:web` 有固定夹具守着
+  const res = rewriteDownloadPage(rd.stdout, version)
+  const oldV = res.oldV
+  if (res.desktopBefore.length) console.log('  桌面版本号文案：' + res.desktopBefore.join(' / ') + ' → ' + version)
   // 主按钮指向官网本地文件；备用线路保持指更新源
-  page = page.replace(
-    'href="https://sync.junchengzn.com/updates/inventory-system-setup-' + version + '.exe" class="btn btn-accent btn-lg"',
-    'href="/download/' + DOWNLOAD_EXE + '" class="btn btn-accent btn-lg"',
-  )
+  const page = pointMainButtonAtLocal(res.html, version)
   ssh('sudo cp -p ' + pagePath + ' ' + pagePath + '.bak-$(date +%Y%m%d%H%M%S)')
   const tmpPage = path.join(os.tmpdir(), 'fi-web-download-index.html')
   fs.writeFileSync(tmpPage, page, 'utf8')
@@ -243,7 +211,7 @@ function deployWeb(a) {
   const mainPage = '/var/www/junchengzn/index.html'
   const rm = ssh('cat ' + mainPage)
   if (rm.status === 0 && desktopMentions(rm.stdout).length) {
-    const mh = rm.stdout.replace(DESKTOP_MENTION_RE, '$1' + version)
+    const mh = replaceDesktopMentions(rm.stdout, version)
     const tmpMain = path.join(os.tmpdir(), 'fi-web-main-index.html')
     fs.writeFileSync(tmpMain, mh, 'utf8')
     scpTo(tmpMain, '/tmp/web-main-index.html')
@@ -288,16 +256,11 @@ function verifyWeb() {
   const page = sh('curl -sL ' + pageUrl).stdout
   if (!page.includes(version)) throw new Error('官网下载页里没有 ' + version + ' → ' + pageUrl)
   console.log('  官网下载页含 ' + version + ' OK')
-  // ⚠️ 「页面含本版本」这条太弱：页面上 chip / exe 名 / 备用线路 任意一处有 1.1.6 就能过，
-  //    而**主按钮文案**（用户唯一会读的那行）可以是 v1.1.4。1.1.6 发布时就真的这样过了。
-  //    所以额外钉两件事：主按钮文案 = 本版本；页面上不许再残留别的「Windows 版 vX」。
-  const btn = page.match(/<a href="\/download\/general-inventory-setup-[0-9][0-9.]*\.exe"[^>]*>([^<]*)</)
-  if (!btn) throw new Error('官网下载页找不到主按钮（结构可能又变了）→ ' + pageUrl)
-  if (!btn[1].includes(version)) throw new Error('官网主按钮文案没跟上版本：按钮写「' + btn[1].trim() + '」，本版本是 ' + version)
-  console.log('  官网主按钮文案含 ' + version + ' OK（' + btn[1].trim() + '）')
-  // 页面里任何一处桌面版本号文案都不许还是旧的（meta description / 底部当前版本 / 按钮文案）
-  const stale = desktopMentions(page).filter(v => v !== version)
-  if (stale.length) throw new Error('官网下载页还残留旧桌面版本号：' + stale.join(' / '))
+  // ⚠️ 「页面含本版本」这条太弱：页面上 chip / exe 名 / 备用线路 任意一处有它就能过，
+  //    而**主按钮文案**（用户唯一会读的那行）可以是旧版本。1.1.6 发布时就真的这样过了。
+  //    所以改用 lib 里的 assertPageCurrent：主按钮文案必须写本版本 + 页面不许残留旧桌面版本号。
+  const chk = assertPageCurrent(page, version)
+  console.log('  官网主按钮文案含 ' + version + ' OK（' + chk.button.text + '）')
   console.log('  页面所有桌面版本号文案都是 ' + version + ' OK')
   const url = 'https://junchengzn.com/download/' + DOWNLOAD_EXE
   const code = sh('curl -sL -o NUL -w %{http_code} ' + url).stdout.trim()
