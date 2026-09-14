@@ -508,6 +508,52 @@ export function OutboundPage() {
   const cartRemove = (productId: number) => setCart((c) => c.filter((i) => i.product.id !== productId))
   const cartClear = () => setCart([])
 
+  // 「常卖商品」置顶（2026-09-14）：渔具店天天卖的就是那几样，扫都不用扫，点一下就进清单。
+  // 口径：近 90 天出库**笔数**最多的 8 个；还要**有货 + 有价**才算 ——
+  // 否则点进去也是废的（没价不能开单、没货加不进清单）。
+  const quickPicks = useMemo(() => {
+    const since = Date.now() - 90 * 86400000
+    const hits = new Map<number, number>()
+    for (const t of transactions) {
+      if (t.type !== 'out') continue
+      const at = new Date(t.timestamp).getTime()
+      if (!Number.isFinite(at) || at < since) continue
+      hits.set(t.product_id, (hits.get(t.product_id) ?? 0) + 1)
+    }
+    const out: { product: Product; cents: number; n: number }[] = []
+    for (const [id, n] of [...hits.entries()].sort((a, b) => b[1] - a[1])) {
+      const p = products.find((x) => x.id === id)
+      if (!p) continue
+      if (totalStockOf(id) <= 0) continue
+      const retail = priceTiers.find((x) => x.product_id === id && x.tier === 'retail')
+      const cents = retail?.price ?? p.suggest_price
+      if (cents == null || cents <= 0) continue
+      out.push({ product: p, cents, n })
+      if (out.length >= 8) break
+    }
+    return out
+  }, [transactions, products, priceTiers, totalStockOf])
+
+  // 点一下就进清单（数量 1，价格用零售档/建议价）—— 不填表单、不弹窗，跟扫码一样快
+  const quickAdd = (p: Product, cents: number) => {
+    const stock = totalStockOf(p.id)
+    if (stock <= 0) {
+      setError(`${productName(p)} 已经没货了`)
+      playSound('error')
+      return
+    }
+    setCart((c) => {
+      const ex = c.find((i) => i.product.id === p.id)
+      if (ex) {
+        const next = Math.min(Math.round((ex.quantity + 1) * 10) / 10, stock)
+        return c.map((i) => (i.product.id === p.id ? { ...i, quantity: next } : i))
+      }
+      return [...c, { product: p, quantity: 1, priceCents: cents }]
+    })
+    playSound('success')
+    setSuccess(`已加入清单：${productName(p)} × 1`)
+  }
+
   // P1-3 语音开单：确认卡通过 → 灌入购物车 → 预填收款 → 打开既有结算弹窗（落库走 confirmCheckout，口径不变）
   const applyVoiceOrder = (lines: VoiceOrderLine[], pay: VoiceOrderPay) => {
     setCart((prev) => {
@@ -914,6 +960,27 @@ export function OutboundPage() {
           新人扫第一件货之前完全看不到「合计 / 收款」这一步，也不知道这页最后要干什么。 */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
       <div className="space-y-6">
+      {/* 常卖商品：置顶。渔具店每天卖的就是那几样，点一下直接进清单，比扫码还快 */}
+      {quickPicks.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="mb-2.5 text-sm font-medium text-slate-500">
+            常卖商品<span className="ml-1 text-xs font-normal text-slate-400">近 90 天卖得最多 · 点一下就进清单</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {quickPicks.map(({ product, cents, n }) => (
+              <button
+                key={product.id}
+                onClick={() => quickAdd(product, cents)}
+                title={`近 90 天卖出 ${n} 笔 · 库存 ${totalStockOf(product.id)} · 售价 ¥${(cents / 100).toFixed(2)}`}
+                className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 transition-colors hover:border-brand-400 hover:bg-brand-50"
+              >
+                <span className="text-[15px] font-medium text-slate-800">{productName(product)}</span>
+                <span className="text-sm font-semibold text-emerald-600">¥{(cents / 100).toFixed(2)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {/* 搜索区：与入库页同款 ScanHero，回车选中首个候选（适配扫码枪） */}
       <ScanHero
         inputRef={inputRef}

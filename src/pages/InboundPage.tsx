@@ -485,8 +485,8 @@ export function InboundPage() {
         value={barcode}
         onChange={setBarcode}
         onSubmit={handleSearch}
-        placeholder="请扫描商品条码或输入条码号，按下 Enter 确认搜索"
-        hint="USB 扫码枪即插即用，扫描后自动回车"
+        placeholder="扫条码，或打商品名 / 型号，按回车"
+        hint="扫码枪扫完自动回车；也可以打字搜"
       />
 
       {success && <SuccessBanner>{success}</SuccessBanner>}

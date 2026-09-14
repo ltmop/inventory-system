@@ -55,7 +55,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     <aside
       className={cn(
         'relative flex h-screen flex-col overflow-hidden border-r border-slate-200 bg-white transition-all duration-200',
-        collapsed ? 'w-0 border-r-0' : 'w-56',
+        collapsed ? 'w-0 border-r-0' : 'w-60',
       )}
     >
       {/* 品牌区：蓝底白字 LOGO */}
@@ -63,8 +63,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         <BrandLogo size={40} className="shadow-sm" />
         {!collapsed && (
           <div className="leading-tight">
-            <div className="text-[15px] font-bold text-slate-900">AI 智能进销存</div>
-            <div className="text-xs text-slate-400">AI 智能管理系统</div>
+            <div className="text-base font-bold text-slate-900">AI 智能进销存</div>
+            <div className="text-sm text-slate-400">AI 智能管理系统</div>
           </div>
         )}
       </div>
@@ -79,8 +79,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             title={item.label}
             className={({ isActive }) =>
               cn(
-                'flex items-center gap-3 rounded-lg text-sm font-medium transition-all duration-150',
-                collapsed ? 'justify-center px-0 py-3' : 'px-3 py-2.5',
+                'flex items-center gap-3 rounded-lg text-base font-medium transition-all duration-150',
+                collapsed ? 'justify-center px-0 py-3.5' : 'px-3 py-3',
                 isActive
                   ? 'bg-brand-50 text-brand-700'
                   : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900',
@@ -112,13 +112,13 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 )
               }
             >
-              <item.icon className={cn('shrink-0', collapsed ? 'size-5' : 'size-4.5')} />
+              <item.icon className={cn('shrink-0', 'size-5')} />
               {!collapsed && <span>{item.label}</span>}
             </NavLink>
           ))}
         </nav>
         {!collapsed && (
-          <div className="px-3 pt-1 text-[11px] text-slate-400">v{APP_VERSION}</div>
+          <div className="px-3 pt-1 text-xs text-slate-400">v{APP_VERSION}</div>
         )}
       </div>
       <button
