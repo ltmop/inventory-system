@@ -31,8 +31,16 @@ const TMP_OUT = path.join(os.tmpdir(), 'fi-release')
 const SERVER = 'ubuntu@43.128.20.39'
 const UPDATES_DIR = '/opt/inventory-cloud/updates'
 const DOWNLOAD_DIR = '/var/www/junchengzn/download'
-// 服务器授权密钥（2026-08-31 起 adjczn 被拒，skey-junchengzn.pem 有效）
-const SSH_KEY = path.join(os.homedir(), '.ssh', 'skey-junchengzn.pem')
+// 服务器授权密钥（2026-08-31 起 adjczn 被拒）
+// ⚠️ 2026-09-14 实测：`~/.ssh/skey-junchengzn.pem` **已不存在**（本机只剩 `junchengzn.pem`，
+//    与 `~/.ssh/config` 里 Host juncheng 的 IdentityFile 一致）。旧代码把缺文件当成
+//    "SSH 连不上服务器"，白查了半小时网络 —— 现在按候选列表找，找不到就明说是**缺钥匙**。
+const SSH_KEY_CANDIDATES = [
+  path.join(os.homedir(), '.ssh', 'skey-junchengzn.pem'),
+  path.join(os.homedir(), '.ssh', 'junchengzn.pem'),
+]
+const SSH_KEY = SSH_KEY_CANDIDATES.find(p => fs.existsSync(p))
+if (!SSH_KEY) throw new Error('找不到服务器私钥，试过：' + SSH_KEY_CANDIDATES.join(' / ') + '（这只钥匙用来连 ' + 'ubuntu@43.128.20.39' + '，与网络无关）')
 const SSH_BASE = ['-i', SSH_KEY, '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=15']
 
 function sh(cmd, opts = {}) {
@@ -72,7 +80,11 @@ function preCheck({ webOnly = false } = {}) {
   if (!PUB_URL.startsWith('https://')) throw new Error('publish.url 不是 https: ' + PUB_URL + '（复盘 3.1：发布前验证发布配置）')
   console.log('  publish.url:', PUB_URL, 'OK')
   console.log('  appId:', pkg.build?.appId, 'OK')
-  const cur = ssh('grep ^version: ' + UPDATES_DIR + '/latest.yml 2>/dev/null | head -1').stdout.trim()
+  // ⚠️ 这里以前把 ssh 失败吞成空字符串，于是打印「服务器版本: (无)」——看起来像"服务器还没发过版"，
+  //    实际是"根本没连上"。现在 ssh 非 0 直接中止（latest.yml 真的不存在时 grep 仍是 0，不受影响）。
+  const curRes = ssh('grep ^version: ' + UPDATES_DIR + '/latest.yml 2>/dev/null | head -1')
+  if (curRes.status !== 0) throw new Error('读服务器 latest.yml 失败（exit ' + curRes.status + '）：' + ((curRes.stderr || '').trim().split('\n')[0] || '(无输出)'))
+  const cur = curRes.stdout.trim()
   const curVer = (cur.match(/version:\s*(\S+)/) || [])[1]
   if (curVer && compareVer(version, curVer) <= 0) {
     // --web-only 是「updates 已发好、只补官网」，此时服务器版本等于本地是正常状态
@@ -84,7 +96,11 @@ function preCheck({ webOnly = false } = {}) {
   if (gs) console.log('  ⚠️ git 有未提交改动（建议先 commit）')
   else console.log('  git 工作区干净 OK')
   const s = ssh('echo ok')
-  if (s.status !== 0 || s.stdout.trim() !== 'ok') throw new Error('SSH 连不上 ' + SERVER)
+  if (s.status !== 0 || s.stdout.trim() !== 'ok') {
+    // ⚠️ 2026-09-14：以前只说「SSH 连不上」，把「钥匙不对/不由」和「网络不通」混成一句。
+    //    现在把 ssh 自己吐的话带出来，否则下一次还是查网络。
+    throw new Error('SSH 连不上 ' + SERVER + '（exit ' + s.status + '）：' + ((s.stderr || s.stdout || '').trim().split('\n')[0] || '(无输出)'))
+  }
   console.log('  SSH 连通 OK')
 }
 
