@@ -11,6 +11,10 @@
 //   A. 固定夹具单测（离线可跑）：把上面三条规则钉死，改坏任何一条这里就红；
 //   B. 线上实页自检：抓 https://junchengzn.com/download/，断言桌面版本号全部等于 package.json 的版本
 //      且主按钮文案写着它。网络不通时**跳过**（不算失败），但页面能打开而版本不对 = FAIL。
+//
+// ⚠️ **B 段是"发布后"的门禁，不是"发布前"的**：它断言的正是「线上 == package.json 版本」。
+//    所以在你 bump 完版本、还没跑 release 的那段时间里跑它，B2/B3 必然红 —— **那是预期，不是故障**。
+//    正确的用法：发版前跑它只为确认 A 段（夹具）绿；发完版再跑一次，要求 26 项全绿。
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
