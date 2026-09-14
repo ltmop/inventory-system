@@ -95,6 +95,22 @@ const ai = strip(read('components/ai/AiPanel.tsx'))
 ok('AI 建议问题收到 3 条且不再写死商品名',
   (ai.match(/^\s*'[^']+？',\s*$/gm) || []).length <= 3 && !/赤刃/.test(ai))
 
+console.log('\n=== ⑤ 开单页：空车也要看得见「收款」这一步 ===')
+// 真机截图取证：以前 CartPanel 里写着 `if (items.length === 0) return null`，
+// 于是空车时整块消失 —— 开单页只剩一个搜索框、下半屏全白，
+// 新人扫第一件货之前完全看不到「合计 / 收款」，也不知道这页最后要干什么。
+const ob = strip(read('pages/OutboundPage.tsx'))
+const cp = strip(read('pages/outbound/CartPanel.tsx'))
+ok('开单页是左右两栏（左选货 / 右清单）', /lg:grid-cols-\[minmax\(0,1fr\)_400px\]/.test(ob))
+ok('购物面板钉在右栏（lg:sticky）', /lg:sticky/.test(cp))
+ok('空车时购物面板不再整块消失', !/if \(items\.length === 0\) return null/.test(cp))
+ok('空车时给出下一步提示（还没加货…）', /还没加货/.test(cp))
+ok('空车时收款按钮仍在（灰着）且写明先加货', /收款（先加货）/.test(cp))
+ok('标题说老板的话（开单卖货），不再写 FIFO', /开单卖货/.test(ob) && !/先进先出/.test(ob))
+ok('开发话术从正文移走（扫码枪长提示已缩短）', !/提示：扫码枪扫条码后回车即选中商品/.test(ob))
+ok('今日出入账记录默认收起',
+  /const \[showRecords, setShowRecords\] = useState\(false\)/.test(ob) && /\{showRecords && \(/.test(ob))
+
 console.log('\n================ 结果 ================')
 console.log('PASS ' + pass + '   FAIL ' + fail)
 process.exit(fail === 0 ? 0 : 1)

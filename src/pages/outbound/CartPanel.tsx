@@ -43,24 +43,34 @@ export function CartPanel({
   // 逐项复核（只读放大）：打开弹层查看该行大图/大字价格/批次效期，不写入
   const [reviewItem, setReviewItem] = useState<CartItem | null>(null)
 
-  if (items.length === 0) return null
+  // 2026-09-14：空车时**不再整块消失**。以前这里是 `if (items.length === 0) return null`，
+  // 于是开单页空着的时候只剩一个搜索框、下半屏全白 —— 新人扫第一件货之前
+  // 完全看不到「合计 / 收款」这一步，也不知道这页最后要干什么。
+  // 现在空车也把面板留着：灰着 + 一句话 + 灰掉的大按钮，整条流程一眼看全。
+  const empty = items.length === 0
   const totalCents = items.reduce((s, i) => s + i.quantity * i.priceCents, 0)
   const totalCount = items.reduce((s, i) => s + i.quantity, 0)
   return (
     <>
-      <Card className="gap-0 overflow-hidden border-brand-300 py-0 shadow-card-hover">
+      <Card className="gap-0 overflow-hidden border-brand-300 py-0 shadow-card-hover lg:sticky lg:top-4">
         <div className="h-1.5 bg-gradient-to-r from-emerald-500 via-emerald-600 to-emerald-700" />
         <CardHeader className="pt-5">
           <CardTitle className="flex items-center gap-3 text-lg">
             <ShoppingCart className="size-5 text-emerald-600" />
             购物清单
-            <Badge className="bg-emerald-600">{items.length} 样 / 共 {totalCount}</Badge>
+            {!empty && <Badge className="bg-emerald-600">{items.length} 样 / 共 {totalCount}</Badge>}
             <span className="ml-auto text-xl font-bold tabular-nums text-emerald-700">
               合计 {formatPrice(totalCents)}
             </span>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 pb-5">
+          {empty && (
+            <div className="rounded-lg border border-dashed border-slate-300 px-4 py-8 text-center">
+              <div className="text-sm text-slate-500">还没加货</div>
+              <div className="mt-1 text-xs text-slate-400">左边扫一下条码，或打商品名点一下，加进来就能收款</div>
+            </div>
+          )}
           {items.map((i) => {
             const stock = totalStockOf(i.product.id)
             const over = i.quantity > stock
@@ -142,16 +152,16 @@ export function CartPanel({
             )
           })}
           <div className="flex items-center justify-between pt-2">
-            <Button variant="ghost" className="text-slate-500" onClick={onClear}>
+            <Button variant="ghost" className="text-slate-500" disabled={empty} onClick={onClear}>
               <Trash2 className="size-4" />
               清空清单
             </Button>
             <Button
               className="h-12 bg-emerald-600 px-8 text-base font-semibold hover:bg-emerald-700"
-              disabled={items.some((i) => i.priceCents <= 0 || i.quantity > totalStockOf(i.product.id))}
+              disabled={empty || items.some((i) => i.priceCents <= 0 || i.quantity > totalStockOf(i.product.id))}
               onClick={onCheckout}
             >
-              去开单（{items.length} 样，{formatPrice(totalCents)}）
+              {empty ? '收款（先加货）' : `收款（${items.length} 样 · ${formatPrice(totalCents)}）`}
             </Button>
           </div>
         </CardContent>

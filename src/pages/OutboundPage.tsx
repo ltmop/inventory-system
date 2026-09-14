@@ -82,6 +82,8 @@ export function OutboundPage() {
   const [voiceCardOpen, setVoiceCardOpen] = useState(false)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [checkoutExecuting, setCheckoutExecuting] = useState(false)
+  // 「今日出入账记录」折叠开关：默认收起（开单页的主人是正在结账的人，那张表是事后查阅用的）
+  const [showRecords, setShowRecords] = useState(false)
 
   // 组合商品一键开单：搜索组合名，点一下把里面的商品按现价全加进清单
   const [kitKw, setKitKw] = useState('')
@@ -891,8 +893,8 @@ export function OutboundPage() {
     <div className="space-y-6">
       <GuestBlockCard title="销售" />
       <PageHeader
-        title="销售出库"
-        subtitle="按先进先出（FIFO）规则扣减批次库存"
+        title="开单卖货"
+        subtitle="扫条码或搜商品名加进来，然后收款"
         action={
           <div className="flex gap-2">
             <Button variant="outline" onClick={openReturnDialog}>
@@ -907,6 +909,11 @@ export function OutboundPage() {
         }
       />
 
+      {/* 2026-09-14：改成左右两栏 —— 左边扫码/选货，右边**常驻**购物清单 + 合计 + 收款按钮。
+          以前清单排在搜索框下面、而且空车时整块消失 → 空车时下半屏全白，
+          新人扫第一件货之前完全看不到「合计 / 收款」这一步，也不知道这页最后要干什么。 */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
+      <div className="space-y-6">
       {/* 搜索区：与入库页同款 ScanHero，回车选中首个候选（适配扫码枪） */}
       <ScanHero
         inputRef={inputRef}
@@ -962,8 +969,8 @@ export function OutboundPage() {
             })()
           }
         }}
-        placeholder="扫码或输入 SKU/品牌/型号搜索商品，按下 Enter 选中..."
-        hint="提示：扫码枪扫条码后回车即选中商品；模糊搜索从下拉列表点选"
+        placeholder="扫条码，或打商品名 / 型号，按回车选中"
+        hint="扫码枪扫完自动回车；也可以打字搜"
       >
         {candidates.length > 0 && (
           <div className="absolute inset-x-6 top-full z-10 mt-1 overflow-hidden rounded-xl border bg-white shadow-card-hover">
@@ -1089,7 +1096,9 @@ export function OutboundPage() {
         />
       )}
 
-      {/* 购物清单（一单多商品）：扫码加入后在这里改数量/单价，去开单统一收款 */}
+      </div>
+      {/* 右栏：常驻购物清单（空车也显示，灰着告诉人「加了货就能收款」） */}
+      <div>
       <CartPanel
         items={cart}
         batches={batches}
@@ -1100,14 +1109,25 @@ export function OutboundPage() {
         onClear={cartClear}
         onCheckout={openCheckout}
       />
+      </div>
+      </div>
 
-      {/* 今日出入账记录（出库/退货/换货） */}
-      <TodayRecordsTable
-        records={todayRecords}
-        products={products}
-        batches={batches}
-        customers={customers}
-      />
+      {/* 今日出入账记录：默认**收起**。开单页的主人是"正在给顾客结账的人"，
+          这张表是事后查阅用的；摊在下面只会把页面撑长、让人以为主流程在下面。 */}
+      <button
+        onClick={() => setShowRecords((v) => !v)}
+        className="w-full cursor-pointer rounded-xl border border-dashed border-slate-300 bg-white/60 px-4 py-2.5 text-sm font-medium text-slate-500 transition-colors hover:border-brand-400 hover:text-brand-700"
+      >
+        {showRecords ? '收起今日出入账记录 ↑' : '今日出入账记录（点开看）↓'}
+      </button>
+      {showRecords && (
+        <TodayRecordsTable
+          records={todayRecords}
+          products={products}
+          batches={batches}
+          customers={customers}
+        />
+      )}
 
       {/* 出库确认 Dialog（危险操作二次确认） */}
       <ConfirmOutboundDialog
