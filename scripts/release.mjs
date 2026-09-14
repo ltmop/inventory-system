@@ -170,12 +170,13 @@ function deployWeb(a) {
   const mv = page.match(/inventory-system-setup-([0-9][0-9.]*)\.exe/)
   if (!mv) throw new Error('下载页里找不到 inventory-system-setup-x.y.z.exe —— 页面结构可能又变了，请人工确认后再发')
   const oldV = mv[1]
-  // 手机版版本号必须**从页面里的 apk 文件名解析**，不能硬编码。
-  // 旧实现写死 `(page.match(/1\.1\.1/g))` 并数它的出现次数当作"手机版号"——
-  // 桌面版本号一旦也变成 1.1.1，`split(oldV).join(version)` 必然让这个计数 0→7，
-  // 于是**误报「手机版版本号被误改」并中止**。
-  // 2026-09-14 实际踩到：exe 已换成 1.1.1 且旧的 1.1.0 已被归档，页面却没更新
-  // → 官网下载主按钮直接 404（实测 href=/download/general-inventory-setup-1.1.0.exe）。
+  // ⚠️ 2026-09-14 第二次踩坑：**不许整页盲替换版本号**。
+  //   旧实现是 `page = page.split(oldV).join(version)` —— 它会把页面上**任何**出现
+  //   `1.1.2` 的地方都改成 `1.1.3`，包括手机版文件名 `fishing-inventory-mobile-1.1.2.apk`！
+  //   第一次（桌面版号撞上硬编码的手机版号）只是**误报中止**；
+  //   修好误报后，盲替换的**真身**才露出来：它确实改了手机版号，守卫这次报的是真的
+  //   「手机版版本号被误改（5 → 12）」。两次都导致 exe 已换、页面没换 → 官网按钮 404。
+  //   现在改成**只替换桌面安装包名**（两种命名）+ 桌面版本文案，绝不碰别处。
   const mobileVers = [
     ...new Set(
       (page.match(/fishing-inventory-mobile-[0-9][0-9.]*\.apk/g) || [])
@@ -185,7 +186,12 @@ function deployWeb(a) {
   ]
   const mobileCount = (t) => mobileVers.reduce((n, v) => n + (t.split(v).length - 1), 0)
   const mobileBefore = mobileCount(page)
-  if (oldV !== version) page = page.split(oldV).join(version)
+  if (oldV !== version) {
+    page = page
+      .split('inventory-system-setup-' + oldV + '.exe').join('inventory-system-setup-' + version + '.exe')
+      .split('general-inventory-setup-' + oldV + '.exe').join('general-inventory-setup-' + version + '.exe')
+      .split('桌面 v' + oldV).join('桌面 v' + version)
+  }
   const mobileAfter = mobileCount(page)
   if (mobileBefore !== mobileAfter) throw new Error('手机版版本号被误改（' + mobileBefore + ' → ' + mobileAfter + '），已中止')
   // 主按钮指向官网本地文件；备用线路保持指更新源
