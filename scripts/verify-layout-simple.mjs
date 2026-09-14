@@ -134,6 +134,44 @@ ok('侧栏加宽以容纳大字号（w-60，原 w-56）', /'w-60'/.test(sb))
 ok('图标不再用半档尺寸 size-4.5', !/size-4\.5/.test(sb))
 ok('入库页去掉「USB 扫码枪即插即用」那句仓库话', !/USB 扫码枪即插即用/.test(ib))
 
+console.log('\n=== ⑧ 假导航去重 + 批量导入有正门 + 桌面不摆「拍照」 ===')
+// owner 2026-09-14：「桌面端入库困难，库存批量输入数据困难，如果我给你一张 Excel 表格…
+// 直接可以批量导入进去，而且电脑上不应该有拍照入库这个功能」。
+// 查证：Excel 导入**早就做好了**（/import，带模板 + 逐行校验），只是侧栏和 hub 都没有入口，
+// 只有 Ctrl+K 搜得到；而 hub 里有多张卡指向同一个页面（假导航）。
+const hubIn = strip(read('pages/InboundHubPage.tsx'))
+const hubSt = strip(read('pages/StockHubPage.tsx'))
+const imp = strip(read('pages/ImportPage.tsx'))
+const ip = strip(read('lib/importParse.ts'))
+
+// ① 批量导入必须能被点到（hub 入口），且真的支持 xlsx
+ok('入库 hub 有「批量导入 Excel」入口', /to: '\/import', label: '批量导入 Excel'/.test(hubIn))
+ok('库存 hub 有「批量导入 Excel」入口', /to: '\/import', label: '批量导入 Excel'/.test(hubSt))
+ok('导入通道支持 .xlsx（exceljs 解析）', /parseXlsxBuffer/.test(ip) && /\.xlsx/.test(imp))
+ok('导入有「下载模板」（否则列名对不上）', /下载导入模板/.test(imp))
+ok('表头中英文都认（老板的表不用改列名）', /sku编码: 'sku_code'/.test(ip) && /品类: 'category'/.test(ip))
+
+// ② 假导航：hub 的卡片不许一堆指向**同一个 to**。
+// ⚠️ 判据按**完整 to**（含查询串）比，不能把 ?filter=low 剥成 /inventory ——
+//    带不同查询串是同一页面的**不同视图**（只看低库存 / 只看临期），那是真导航。
+//    第一次写就是剥了查询串，于是把 3 个正常视图误报成「/inventory×3」。
+const dupRoutes = (src) => {
+  const tos = [...src.matchAll(/\{\s*to:\s*'([^']+)'/g)].map((m) => m[1])
+  const seen = new Map()
+  for (const t of tos) seen.set(t, (seen.get(t) ?? 0) + 1)
+  return [...seen.entries()].filter(([, n]) => n > 1).map(([t, n]) => t + '×' + n)
+}
+const din = dupRoutes(hubIn)
+const dst = dupRoutes(hubSt)
+ok('入库 hub 没有重复路由的卡片', din.length === 0, din.join(','))
+ok('库存 hub 没有重复路由的卡片', dst.length === 0, dst.join(','))
+
+// ③ 桌面端不摆「拍照入库」
+ok('入库页的拍照按钮只在触摸设备上出现（canShoot 门控）',
+  /const canShoot = /.test(ib) && /maxTouchPoints/.test(ib) && /\{canShoot && \(/.test(ib))
+ok('入库页标题改成老板的话（进货入库）', /title="进货入库"/.test(ib))
+ok('入库页有「批量导入 Excel」直达按钮', /批量导入 Excel/.test(ib) && /href="#\/import"/.test(ib))
+
 console.log('\n================ 结果 ================')
 console.log('PASS ' + pass + '   FAIL ' + fail)
 process.exit(fail === 0 ? 0 : 1)

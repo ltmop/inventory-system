@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Camera, Loader2, CircleAlert } from 'lucide-react'
+import { Camera, Loader2, CircleAlert, FileSpreadsheet } from 'lucide-react'
 import { PageHeader, SuccessBanner, ErrorBanner } from '@/components/feedback'
 import { GuestBlockCard } from '@/components/GuestBlockCard'
 import { ScanHero } from '@/components/scan/ScanHero'
@@ -116,6 +116,11 @@ export function InboundPage() {
   const [aiEnabled, setAiEnabled] = useState(false)
   const [photoParsing, setPhotoParsing] = useState(false)
   const [photoDraft, setPhotoDraft] = useState<PhotoDraftItem[] | null>(null)
+  // 2026-09-14（owner 反馈「电脑上不应该有拍照入库，电脑又无法拍照」）：
+  // 桌面端这个按钮用的其实是 <input type="file" accept="image/*"> —— 在 PC 上打开的是
+  // **选图片对话框，不是拍照**，标成「拍送货单」是误导。所以只在**触摸设备**上露出来；
+  // 普通台式/笔记本（maxTouchPoints=0）不再显示。手机端 /m/ 有自己的入口，不受影响。
+  const canShoot = typeof navigator !== 'undefined' && (navigator.maxTouchPoints ?? 0) > 0
   const [photoBusy, setPhotoBusy] = useState(false)
   const photoRef = useRef<HTMLInputElement>(null)
   // AI 识别需要联网，离线时按钮置灰
@@ -430,40 +435,53 @@ export function InboundPage() {
     <div className="space-y-6">
       <GuestBlockCard title="入库" />
       <PageHeader
-        title="扫码入库"
-        subtitle="管理商品入库、新建 SKU 和库存批次"
+        title="进货入库"
+        subtitle="扫条码或搜商品，记进价和数量；整批货用右边「批量导入 Excel」"
         action={
           <>
-            <Button
-              variant="outline"
-              onClick={() => photoRef.current?.click()}
-              disabled={!aiEnabled || photoParsing || !online}
-              title={
-                !aiEnabled
-                  ? '未配置 AI：请先到「设置」页填入 Kimi API Key'
-                  : !online
-                    ? '当前离线，AI 识别需要联网'
-                    : '拍送货单，AI 自动识别入库'
-              }
+            {/* 整批货的正门（owner 2026-09-14：「库存批量输入数据困难，给你一张 Excel 直接导进去」）。
+                批量导入其实早就做好了（/import，带模板下载 + 逐行校验），只是**以前只有 Ctrl+K 搜得到**。 */}
+            <a
+              href="#/import"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent"
             >
-              {photoParsing ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Camera className="size-4" />
-              )}
-              {photoParsing ? 'AI 识别中...' : '拍送货单'}
-            </Button>
-            <input
-              ref={photoRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handlePhoto}
-            />
+              <FileSpreadsheet className="size-4" />
+              批量导入 Excel
+            </a>
+            {canShoot && (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => photoRef.current?.click()}
+                  disabled={!aiEnabled || photoParsing || !online}
+                  title={
+                    !aiEnabled
+                      ? '未配置 AI：请先到「设置」页填入 Kimi API Key'
+                      : !online
+                        ? '当前离线，AI 识别需要联网'
+                        : '拍送货单，AI 自动识别入库'
+                  }
+                >
+                  {photoParsing ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Camera className="size-4" />
+                  )}
+                  {photoParsing ? 'AI 识别中...' : '拍送货单'}
+                </Button>
+                <input
+                  ref={photoRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handlePhoto}
+                />
+              </>
+            )}
           </>
         }
       />
-      {(!aiEnabled || !online) && (
+      {canShoot && (!aiEnabled || !online) && (
         <div className="-mt-3 text-xs text-muted-foreground">
           {!aiEnabled
             ? '「拍送货单」需要先配置 AI：到「设置」页填入 Kimi API Key 即可启用'

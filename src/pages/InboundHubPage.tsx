@@ -1,6 +1,6 @@
 // 入库中心（通用版 5 大导航之一）：采购/入库功能归类入口
 import { useMemo } from 'react'
-import { ScanBarcode, PackagePlus, History, Factory, ClipboardList, RotateCcw, FileSpreadsheet } from 'lucide-react'
+import { ScanBarcode, PackagePlus, Factory, RotateCcw, FileSpreadsheet } from 'lucide-react'
 import { PageHeading, FeatureGrid } from '@/components/layout/FeatureGrid'
 import { MetricStrip } from '@/components/layout/MetricStrip'
 import { useAppStore } from '@/store/appStore'
@@ -35,12 +35,14 @@ export default function InboundHubPage() {
       ]} />
       <FeatureGrid
         items={[
-          { to: '/inbound', label: '扫码入库', desc: '扫条码/搜商品，记录进价与批次', icon: ScanBarcode },
-          { to: '/inbound', label: '采购收货', desc: '采购单到货一键入库', icon: ClipboardList },
+          // 2026-09-14 去重：原来 7 张卡里有 3 张都指向 /inbound（扫码入库 / 采购收货 / 入库历史），
+          // 点「采购收货」落到的是跟「扫码入库」同一个页面 —— 那是假导航，只会让人更迷糊。
+          // 同时新增「批量导入 Excel」：这条路一直存在（/import，带模板下载 + 逐行校验），
+          // 但以前只有 Ctrl+K 搜得到，所以老板只能扫码一件件录（owner：「库存批量输入数据困难」）。
+          { to: '/inbound', label: '扫码入库', desc: '扫条码/搜商品，记进价与批次', icon: ScanBarcode },
+          { to: '/import', label: '批量导入 Excel', desc: '一张表把整批货导进来，附模板', icon: FileSpreadsheet },
           { to: '/purchase', label: '采购订货', desc: '新建采购单、跟踪到货', icon: PackagePlus },
-          { to: '/inbound', label: '入库历史', desc: '近 30 天入库记录与批次', icon: History },
-          { to: '/suppliers', label: '供应商管理', desc: '建档/联系方式/进货渠道', icon: Factory },
-          { to: '/suppliers', label: '采购对账', desc: '供应商应付/已付/欠款', icon: FileSpreadsheet },
+          { to: '/suppliers', label: '供应商与对账', desc: '建档/账期/应付欠款', icon: Factory },
           { to: '/outbound', label: '退货入库', desc: '客户退货回补库存', icon: RotateCcw },
         ]}
       />
