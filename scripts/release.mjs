@@ -75,6 +75,20 @@ function compareVer(a, b) {
   return 0
 }
 
+// 官网页面上「桌面版本号」的全部已知写法（官网改版时看这里）：
+//   ① 文件名  inventory-system-setup-<v>.exe / general-inventory-setup-<v>.exe
+//   ② 文案    桌面 v<v> / 桌面版 v<v> / Windows 版 v<v>
+// ⚠️ 2026-09-14（1.1.6）踩坑：以前只换 ① 和「桌面 v」，于是 meta description 的
+//    「桌面版 v1.1.4」、底部「当前版本 桌面版 v1.1.4」、主按钮「免费下载 Windows 版 v1.1.4」
+//    三条都留在页面上 —— exe/href/chip 都换成 1.1.6 了，用户真正会读的那几行还在骗人。
+//    而且旧守卫只查「页面含本版本号」，页面上别处有个 1.1.6 就把它骗过去了。
+// ⚠️ 这两个必须放在**模块级**：deployWeb 与 verifyWeb 两个函数都要用。
+//    曾经写在 deployWeb 里，结果 verifyWeb 抛 ReferenceError、退出码 1 —— 页面其实已经修好了，
+//    却因为一个作用域错误看起来像发布失败。
+const DESKTOP_MENTION_RE = /((?:桌面版|桌面|Windows 版)\s?v)([0-9][0-9.]*)/g
+// ⚠️ 别写成 DESKTOP_MENTION_RE.test(...)：带 /g 的正则有 lastIndex，连用两次结果不同。
+const desktopMentions = (t) => [...new Set([...t.matchAll(DESKTOP_MENTION_RE)].map(m => m[2]))]
+
 function preCheck({ webOnly = false } = {}) {
   console.log('=== [1/5] 前置检查 ===')
   if (!PUB_URL.startsWith('https://')) throw new Error('publish.url 不是 https: ' + PUB_URL + '（复盘 3.1：发布前验证发布配置）')
@@ -199,19 +213,7 @@ function deployWeb(a) {
   const mobileFiles = [...new Set(page.match(/fishing-inventory-mobile-[0-9][0-9.]*\.apk/g) || [])]
   const mobileCount = (t) => mobileFiles.reduce((n, f) => n + (t.split(f).length - 1), 0)
   const mobileBefore = mobileCount(page)
-  // 桌面上「版本号写在哪」的全部已知写法（官网改版时看这里）：
-  //   ① 文件名  inventory-system-setup-<v>.exe / general-inventory-setup-<v>.exe
-  //   ② 文案    桌面 v<v> / 桌面版 v<v> / Windows 版 v<v>
-  // ⚠️ 2026-09-14 第三次踩坑（1.1.6 发布实测）：以前只换 ① 和「桌面 v」，于是
-  //    meta description 的「桌面版 v1.1.4」、底部「当前版本 桌面版 v1.1.4」、主按钮
-  //    「免费下载 Windows 版 v1.1.4」**三条都留在页面上** —— exe 换了、href 换了、chip 换了，
-  //    用户真正会读的那几行还在骗人。而且 [5b] 旧守卫只查「页面含本版本号」，
-  //    页面上别处有个 1.1.6 就把它骗过去了（1.1.6 就是这么过掉的）。
-  //    现在三种文案写法一次收口，且**与 oldV 无关地独立执行** —— oldV 是从 exe 文件名解析的，
-  //    那时文件名可能已经等于新版本（本次就是），只靠 oldV 就会整段跳过。
-  const DESKTOP_MENTION_RE = /((?:桌面版|桌面|Windows 版)\s?v)([0-9][0-9.]*)/g
-  // ⚠️ 别写成 DESKTOP_MENTION_RE.test(...)：带 /g 的正则有 lastIndex，连用两次结果不同。
-  const desktopMentions = (t) => [...new Set([...t.matchAll(DESKTOP_MENTION_RE)].map(m => m[2]))]
+  // 桌面版本号文案统一收口（正则与 helper 在模块级 —— deployWeb 与 verifyWeb 共用，见文件上方注释）
   const desktopBefore = desktopMentions(page)
   if (oldV !== version) {
     page = page
