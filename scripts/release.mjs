@@ -177,14 +177,11 @@ function deployWeb(a) {
   //   修好误报后，盲替换的**真身**才露出来：它确实改了手机版号，守卫这次报的是真的
   //   「手机版版本号被误改（5 → 12）」。两次都导致 exe 已换、页面没换 → 官网按钮 404。
   //   现在改成**只替换桌面安装包名**（两种命名）+ 桌面版本文案，绝不碰别处。
-  const mobileVers = [
-    ...new Set(
-      (page.match(/fishing-inventory-mobile-[0-9][0-9.]*\.apk/g) || [])
-        .map((s) => (s.match(/([0-9][0-9.]*)\.apk/) || [])[1])
-        .filter(Boolean),
-    ),
-  ]
-  const mobileCount = (t) => mobileVers.reduce((n, v) => n + (t.split(v).length - 1), 0)
+  // 守卫按**完整 apk 文件名**计数，不能按裸版本号 ——
+  // 手机版号可能与桌面版号**相同**（这次两边都是 1.1.3），裸号会把桌面 exe 文件名也算进来，
+  // 于是「把 general-inventory-setup-1.1.2.exe 改成 1.1.3.exe」也被误判成改了手机版号。
+  const mobileFiles = [...new Set(page.match(/fishing-inventory-mobile-[0-9][0-9.]*\.apk/g) || [])]
+  const mobileCount = (t) => mobileFiles.reduce((n, f) => n + (t.split(f).length - 1), 0)
   const mobileBefore = mobileCount(page)
   if (oldV !== version) {
     page = page
