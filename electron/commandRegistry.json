@@ -1,0 +1,1824 @@
+{
+ "schemaVersion": 1,
+ "generatedAt": "2026-09-14T05:33:13.196Z",
+ "source": "main.js(IPC) + server.js(HTTP) + preload.cjs(白名单) + commands/*.js(JSDoc)",
+ "total": 180,
+ "restRoutes": [
+  "/api/analytics/category",
+  "/api/analytics/overview",
+  "/api/analytics/stockValue",
+  "/api/analytics/top",
+  "/api/analytics/trend",
+  "/api/audit",
+  "/api/backup/list",
+  "/api/commands",
+  "/api/customers",
+  "/api/inventory",
+  "/api/low-stock",
+  "/api/summary",
+  "/api/supplier-statement",
+  "/api/today"
+ ],
+ "commands": [
+  {
+   "name": "ai:analyzePhoto",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "ai:bindLicense",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "ai:chat",
+   "group": "ai",
+   "desc": "检查某功能是否还有今日额度。 返回 { allow, message }；allow=false 时 message 是大白话提示（超额要升级）。",
+   "impl": "checkAiQuota",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "ai:clearKey",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "ai:correctTerm",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false
+  },
+  {
+   "name": "ai:dailySummary",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "ai:gatewayQuota",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "ai:gatewayUsage",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "ai:history",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "ai:insights",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "ai:localUsageStats",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "ai:orchestratorStatus",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "ai:parseInboundNote",
+   "group": "ai",
+   "desc": "检查某功能是否还有今日额度。 返回 { allow, message }；allow=false 时 message 是大白话提示（超额要升级）。",
+   "impl": "checkAiQuota",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "ai:photoDraft",
+   "group": "ai",
+   "desc": "检查某功能是否还有今日额度。 返回 { allow, message }；allow=false 时 message 是大白话提示（超额要升级）。",
+   "impl": "checkAiQuota",
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false
+  },
+  {
+   "name": "ai:providers",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "ai:quota",
+   "group": "ai",
+   "desc": "各版本每日额度（次/天）；Infinity=不限 */ export const AI_QUOTAS = { vision: { free: 20, pro: 100, max: Infinity }, chat: { free: 5, pro: 100, max: Infinity }, } /** 功能中文名（超额",
+   "impl": "aiQuotaStatus",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "ai:setKey",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "ai:setProvider",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "ai:smartSearch",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "ai:status",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "ai:test",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "ai:transcribe",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "analytics:category",
+   "group": "analytics",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false
+  },
+  {
+   "name": "analytics:overview",
+   "group": "analytics",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false
+  },
+  {
+   "name": "analytics:stockValue",
+   "group": "analytics",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false
+  },
+  {
+   "name": "analytics:top",
+   "group": "analytics",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false
+  },
+  {
+   "name": "analytics:trend",
+   "group": "analytics",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false
+  },
+  {
+   "name": "app:info",
+   "group": "app",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "app:openExternal",
+   "group": "app",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "audit:list",
+   "group": "audit",
+   "desc": "操作日志查询：按时间倒序，可按 action 筛选（如 '入库'/'改价'）",
+   "impl": "auditLog",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "backup:clearExtraDir",
+   "group": "backup",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "backup:list",
+   "group": "backup",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false
+  },
+  {
+   "name": "backup:now",
+   "group": "backup",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "backup:restore",
+   "group": "backup",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "backup:setExtraDir",
+   "group": "backup",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "backup:status",
+   "group": "backup",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "category:create",
+   "group": "category",
+   "desc": "新建分类",
+   "impl": "createCategory",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "category:delete",
+   "group": "category",
+   "desc": "删除分类：有商品的分类不允许删（防商品变孤儿）",
+   "impl": "deleteCategory",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "category:list",
+   "group": "category",
+   "desc": "分类列表（按排序）",
+   "impl": "listCategories",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "category:listWithCount",
+   "group": "category",
+   "desc": "分类列表（含每类商品数）",
+   "impl": "listCategoriesWithCount",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "category:move",
+   "group": "category",
+   "desc": "移动分类排序（dir: -1 上移 / 1 下移）",
+   "impl": "moveCategory",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "category:rename",
+   "group": "category",
+   "desc": "改名分类（同步商品表的分类名，报表/筛选保持一致）",
+   "impl": "renameCategory",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "category:setParent",
+   "group": "category",
+   "desc": "设置分类所属的「大分类」（两级分类，2026-09-13）。 parent 传空串 = 不归组（界面会显示为「—」）。 大分类本身不是一张表，就是 parent 的取值集合 —— 店主写一个新名字就等于新建一个大分类， 这样不用维护第二张表，也不会出现\"大分类表与分类表不一致\"。",
+   "impl": "setCategoryParent",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "clearance:get",
+   "group": "clearance",
+   "desc": "",
+   "impl": "buildClearance",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "cloud:backupNow",
+   "group": "cloud",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "cloud:centralConfig",
+   "group": "cloud",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "cloud:dismissRestore",
+   "group": "cloud",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "cloud:listBackups",
+   "group": "cloud",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "cloud:loginAccount",
+   "group": "cloud",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "cloud:logout",
+   "group": "cloud",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "cloud:pair",
+   "group": "cloud",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "cloud:regenViewLink",
+   "group": "cloud",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "cloud:registerAccount",
+   "group": "cloud",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "cloud:resolveConflict",
+   "group": "cloud",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": false,
+   "rest": false
+  },
+  {
+   "name": "cloud:resolveSyncConflict",
+   "group": "cloud",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "cloud:restore",
+   "group": "cloud",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "cloud:status",
+   "group": "cloud",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "cloud:syncBusinessNow",
+   "group": "cloud",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "cloud:syncConflicts",
+   "group": "cloud",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "cloud:syncNow",
+   "group": "cloud",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "commands:describe",
+   "group": "commands",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "commands:invoke",
+   "group": "commands",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "commands:list",
+   "group": "commands",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "customer:create",
+   "group": "customer",
+   "desc": "",
+   "impl": "createCustomer",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "customer:delete",
+   "group": "customer",
+   "desc": "删除客户：有流水或还款记录的拒绝删除（删了赊账历史就对不上账了）",
+   "impl": "deleteCustomer",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "customer:list",
+   "group": "customer",
+   "desc": "客户列表：每个客户带 outstanding（当前欠款，分；负=预收）、total_credit（赊销净额）、 total_paid_back（累计还款）、last_deal_at（最近交易/还款时间）",
+   "impl": "listCustomers",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "customer:statement",
+   "group": "customer",
+   "desc": "客户对账单： - sales：该客户全部带售价的 out/return 流水明细（时间/商品/数量/应付/已付/欠）， out 行 欠=应付-实收（全额付清的为 0），return 行 欠=-退款额（冲减），按时间倒序 - payments：还款记录（时间/金额/方式/备注），按时间倒序 - 汇总字段与 listCus",
+   "impl": "customerStatement",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "customer:update",
+   "group": "customer",
+   "desc": "修改客户资料：只传要改的字段；改名时同样做同名查重（排除自己）；price_level 传 null 清除（回零售默认）",
+   "impl": "updateCustomer",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "data:loadAll",
+   "group": "data",
+   "desc": "",
+   "impl": "loadAll",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "doubao:analyzeImage",
+   "group": "doubao",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "doubao:chat",
+   "group": "doubao",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "doubao:clearKey",
+   "group": "doubao",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "doubao:setKey",
+   "group": "doubao",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "doubao:status",
+   "group": "doubao",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "doubao:transcribe",
+   "group": "doubao",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false
+  },
+  {
+   "name": "expense:create",
+   "group": "expense",
+   "desc": "支出字段公共校验：分类/金额/方式/日期/供应商，返回归一后的字段 */ function normalizeExpense(db, { category, amount, method, supplierId, expenseDate, note }) { if (!EXPENSE_CATEGORIES.includ",
+   "impl": "createExpense",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "expense:delete",
+   "group": "expense",
+   "desc": "删支出：账目可删（不像客户有引用完整性问题），留审计日志",
+   "impl": "deleteExpense",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "expense:update",
+   "group": "expense",
+   "desc": "改支出：整单字段全量替换（简单账目不做部分更新）",
+   "impl": "updateExpense",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "feedback:send",
+   "group": "feedback",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "import:batch",
+   "group": "import",
+   "desc": "批量导入商品 + 批次，每条商品自动生成批次入库记录。 逐行校验：坏行（数量非法、缺成本价、品类不在 20 大类内）记入 errors 并跳过该行， 不再让一行坏数据导致整批回滚。 SKU 规则与手动新建一致：显式 SKU 原样用 > 有条码用条码 > 无条码自动编纯数字号（1001 起）。 合法行仍在同一事务里整体提",
+   "impl": "importBatch",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "inbound:create",
+   "group": "inbound",
+   "desc": "",
+   "impl": "createInbound",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "kit:delete",
+   "group": "kit",
+   "desc": "删除套装（明细随外键 CASCADE 一并删）",
+   "impl": "deleteKit",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "kit:get",
+   "group": "kit",
+   "desc": "套装详情：头 + 明细（带商品名称/SKU/建议售价，供开单加清单）",
+   "impl": "getKit",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "kit:list",
+   "group": "kit",
+   "desc": "归一套装打包价：null/undefined/空串 → null（不设）；否则必须是非负整数（分） */ function kitPriceOrNull(v) { if (v == null || v === '') return null const n = Number(v) if (!Number.isInteg",
+   "impl": "listKits",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "kit:save",
+   "group": "kit",
+   "desc": "保存套装（新建或更新）：一个事务内 upsert 套装 + 重建明细。 items 里的商品必须存在、数量必须是正整数；同一套装内商品去重。",
+   "impl": "saveKit",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "knowledge:delete",
+   "group": "knowledge",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "knowledge:list",
+   "group": "knowledge",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "knowledge:save",
+   "group": "knowledge",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "knowledge:update",
+   "group": "knowledge",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "kws:download",
+   "group": "kws",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "kws:push",
+   "group": "kws",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "kws:reset",
+   "group": "kws",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "kws:status",
+   "group": "kws",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "license:activate",
+   "group": "license",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "license:quota",
+   "group": "license",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "license:status",
+   "group": "license",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "onboarding:finish",
+   "group": "onboarding",
+   "desc": "完成新手引导（不删数据，只标记已完成）",
+   "impl": "finishOnboarding",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "onboarding:reset",
+   "group": "onboarding",
+   "desc": "新手引导：清空演示数据正式开张。 铁律：清空前强制跑一次自动备份（数据一旦删除不可恢复）。 清空范围：流水、批次、商品、供应商、盘点单和明细（保留 settings 表）",
+   "impl": "resetDemoData",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "onboarding:status",
+   "group": "onboarding",
+   "desc": "检查新手引导是否已完成",
+   "impl": "onboardingStatus",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "outbound:checkout",
+   "group": "outbound",
+   "desc": "一单多商品收银台：一次开单出多种商品，所有行在同一事务里—— 任一行库存不足或校验失败，整单回滚不留半截（与盘点提交同原则）。 行项目：{ productId, quantity, sellingPrice }，每行售价必填且 >0（收银台营业额/毛利全靠它）。 收款口径与 confirmOutbound 一致：pai",
+   "impl": "confirmCheckout",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "outbound:confirm",
+   "group": "outbound",
+   "desc": "按入库日期升序扣减批次；跨批次拆成多条 transactions unit_price 记批次成本价，selling_price 记实际售价（利润 = selling_price - unit_price） 赊账扩展（客户余额模型）： - customerId 可选；散客（不传）必须全额付清，部分付款/纯赊账会报\"赊账",
+   "impl": "confirmOutbound",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "outbound:exchange",
+   "group": "outbound",
+   "desc": "换货登记：先退旧货再出新货，同一事务，任一环节失败整体回滚。 记账口径（重要）：退旧腿记 type='return'（notes='换货退旧'），出新腿记 type='out' （notes='换货出新'，unit_price=批次成本，selling_price=新货售价）—— 与退货/正常出库同类型，全站的今日记录",
+   "impl": "createExchange",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "outbound:return",
+   "group": "outbound",
+   "desc": "退货登记：顾客退回来的货重新入架。 库存加回最近一次入库的批次（成本口径一致，FIFO 队列不被退货打乱）； 该商品没有任何批次时新建一条\"退货回补\"批次，成本取商品最近进价。 流水 type='return'：unit_price=批次成本，selling_price=退款金额（分）， 退款记 selling_pri",
+   "impl": "createReturn",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "part:all",
+   "group": "part",
+   "desc": "所有\"是配节\"的商品（用于搜索/筛选），可按关键词过滤",
+   "impl": "allParts",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "part:list",
+   "group": "part",
+   "desc": "查某主竿的所有配节 + 当前库存 + 缺货线（配节页主维度；min_stock 缺省用默认阈值 5）",
+   "impl": "partsOf",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "part:set",
+   "group": "part",
+   "desc": "设置/清除配节关系：productId 设为 parentId 的配节，partType 填配节类型；parentId=null 清除",
+   "impl": "setPart",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "part:setMany",
+   "group": "part",
+   "desc": "批量设配节（v2.2）：一次把一个主竿的多个配节绑好，省得一根一根点。 parts 为 [{ productId, partType }]；整个批次一个事务，任一个非法整批回滚。",
+   "impl": "setPartsMany",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "payment:deleteQr",
+   "group": "payment",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "payment:getQr",
+   "group": "payment",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "payment:record",
+   "group": "payment",
+   "desc": "还款登记：金额必须正整数（分）；方式限 现金/微信/支付宝/其他，默认现金。 允许还款超过当前欠款（老板可能多收/预收），返回值里用 overpaid/prepaid 标注， outstanding 为还款后的欠款（负值=预收）。",
+   "impl": "recordPayment",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "payment:saveQr",
+   "group": "payment",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "photo:delete",
+   "group": "photo",
+   "desc": "修改商品基本信息；SKU 一经创建不可修改（避免历史流水对不上）",
+   "impl": "updateProduct",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "photo:save",
+   "group": "photo",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "po:cancel",
+   "group": "po",
+   "desc": "取消采购订单：仅 sent（待收货）/partial（部分收货）可取消；complete/cancelled 报中文错。 partial 取消时剩余未收部分作废、已收的部分保留（返回值 message 明示）。",
+   "impl": "cancelPurchaseOrder",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "po:create",
+   "group": "po",
+   "desc": "新建采购订单：供应商/商品必须存在；数量正整数、进价非负整数分； 初始状态 sent（待收货），total_cost = Σ 数量×进价（分）",
+   "impl": "createPurchaseOrder",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "po:detail",
+   "group": "po",
+   "desc": "采购单详情：订单头 + 明细（每条带商品名/SKU/订了多少/已收多少）",
+   "impl": "purchaseOrderDetail",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "po:list",
+   "group": "po",
+   "desc": "采购单列表：按时间倒序，带供应商名/明细条数/总金额/已收进度",
+   "impl": "listPurchaseOrders",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "po:receive",
+   "group": "po",
+   "desc": "采购收货入库（核心）：每条明细本次收货数量 > 0 且 ≤ 剩余待收，超订报错； 每条收货建独立批次（成本=订单进价、供应商=订单供应商）+ type='in' 流水（notes 标注采购单号）， 并同步商品最近进价（与手动入库同口径）；收齐 → complete，部分 → partial。 整个操作同一事务：任一明细",
+   "impl": "receivePurchaseOrder",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "priceTier:delete",
+   "group": "priceTier",
+   "desc": "",
+   "impl": "deletePriceTier",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "priceTier:list",
+   "group": "priceTier",
+   "desc": "",
+   "impl": "getPriceTiers",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "priceTier:set",
+   "group": "priceTier",
+   "desc": "",
+   "impl": "setPriceTier",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "pricing:get",
+   "group": "pricing",
+   "desc": "",
+   "impl": "buildPricing",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "product:batchUpdate",
+   "group": "product",
+   "desc": "批量修改商品：一次事务改一批商品的价格/状态，两者至少传一个。 priceMode（可省，二选一）： { kind: 'ratio', ratio } 统一打折：建议售价与\"已设\"的各档价格 ×ratio， 分单位四舍五入（最低 1 分，防止打成 0）；没设建议售价/没设档次的保持原样（不补建档次）。 { kind: ",
+   "impl": "batchUpdateProducts",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "product:create",
+   "group": "product",
+   "desc": "",
+   "impl": "createProduct",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "product:delete",
+   "group": "product",
+   "desc": "仅允许删除没有任何批次和流水的商品，防止库存历史断链",
+   "impl": "deleteProduct",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "product:expiring",
+   "group": "product",
+   "desc": "临期/过期预警（按批次算）：同一商品多个批次各自有到期日，分别预警。 只统计批次级 expiry_date（入/收货时记录），且该批次剩余库存 > 0，按过期日升序。 返回：名称/SKU/批次号/过期日/剩余天数（负=已过期）/该批次库存量/expired 标记 兼容：保留商品级 id 字段，前端可按商品聚合也可按批次",
+   "impl": "expiringProducts",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "product:list",
+   "group": "product",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false
+  },
+  {
+   "name": "product:mark",
+   "group": "product",
+   "desc": "手动标记商品：热销（is_hot）/ 处理货（is_clearance）。手机端老板自己标。 @param {{ id:number, is_hot?:0|1, is_clearance?:0|1, operator?:string }} input",
+   "impl": "markProduct",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "product:search",
+   "group": "product",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false
+  },
+  {
+   "name": "product:update",
+   "group": "product",
+   "desc": "修改商品基本信息；SKU 一经创建不可修改（避免历史流水对不上）",
+   "impl": "updateProduct",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "receipt:list",
+   "group": "receipt",
+   "desc": "查某天各方式的实收登记",
+   "impl": "listReceipts",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "receipt:reconcile",
+   "group": "receipt",
+   "desc": "某天对账：应收 vs 实收登记 vs 赊账未收 vs 差异",
+   "impl": "reconcileReceipt",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "receipt:register",
+   "group": "receipt",
+   "desc": "登记某天某方式的实收（同一天同方式重复登记 = 覆盖）",
+   "impl": "registerReceipt",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "report:hotSellers",
+   "group": "report",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false
+  },
+  {
+   "name": "report:lowStock",
+   "group": "report",
+   "desc": "低库存商品列表：总库存 < 各自预警线（min_stock ?? 默认），升序，最缺的在前",
+   "impl": "lowStockProducts",
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false
+  },
+  {
+   "name": "report:today",
+   "group": "report",
+   "desc": "今日收款方式拆分（单位：分），桌面仪表盘与手机看店共用同一口径： - byMethod：按流水 pay_method 聚合——出库实收记正、退货退款记负（换货退旧腿、冲减欠款的退货不算现金移动） - unrecorded：收到钱但没记方式的净额（老数据/未选方式） - credit：今日新增赊账（应付 − 实收）",
+   "impl": "todayPaymentSplit",
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false
+  },
+  {
+   "name": "server:regenerateToken",
+   "group": "server",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "server:status",
+   "group": "server",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "server:toggle",
+   "group": "server",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "stocktake:complete",
+   "group": "stocktake",
+   "desc": "完成盘点：把实盘数落实到批次库存，盘点单置为已完成",
+   "impl": "completeStockTake",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "stocktake:create",
+   "group": "stocktake",
+   "desc": "创建盘点单：可按货位（locationFilter，前缀匹配）、品类（category，精确匹配）、 供应商（supplierId，按批次的进货供应商匹配）筛选，三个条件取交集，都不传=全店盘点。 筛选条件随盘点单落库（category_filter / supplier_filter / location_filte",
+   "impl": "createStockTake",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "stocktake:submit",
+   "group": "stocktake",
+   "desc": "盘点一次性原子提交：把前端暂存的实盘数写入明细 + 完成盘点，同一事务。 替代\"前端逐条 updateStockTakeItem + 最后 complete\"的两段式流程—— 那种流程中途崩溃会留下改了明细没落实库存的半成品状态。 @param {{ takeId: number, items: Array<{ ite",
+   "impl": "submitStockTake",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "stocktake:updateItem",
+   "group": "stocktake",
+   "desc": "",
+   "impl": "updateStockTakeItem",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "supplier:create",
+   "group": "supplier",
+   "desc": "",
+   "impl": "createSupplier",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "supplier:delete",
+   "group": "supplier",
+   "desc": "",
+   "impl": "deleteSupplier",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "supplier:list",
+   "group": "supplier",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false
+  },
+  {
+   "name": "supplier:pay",
+   "group": "supplier",
+   "desc": "登记一次给供应商的付款（v0.1）：金额（分）>0，记方式/备注/日期/经手人。 付款本身不进库存流水，只冲减\"进货应付\"；对账单按 累计进货 - 累计已付 = 还欠 计算。",
+   "impl": "paySupplier",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "supplier:payments",
+   "group": "supplier",
+   "desc": "某供应商的付款记录列表（新→旧）",
+   "impl": "supplierPayments",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "supplier:statement",
+   "group": "supplier",
+   "desc": "供应商对账单： - lines：该供应商的进货批次明细（时间/商品/进货数量/成本价/金额/批次号/关联采购单号）。 进货数量取 type='in' 的入库流水（批次原始数量），批次当前剩余另附 remaining； 采购收货的流水 notes 形如\"采购收货 PO20260728-001\"，从中提取关联采购单号。 -",
+   "impl": "supplierStatement",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "supplier:update",
+   "group": "supplier",
+   "desc": "",
+   "impl": "updateSupplier",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "template:apply",
+   "group": "template",
+   "desc": "套用行业模板：清空分类/单位并按模板重建（不动商品/库存/流水）",
+   "impl": "applyIndustryTemplate",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "template:list",
+   "group": "template",
+   "desc": "行业模板列表",
+   "impl": "listTemplates",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "tts:download",
+   "group": "tts",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "tts:speak",
+   "group": "tts",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "tts:status",
+   "group": "tts",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "unit:allowsDecimal",
+   "group": "unit",
+   "desc": "单位是否允许小数",
+   "impl": "unitAllowsDecimal",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "unit:create",
+   "group": "unit",
+   "desc": "新建单位",
+   "impl": "createUnit",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "unit:delete",
+   "group": "unit",
+   "desc": "删除单位：被商品使用的单位不允许删",
+   "impl": "deleteUnit",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "unit:list",
+   "group": "unit",
+   "desc": "单位列表（按排序）",
+   "impl": "listUnits",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "unit:move",
+   "group": "unit",
+   "desc": "移动单位排序",
+   "impl": "moveUnit",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "unit:update",
+   "group": "unit",
+   "desc": "改单位（名字/是否小数）",
+   "impl": "updateUnit",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "update:check",
+   "group": "update",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "update:downloadAndInstall",
+   "group": "update",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "user:create",
+   "group": "user",
+   "desc": "建员工（或第一个老板）：按版本配额拦截人数；role 只能是 owner/manager/staff",
+   "impl": "createUser",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "user:current",
+   "group": "user",
+   "desc": "当前登录用户（settings 键 current_user 存用户名；没登录/关闭开关时返回 null）",
+   "impl": "currentUser",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "user:delete",
+   "group": "user",
+   "desc": "删员工：不能删老板；删掉后该账号登录立刻失效",
+   "impl": "deleteUser",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "user:list",
+   "group": "user",
+   "desc": "员工列表（不含密码哈希，前端展示用）",
+   "impl": "listUsers",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "user:login",
+   "group": "user",
+   "desc": "登录：校验账号密码，成功后把 current_user 写入 settings",
+   "impl": "login",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "user:logout",
+   "group": "user",
+   "desc": "登出：清掉 current_user",
+   "impl": "logout",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "user:setStaffLogin",
+   "group": "user",
+   "desc": "开/关员工登录（开关由老板在设置页操作）",
+   "impl": "setStaffLogin",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "user:staffLoginEnabled",
+   "group": "user",
+   "desc": "员工登录开关（settings 键 staff_login='on' 才启用登录门）",
+   "impl": "staffLoginEnabled",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "user:update",
+   "group": "user",
+   "desc": "改员工：改名/改密码（不传密码则不改）/角色/停启用",
+   "impl": "updateUser",
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "voice:download",
+   "group": "voice",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "voice:parseOrder",
+   "group": "voice",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "voice:parseOrderAudio",
+   "group": "voice",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "voice:status",
+   "group": "voice",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "voice:transcribe",
+   "group": "voice",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "waste:create",
+   "group": "waste",
+   "desc": "登记报损：减少批次库存 + 记损耗 + 写报损流水。数量必须 ≥1，库存不足直接拒绝",
+   "impl": "createWaste",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "waste:list",
+   "group": "waste",
+   "desc": "报损记录（带商品信息），按时间倒序；成本取该批次进价，老数据无成本时回退商品最近进价",
+   "impl": "listWastes",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  },
+  {
+   "name": "waste:summary",
+   "group": "waste",
+   "desc": "损耗成本汇总：某时间段内报损数量 × 该批次进价（老数据无批次进价回退商品最近进价）",
+   "impl": "wasteSummary",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false
+  }
+ ]
+}

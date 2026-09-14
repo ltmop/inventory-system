@@ -6,6 +6,7 @@ import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { openDatabase, finalCheckpoint, listInsights, saveInsight, updateInsight, deleteInsight, aiUsageStats, listAiUsageLog } from './db.js'
 import * as commands from './commands.js'
+import * as commandApi from './commandApi.js'
 import * as ai from './ai.js'
 import * as aiQuota from './aiQuota.js' // P0 计费阀门：AI 统一计费入口
 import * as voiceOrderService from './voiceOrderService.js' // P1-3 语音开单
@@ -148,8 +149,12 @@ function reportBackupError(label, e) {
 }
 
 function registerIpc() {
-  const handle = (channel, fn) =>
-    ipcMain.handle(channel, (_e, payload) => fn(db, payload ?? {}))
+  // 命令台需要一张「命令名  实现」的表才能通用调用；顺手在注册时记一份（不改既有行为）
+  const LOCAL_HANDLERS = new Map()
+  const handle = (channel, fn) => {
+    LOCAL_HANDLERS.set(channel, fn)
+    return ipcMain.handle(channel, (_e, payload) => fn(db, payload ?? {}))
+  }
 
   handle('data:loadAll', (d) => commands.loadAll(d))
   handle('product:create', (d, p) => { const r = commands.createProduct(d, p); voiceOrderService.refreshVoiceOrderCache(); return r }) // P1-3：商品变更后刷新语音热词
@@ -539,6 +544,16 @@ function registerIpc() {
 ipcMain.handle('cloud:syncConflicts', () => listSyncConflicts())
 ipcMain.handle('cloud:resolveSyncConflict', (_e, p) => resolveSyncConflict(p?.kind ?? '', p?.id ?? '', p?.choice ?? ''))
 ipcMain.handle('cloud:syncBusinessNow', () => syncBusinessData())
+// 命令接口：自省 + 通用调用（命令台用；命令来自 LOCAL_HANDLERS，未开放的命令如实报错）
+ipcMain.handle('commands:list', (_e, p) => commandApi.listCommands(p ?? {}))
+ipcMain.handle('commands:describe', (_e, p) => commandApi.describeCommand(p?.name))
+ipcMain.handle('commands:invoke', async (_e, p) => {
+  const name = String(p?.name || '')
+  const fn = LOCAL_HANDLERS.get(name)
+  if (!fn) return { ok: false, error: '未找到命令（桌面未开放）: ' + name }
+  try { return { ok: true, result: await fn(db, p?.params ?? {}) } }
+  catch (e) { return { ok: false, error: String((e && e.message) || e) } }
+})
   ipcMain.handle('cloud:backupNow', () => uploadBackup())
   ipcMain.handle('cloud:listBackups', () => listCloudBackups())
   ipcMain.handle('cloud:restore', async (_e, p) => {

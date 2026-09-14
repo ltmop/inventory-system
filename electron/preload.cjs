@@ -164,6 +164,10 @@ const CHANNELS = new Set([
   'cloud:syncConflicts',
   'cloud:resolveSyncConflict',
   'cloud:syncBusinessNow',
+  // 命令接口（命令台）
+  'commands:list',
+  'commands:describe',
+  'commands:invoke',
 ])
 
 contextBridge.exposeInMainWorld('fi', {

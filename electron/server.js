@@ -11,6 +11,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
+import { listCommands, describeCommand } from './commandApi.js'
 import { ensureTlsCert } from './tls.js'
 
 // ESM 无 __dirname，这里补一个（serveMobile 托管 electron/mobile/ 用）
@@ -1323,6 +1324,10 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       sendJson(res, 400, { error: '请求体不是合法 JSON' })
       return
     }
+    // POST /api/command：{ name, params } 形式  转成 { channel, payload } 复用下面整套逻辑
+    if (url.pathname === '/api/command' && typeof body?.name === 'string') {
+      body = { channel: body.name, payload: body.params ?? {} }
+    }
     const fn = typeof body?.channel === 'string' ? INVOKE_CHANNELS[body.channel] : undefined
     if (!fn) {
       sendJson(res, 404, { error: 'unknown channel' })
@@ -1422,7 +1427,8 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     // 方法白名单：GET + 写接口 POST /api/outbound（手机开单）和 POST /api/invoke（整机共享），其余一律 405
     const url = new URL(req.url ?? '/', 'http://localhost')
     const isOutbound = req.method === 'POST' && url.pathname === '/api/outbound'
-    const isInvoke = req.method === 'POST' && url.pathname === '/api/invoke'
+    // 通用命令入口（与 /api/invoke 同一套鉴权/限流/幂等/只读判断）
+    const isInvoke = req.method === 'POST' && (url.pathname === '/api/invoke' || url.pathname === '/api/command')
     if (req.method !== 'GET' && !isOutbound && !isInvoke) {
       sendJson(res, 405, { error: 'method not allowed' })
       return
@@ -1524,6 +1530,12 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       '/api/analytics/overview': () => analyticsOverview(db),
       // 中心库服务端备份列表（只读）：桌面「云端备份」在中心库模式下指到这里
       '/api/backup/list': () => listCenterBackups(dataDir),
+      // 命令自省：全集 / 过滤 / 单条详情（?name=）。命令台与接口文档同源
+      '/api/commands': () => {
+        const nm = url.searchParams.get('name')
+        if (nm) return describeCommand(nm)
+        return listCommands({ group: url.searchParams.get('group') || '', q: url.searchParams.get('q') || '' })
+      },
     }
     const route = ROUTES[url.pathname]
     if (!route) {

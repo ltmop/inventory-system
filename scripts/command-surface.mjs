@@ -100,6 +100,32 @@ const ipcNotInPreload = cmdRows.filter((r) => r.ipc && !r.preloadOk).map((r) => 
 const preloadNotImpl = [...pre].filter((n) => !main.has(n)).sort()
 const withDesc = rows.filter((r) => r.desc).length
 
+// 发射注册表：electron/commandRegistry.json  供命令自省、命令台、接口文档共用
+if (process.argv.includes('--emit-registry')) {
+  const out = path.join(ROOT, 'electron/commandRegistry.json')
+  const payload = {
+    // 由 scripts/command-surface.mjs --emit-registry 生成，勿手改；
+    // 一致性由 scripts/gen-command-doc.mjs --check 与 scripts/command-surface.mjs 守护
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    source: 'main.js(IPC) + server.js(HTTP) + preload.cjs(白名单) + commands/*.js(JSDoc)',
+    total: rows.filter((r) => !r.isRest).length,
+    restRoutes: rows.filter((r) => r.isRest).map((r) => r.name),
+    commands: rows.filter((r) => !r.isRest).map((r) => ({
+      name: r.name,
+      group: r.group,
+      desc: r.desc,
+      impl: r.impl,
+      ipc: r.ipc,
+      http: r.http,
+      preload: r.preloadOk,
+      rest: !!r.isRest,
+    })),
+  }
+  fs.writeFileSync(out, JSON.stringify(payload, null, 1))
+  console.log('已写 electron/commandRegistry.json：' + rows.length + ' 条命令')
+  process.exit(0)
+}
 if (process.argv.includes('--json')) {
   console.log(JSON.stringify({ generatedAt: new Date().toISOString(), total: rows.length, commands: rows, inconsistencies: { onlyIpc, onlyHttp, ipcNotInPreload, preloadNotImpl } }, null, 1))
   process.exit(0)
