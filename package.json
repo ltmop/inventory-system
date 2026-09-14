@@ -18,6 +18,8 @@
     "check:identity:real": "node scripts/verify-subcategory-real.cjs",
     "check:local": "node scripts/verify-local-channels.mjs",
     "check:ui": "node scripts/verify-layout-simple.mjs",
+    "check:cli": "node scripts/verify-cli.mjs",
+    "cli": "node scripts/inv-cli.mjs",
     "check:update": "node scripts/verify-update-check.mjs",
     "release": "node scripts/release.mjs",
     "electron": "electron .",
