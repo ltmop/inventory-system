@@ -17,6 +17,7 @@
     "check:identity": "node scripts/verify-product-identity.mjs",
     "check:identity:real": "node scripts/verify-subcategory-real.cjs",
     "check:local": "node scripts/verify-local-channels.mjs",
+    "check:central": "node scripts/verify-central-mode.mjs",
     "check:ui": "node scripts/verify-layout-simple.mjs",
     "check:cli": "node scripts/verify-cli.mjs",
     "cli": "node scripts/inv-cli.mjs",

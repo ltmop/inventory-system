@@ -479,8 +479,8 @@ export function SettingsPage() {
       {/* 收款码：手机端开单选微信/支付宝时展示给顾客扫 */}
       <PaymentQrCard />
 
-      {/* 连接云端中心库（P2）：桌面软件连中心库，多点实时共享 */}
-      <CentralModeCard />
+      {/* 云端中心库：常规只显示「连没连上 + 断开」，手填 URL/token 收进高级设置（方案C 2026-09-14） */}
+      <CentralModeCard advanced={adv} />
 
 
         </div>

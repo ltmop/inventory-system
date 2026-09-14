@@ -37,17 +37,53 @@
 |---|---|
 | 桌面**默认走本地 IPC**，中心库是设置里的 opt-in | `src/lib/api.ts` 的 `rawBackend`：只有 `localStorage` 同时有 `fi-central-url` 与 `fi-central-token` 才连中心库，否则回落 `window.fi`（本地 IPC） |
 | 配置存在 **localStorage**，不是配置文件 | `api.ts` 的 `getCentralConfig` / `setCentralConfig`，键名 `fi-central-url` / `fi-central-token` |
-| 切换入口是**手动**的，不随登录自动切 | `src/components/CloudLoginGate.tsx`：点「连接中心库」→ 填 URL+token → `setCentralConfig` → `window.location.reload()` |
+| 切换入口**两条**：常规=登录后自动配；紧急=高级设置里手填 | 常规：`AccountPage` → `CloudCard.handleAccount` 登录成功后调 `cloud:centralConfig` 拿地址+token → `setCentralConfig` → reload。紧急：`src/pages/settings/CentralModeCard.tsx`，**只有 `advanced`（设置页「高级设置」打开）时才显示手填框** |
 | 中心库地址 | `https://app.junchengzn.com`（`src/pages/settings/CentralModeCard.tsx` 的默认值） |
 | 中心库由 `/api/invoke` 提供服务，与桌面同码 | `electron/server.js` 的 `handleInvoke` |
+| **中心库模式下主进程会停掉「整库上传」** | `electron/cloud.js` 的 `wholeDbUploadBlocked()`：`syncSnapshot`（云看板）与 `uploadBackup`（每日备份）在中心库模式下直接 return；按记录同步 `syncBusinessData` 也返回"没做"。开关由渲染层上报（`cloud:setCentralMode`）并落盘 `dataDir/central-mode.json` |
 
-> 📌 **更正 CHANGELOG**：v1.0.9 那段写的「登录即 `setCentralConfig`（默认切中心库入口）」**不准确**。
-> 实测登录与切中心库是两个独立的手动动作，**登录不会**把机器切到中心库。
-> 写"登录即切换"会让人以为登录是安全的，从而在没备份的情况下放心登录 —— 属于危险描述，建议改掉。
+> 📌 **更正 CHANGELOG（初版）**：v1.0.9 那段写的「登录即 `setCentralConfig`」当时**不准确**（登录与切中心库是两个独立动作）。
+> **2026-09-14 起它变成准确的了**：方案C 把手填 token 收进「高级设置」，登录后自动配中心库成了**常规唯一入口**。
+> 但危险描述那半句仍然成立、且更要紧：**登录本身不等于数据安全** ——
+> 见下面「§1b 中心库模式 vs 云账号」里那条"整库上传"的说明。
 
 **另一处补充**：`fi-central-*` 存在 localStorage，意味着
 （a）换个 Windows 用户 / 清了浏览器数据，配置就没了，机器会**静默退回本地模式**；
 （b）装机时无法由安装包预置默认值 —— 要改默认只能改代码。
+
+---
+
+## 1b. 中心库模式 vs 云账号：两件不同的事（方案A/C，2026-09-14 owner 拍板）
+
+这两个东西经常被当成"要登录两次"，其实分属两层：
+
+| | 中心库模式 | 云账号（`cloud.json`） |
+|---|---|---|
+| 回答的问题 | **账本放在哪** | **这台机器是谁 + 谁做备份/看板/增量同步** |
+| 实现 | `localStorage` 的 `fi-central-url`/`fi-central-token`；`api.ts` 的 `rawBackend` 中心库优先，业务通道全走 HTTP | `dataDir/cloud.json`（userId+uploadToken+viewToken+keyK）；`cloud.js` 的 `getBizSync()` 三道门槛 |
+| 连上以后 | 全店共用服务器上那一份 `data.db`，多机天然同账，**不需要同步** | 解锁：按记录增量同步、手机看板整库快照、每日整库备份、换机恢复、以及**自动下发中心库地址**（`/api/cockpit/central-config`） |
+| 关系 | 中心库地址本身就是**登录的产物**（登录 → 换令牌 → 领地址） | 云账号没了（`cloud.json` 不存在）也不影响中心库继续用 —— 会出现「中心库连着的，但云账号没登」这种半截状态 |
+
+**方案A（为什么必须拦住整库上传）**：中心库模式下界面上读写的是**服务器那一份**，
+本机 `data.db` 不是权威账本、而且越用越旧。而主进程手里有三条会读本机库往云上送的通道。
+`needsRestore` 那道保护只对**全新机器**（`settings.fi-onboarded != '1'`）生效 ——
+**已经营过一阵的收银机没有保护**，一登录就会拿旧库覆盖云端看板/备份。所以：
+
+- `syncSnapshot()`（→ `/api/snapshot`，喂手机看板）：中心库模式下**不发**
+- `uploadBackup()`（→ `/api/backup`，每日备份按日期覆盖）：中心库模式下**不发**
+- `syncBusinessData()`（→ `/api/tenant/sync`）：中心库模式下返回 `ok:false`（方向搞反了：本机库此时是旧的那份）
+
+代价如实说：**中心库模式下这台机器不再更新云看板与云备份**。要看板/备份，应由**中心库那一侧**
+生成（属于后续工作，不属于本文）。宁可停掉，也不能拿旧库覆盖好数据。
+
+**方案C（一个入口）**：手填 URL+token 不再是常规入口 ——
+常规界面只显示「连没连上 / 断开」，没连上时引导去「账号」页登录（登录会自动配好）；
+手填框只在设置页**「高级设置」打开时**出现，留给排障与本文的紧急路径。
+
+**守这个决策的闸门**：`npm run check:central`（`scripts/verify-central-mode.mjs`，34 项）。
+它**不是 grep 源码**：用 `electron/db.js` 开一个真库、真 import `cloud.js`、桩掉 `fetch` 数请求，
+断言"中心库模式下 `/api/snapshot` 与 `/api/backup` 一个字节都没发"，并且**反向断言**本地模式下确实会发
+（防止闸门被写成"永远拦住"），外加"重启后仍知道自己是中心库模式"（否则启动 2 秒后那次自动快照会漏网）。
 
 ---
 
@@ -182,10 +218,14 @@ node scripts/server/apply-conflicts.mjs --src <权威库> --dst <目标库> --ju
 ## 4. 翻转操作（每台机器一次）
 
 1. 确认 §2 的 4 项都完成。
-2. 打开软件 → **设置 → 连接云端中心库**。
-3. 地址填 `https://app.junchengzn.com`；token 向 owner 索取（每台机器用同一套地址+token）。
-4. 点「保存并连接中心库」→ 软件自动重启（`window.location.reload()`）。
+2. **首选**：到「账号」页登录云账号 —— 登录成功后软件会自动向服务器领中心库地址+token 并重启生效
+   （`CloudCard.handleAccount` → `cloud:centralConfig`），**不用手填任何东西**。
+3. 只有在**登录路走不通**（服务器没返回中心库配置、或要连一个非本账号的中心库）时，才走手填：
+   打开 **设置 → 高级设置** → 「云端中心库」卡片里会出现地址/token 输入框 →
+   地址填 `https://app.junchengzn.com`，token 向 owner 索取（每台机器用同一套地址+token）。
+4. 点「保存并连接」→ 软件自动重启（`window.location.reload()`）。
 5. 重启后**立刻核对**：客户数、应收合计、今日流水 —— 与 §2 记录的基线一致。
+   同时确认中心库卡片上写着「已连接」，并留意那句「整机备份已暂停」的提醒（见 §1b 方案A）。
 6. 记账软件改名不改账：确认左上角/设置里显示的是「中心库」而不是「主机」。
 
 ## 5. 回退（不想要了就退回本地，数据不丢）
@@ -193,9 +233,10 @@ node scripts/server/apply-conflicts.mjs --src <权威库> --dst <目标库> --ju
 清掉两个 localStorage 键即可恢复本地 IPC，**本地库一直没有被改动**：
 
 ```
-设置 → 连接云端中心库 → 清空地址或 token → 保存
+设置 → 高级设置 → 云端中心库 → 「断开（回到本机数据）」
 ```
-（等价于 `setCentralConfig('', '')`；或由 owner 在浏览器控制台执行后 reload。）
+（走的就是 `setCentralConfig('', '')`；或由 owner 在浏览器控制台执行后 reload。
+断开后主进程那侧的整库上传闸门也会跟着放开 —— 渲染层上报 `cloud:setCentralMode {on:false}`。）
 
 **回退的前提**：本地库本身没被写过。所以翻转后如果门店在中心库模式下开了单，
 那些单子**只在中心库**，退回本地就看不到它们 —— 回退前必须先把中心库的新单子补回本地。

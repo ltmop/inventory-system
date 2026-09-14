@@ -126,6 +126,26 @@ export function setCentralConfig(url: string, token: string) {
     if (url && token) { localStorage.setItem(CENTRAL_URL_KEY, url); localStorage.setItem(CENTRAL_TOKEN_KEY, token) }
     else { localStorage.removeItem(CENTRAL_URL_KEY); localStorage.removeItem(CENTRAL_TOKEN_KEY) }
   } catch { /* ignore */ }
+  // 换中心库模式必须立刻告诉主进程（它决定要不要禁止整库上传），否则要等下次启动才生效
+  reportCentralModeToMain()
+}
+
+/**
+ * 把「本机是不是中心库模式」上报给主进程。
+ *
+ * 为什么主进程需要知道（方案A，2026-09-14 owner 拍板）：
+ *   配置存在 localStorage，主进程看不见；而主进程手里有两条会把**本机 data.db** 整库推上云的通道
+ *   （整库快照 → 手机看板、每日整库备份）。中心库模式下本机库不是权威账本、还会越用越旧，
+ *   推上去就是拿过期库覆盖云端。所以中心库模式一开，主进程必须停掉这两条。
+ *   读的是 getCentralConfig()（写盘后的真值），不是入参 —— 写失败时不谎报。
+ * 失败一律吞掉：这只是个安全开关，不该影响界面任何操作（手机浏览器里没有 window.fi，直接跳过）。
+ */
+export function reportCentralModeToMain(cfg: { url: string; token: string } = getCentralConfig()) {
+  const local = localBridge()
+  if (!local) return
+  try {
+    void Promise.resolve(local.invoke('cloud:setCentralMode', { on: !!cfg.url && !!cfg.token })).catch(() => {})
+  } catch { /* ignore */ }
 }
 const central = getCentralConfig()
 

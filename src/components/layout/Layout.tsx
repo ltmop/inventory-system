@@ -11,7 +11,7 @@ import { FirstOrderCelebration } from '@/components/FirstOrderCelebration'
 import { LowStockAlert } from '@/components/LowStockAlert'
 import { useAppStore } from '@/store/appStore'
 import { useWallpaper } from '@/lib/wallpaper'
-import { backend, setGuestMode } from '@/lib/api'
+import { backend, setGuestMode, reportCentralModeToMain } from '@/lib/api'
 
 export function Layout() {
   const [collapsed, setCollapsed] = useState(false)
@@ -28,6 +28,14 @@ export function Layout() {
     backend.invoke('cloud:status').then((s) => {
       if (s) useAppStore.setState({ cloud: { ...useAppStore.getState().cloud, ...s } })
     }).catch(() => {})
+  }, [])
+
+  // 启动时把「本机是不是中心库模式」上报给主进程（方案A，2026-09-14 owner 拍板）：
+  // 配置在 localStorage，主进程看不见；而主进程负责决定要不要把本机整库上传到云。
+  // 中心库模式下本机库不是权威账本，必须停掉整库上传（快照/每日备份）。
+  // 静默失败即可 —— 主进程那边有上次落盘的值兜底，这个上报只是让它自愈。
+  useEffect(() => {
+    reportCentralModeToMain()
   }, [])
 
   // 已配对云账号的用户重启：自动视为已登录（覆盖本地模式/local），不再弹登录门

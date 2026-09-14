@@ -160,6 +160,8 @@ const CHANNELS = new Set([
   'cloud:registerAccount',
   'cloud:loginAccount',
   'cloud:centralConfig',
+  // 上报「本机是不是中心库模式」：主进程据此在中心库模式下禁止整库上传（方案A 2026-09-14）
+  'cloud:setCentralMode',
   'cloud:logout',
   'cloud:dismissRestore',
   // 阶段2.3：多端同步冲突列出/逐条解决/立即同步（main.js 已注册；此前漏放行，前端调用会被拒）

@@ -32,6 +32,8 @@ let cloudState = {
   syncing: false,
   error: null,
   viewUrl: null,
+  // 中心库模式（由渲染层上报 + 落盘）：true 时禁止整库上传，见 wholeDbUploadBlocked
+  centralMode: false,
   // 首登恢复挂起：新电脑登录老账号，云端有备份而本机全新 → 暂停上传，等用户选"恢复云端"或"我是新店"
   // 防止空库/演示库把云端好数据顶掉（快照乐观锁能挡 snapshot，但每日备份按日期覆盖，挡不住）
   needsRestore: false,
@@ -39,6 +41,70 @@ let cloudState = {
 }
 
 const CLOUD_CONFIG = 'cloud.json'
+const CENTRAL_MODE_FILE = 'central-mode.json'
+
+// ---------- 中心库模式：主进程必须知道这件事（方案A，2026-09-14 owner 拍板）----------
+//
+// 背景：中心库模式的配置存在**渲染层 localStorage**（`fi-central-url` / `fi-central-token`，
+// 见 src/lib/api.ts 的 getCentralConfig），主进程**看不见**。而主进程手里有三条会读本机
+// data.db 往云端送的通道：整库快照（→ 手机看板 /api/snapshot）、整库每日备份（/api/backup）、
+// 按记录增量同步（/api/tenant/sync）。
+//
+// 为什么必须拦住整库这两条：中心库模式下界面读写的是**服务器上那一份库**，本机 data.db
+// 不是权威账本、而且会越用越旧。此时按老逻辑上传整库 = 拿一份过期库去覆盖云端看板/备份。
+// 本来该拦的 needsRestore 保护（见 detectFirstRunRestore）**只对"全新机器"生效**
+// （fi-onboarded != '1'），已经营过一阵的收银机没有这层保护。
+//
+// 落盘（dataDir/central-mode.json）不是为了持久化配置，而是为了**重启后立刻知道**：
+// initCloud 里 2 秒后就会自动传一次快照，那一刻渲染层可能还没把模式报上来。
+// 读不到/读坏了按"不是中心库模式"处理（与本次改动前的行为一致，不制造新故障面）。
+
+/**
+ * 整库上传（快照 / 每日备份）在中心库模式下必须停手。
+ * 返回停手原因；可以传就返回 null。
+ * 抽成**纯函数**是为了让 scripts/verify-central-mode.mjs 能真的断言它，
+ * 而不是靠 grep 源码猜（这类"守卫写了但没接上"的坑本项目踩过）。
+ */
+export function wholeDbUploadBlocked(state = cloudState) {
+  if (state.centralMode) {
+    return '中心库模式：本机 data.db 不是权威账本，不上传整库（云看板/每日备份已暂停）'
+  }
+  return null
+}
+
+/** 本机是否处于中心库模式 */
+export function isCentralMode() {
+  return cloudState.centralMode === true
+}
+
+/** 渲染层上报「本机是不是中心库模式」；同时落盘，供下次启动在渲染层上报之前就生效 */
+export function setCentralMode(on) {
+  const next = on === true
+  const changed = cloudState.centralMode !== next
+  cloudState.centralMode = next
+  try {
+    fs.mkdirSync(dataDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(dataDir, CENTRAL_MODE_FILE),
+      JSON.stringify({ on: next, at: new Date().toISOString() }),
+      'utf8',
+    )
+  } catch {
+    // 写不进去就只在内存里生效：下次启动会由渲染层重新上报，不阻断任何功能
+  }
+  if (changed) console.log('[cloud] 中心库模式 =', next)
+  return { ok: true, centralMode: next }
+}
+
+function loadCentralModeFlag() {
+  try {
+    const f = path.join(dataDir, CENTRAL_MODE_FILE)
+    if (!fs.existsSync(f)) return
+    cloudState.centralMode = JSON.parse(fs.readFileSync(f, 'utf8'))?.on === true
+  } catch {
+    // 坏文件按"不是中心库模式"处理
+  }
+}
 
 // ---------- 阶段2.2：业务数据按记录增量同步 ----------
 // 三条平面相互独立：/api/backup 是整库保险，/api/snapshot 是手机看店看板，
@@ -62,6 +128,11 @@ function getBizSync() {
 
 /** 业务数据同步：首次会播种本机历史数据；未登录/云挂了都静默返回，不影响本地用 */
 export async function syncBusinessData() {
+  // 中心库模式下界面读写的是中心库，本机库不是权威账本 —— 把它播种/推给租户库只会污染。
+  // 这不是"少同步一次"，是**方向搞反**：本机库此时是旧的那一份。
+  if (isCentralMode()) {
+    return { ok: false, error: '中心库模式：界面读写的是中心库，本机不做按记录同步' }
+  }
   const s = getBizSync()
   if (!s) return { ok: false, error: '未登录云账号' }
   try {
@@ -109,6 +180,9 @@ export function initCloud(database, dbP, dataD, backupD, isProFn) {
   backupDir = backupD
   if (typeof isProFn === 'function') getIsPro = isProFn
   loadLocalConfig()
+  // 中心库模式要在 startScheduler 之前读出来：startScheduler 里 10 秒后、
+  // initCloud 里 2 秒后就会各自动传一次快照，那时渲染层可能还没上报
+  loadCentralModeFlag()
   startScheduler()
   // 已配对用户启动：2 秒后立即上传一次快照（不等 60s 首查）
   if (cloudState.paired) {
@@ -296,6 +370,8 @@ export async function syncSnapshot(storeName) {
   if (!db || cloudState.syncing) return
   // B1: Pro 门控——付费才能上传，到期即停
   if (!checkPro()) return
+  // 方案A：中心库模式下本机库不是权威账本，禁止把整库推上云（否则会覆盖云端看板）
+  if (wholeDbUploadBlocked()) return
   // 首登恢复挂起：本机疑似全新（云端有备份待恢复），暂停一切上传，防止空库/演示库顶掉云端数据
   if (cloudState.needsRestore) return
   cloudState.syncing = true
@@ -360,6 +436,8 @@ export async function resolveConflict() {
 export async function uploadBackup() {
   if (!db || !dbPath || !cloudState.userId) return
   if (!checkPro()) return
+  // 方案A：中心库模式下禁止整库备份上云 —— 每日备份按日期覆盖，推一份旧库上去会顶掉云端好备份
+  if (wholeDbUploadBlocked()) return
   // 首登恢复挂起：每日备份按日期覆盖，空库上传会顶掉云端好备份，必须拦住
   if (cloudState.needsRestore) return
   try {

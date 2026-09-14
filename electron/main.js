@@ -26,7 +26,7 @@ import { createPhotoStore } from './photo.js'
 import { initAutoUpdater, checkForUpdates, downloadAndInstall } from './updater.js'
 import * as site from './site.js'
 import { loadLicense, activateLicense, verifyLicenseCode, machineFingerprint, saveLevelToDb, quotaStatus, planFor } from './license.js'
-import { initCloud, pairWithCloud, syncSnapshot, uploadBackup, listCloudBackups, restoreFromCloud, regenViewLink, getCloudState, stopScheduler as stopCloudScheduler, exitSnapshot as exitCloudSnapshot, registerAccount as cloudRegisterAccount, loginAccount as cloudLoginAccount, logoutAccount as cloudLogoutAccount, resolveConflict, dismissRestoreHold, listSyncConflicts, resolveSyncConflict, syncBusinessData, fetchCentralConfig as cloudFetchCentralConfig } from './cloud.js'
+import { initCloud, pairWithCloud, syncSnapshot, uploadBackup, listCloudBackups, restoreFromCloud, regenViewLink, getCloudState, stopScheduler as stopCloudScheduler, exitSnapshot as exitCloudSnapshot, registerAccount as cloudRegisterAccount, loginAccount as cloudLoginAccount, logoutAccount as cloudLogoutAccount, resolveConflict, dismissRestoreHold, listSyncConflicts, resolveSyncConflict, syncBusinessData, fetchCentralConfig as cloudFetchCentralConfig, setCentralMode } from './cloud.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -582,6 +582,9 @@ ipcMain.handle('commands:invoke', async (_e, p) => {
   ipcMain.handle('cloud:logout', () => cloudLogoutAccount())
   // 登录后自动取中心库连接配置（凭设备令牌换）：用户不再手填 URL+token
   ipcMain.handle('cloud:centralConfig', () => cloudFetchCentralConfig())
+  // 渲染层上报「本机是不是中心库模式」：配置在 localStorage，主进程看不见，
+  // 但主进程必须据此在中心库模式下禁止整库上传（快照/每日备份）——方案A 2026-09-14 owner 拍板
+  ipcMain.handle('cloud:setCentralMode', (_e, p) => setCentralMode(p?.on === true))
   // 首登恢复：用户确认"我是新店/不用恢复"，解除上传挂起
   ipcMain.handle('cloud:dismissRestore', () => dismissRestoreHold())
   // 应用信息（设置页展示数据位置 + 最近备份时间：扫描备份目录最新文件）

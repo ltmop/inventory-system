@@ -26,6 +26,8 @@ export function CloudCard() {
   const [acctUsername, setAcctUsername] = useState('')
   const [acctPassword, setAcctPassword] = useState('')
   const [acctBusy, setAcctBusy] = useState(false)
+  // 登录成功、但中心库没配上时的提示（如实告知，不当成登录失败）
+  const [centralNotice, setCentralNotice] = useState('')
   const [qrDataUrl, setQrDataUrl] = useState('')
   const [storeName, setStoreName] = useState('')
   const [storeNameSaved, setStoreNameSaved] = useState(false)
@@ -85,14 +87,19 @@ export function CloudCard() {
           pendingBackup: r.latestBackup ?? null,
         })
         setAcctPassword('')
-        // 任务2：登录成功即自动配中心库（用户不再手填 URL+token）。
+        // 方案C（2026-09-14）：登录即自动配中心库 —— 这是**唯一**的常规路径（手填 token 已收进高级设置）。
         // 待处理「恢复云端数据 / 我是新店」时不重载，先让用户把这一步走完；
-        // 取不到中心库配置就按本地模式继续 —— 绝不因为云配置拿不到而挡住登录。
+        // 取不到中心库配置就按本地模式继续并**如实告知**（以前是静默 catch，用户会以为中心库也连上了）。
         if (!r.needsRestore) {
+          let centralErr = ''
           try {
             const c = await backend.invoke('cloud:centralConfig')
             if (c?.ok && c.url && c.token) { setCentralConfig(c.url, c.token); window.location.reload(); return }
-          } catch { /* 忽略：退回本地模式 */ }
+            centralErr = c?.error || '服务器没返回中心库地址和 token'
+          } catch (e) {
+            centralErr = e instanceof Error ? e.message : String(e)
+          }
+          setCentralNotice('已登录云账号。中心库这次没配上：' + centralErr + '（说明：两件事不是一回事 —— 登录只是拿到身份，中心库是"账本放在哪"）。可在「高级设置 → 云端中心库」手动重试，或稍后再登录一次。')
         }
       } else {
         setCloud({ error: r?.error || (acctMode === 'register' ? '注册失败' : '登录失败') })
@@ -255,6 +262,12 @@ export function CloudCard() {
                       ? '注册一次，之后每台电脑都用同一账户登录，数据自动共享'
                       : '多台电脑用同一账户登录，各自同步共享云端数据'}
                   </div>
+                  {/* 登录成功但中心库没配上：如实说清是哪一件事没成，而不是静默退回本地模式 */}
+                  {centralNotice && (
+                    <div className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-700">
+                      {centralNotice}
+                    </div>
+                  )}
                 </div>
               </div>
 
