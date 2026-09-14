@@ -135,6 +135,8 @@ const CHANNELS = new Set([
   'app:openExternal',
   'app:info',
   'feedback:send',
+  'site:contact',
+  'site:setContact',
   'server:status',
   'server:toggle',
   'server:regenerateToken',

@@ -11,6 +11,7 @@ import type { BackupStatus } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { BackupCard } from './settings/BackupCard'
 import { FeedbackCard } from './settings/FeedbackCard'
+import { SiteContactCard } from './settings/SiteContactCard'
 import { MobileServerCard, type ServerStatus } from './settings/MobileServerCard'
 import { PaymentQrCard } from './settings/PaymentQrCard'
 import { CentralModeCard } from './settings/CentralModeCard'
@@ -492,6 +493,9 @@ export function SettingsPage() {
 
       {/* 员工账号卡已挪到「账号」页（身份统一第一步 2026-09-13）：
           全软件只留一个账号入口，姓名/角色/员工名单都在那一页，设置页不再重复出现。 */}
+      {/* 官网 · 联系我们：单一事实源在 electron/site.js（出厂默认 + 本机 site.json 覆盖），
+          客服微信改一处全局生效，不用重新发版。 */}
+      <SiteContactCard />
       {/* 意见反馈 */}
       <FeedbackCard
         hasBackend={!!backend}

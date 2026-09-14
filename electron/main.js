@@ -24,6 +24,7 @@ import * as feedback from './feedback.js'
 import { createInventoryServer } from './server.js'
 import { createPhotoStore } from './photo.js'
 import { initAutoUpdater, checkForUpdates, downloadAndInstall } from './updater.js'
+import * as site from './site.js'
 import { loadLicense, activateLicense, verifyLicenseCode, machineFingerprint, saveLevelToDb, quotaStatus, planFor } from './license.js'
 import { initCloud, pairWithCloud, syncSnapshot, uploadBackup, listCloudBackups, restoreFromCloud, regenViewLink, getCloudState, stopScheduler as stopCloudScheduler, exitSnapshot as exitCloudSnapshot, registerAccount as cloudRegisterAccount, loginAccount as cloudLoginAccount, logoutAccount as cloudLogoutAccount, resolveConflict, dismissRestoreHold, listSyncConflicts, resolveSyncConflict, syncBusinessData, fetchCentralConfig as cloudFetchCentralConfig } from './cloud.js'
 
@@ -45,6 +46,8 @@ if (!app.requestSingleInstanceLock()) {
 const dataDir = path.join(app.getPath('appData'), 'fishing-inventory')
 const dbPath = path.join(dataDir, 'data.db')
 const backupDir = path.join(dataDir, 'backup')
+// 官网/联系方式：默认值 + 本机 site.json 覆盖（换客服微信不必重新发版）
+site.initSite(dataDir)
 // 崩溃日志：主进程漏网异常/渲染进程崩溃的留痕文件（与 backup-error.log 平级）
 const crashLogPath = path.join(dataDir, 'crash.log')
 /** 写一行崩溃日志（失败静默，不干扰主流程） */
@@ -462,6 +465,10 @@ function registerIpc() {
     feedbackDir: dataDir,
   })
   handle('feedback:send', (d, p) => feedback.sendFeedback(p))
+  // 官网 / 联系方式（单一事实源）：读 + 写。故意**不走局域网/中心库 HTTP 面** ——
+  // 这是"关于这个软件本身"的信息，不是店里的数据；桌面端一律走本机 IPC。
+  handle('site:contact', () => site.getSiteContact())
+  handle('site:setContact', (d, p) => site.setSiteContact(p))
   // 手机看店：局域网只读服务的状态/开关/换 token（inventoryServer 在 app ready 后创建）
   ipcMain.handle('server:status', () => inventoryServer?.status() ?? { enabled: false, running: false })
   ipcMain.handle('server:toggle', (_e, p) =>

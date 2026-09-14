@@ -172,6 +172,27 @@ ok('入库页的拍照按钮只在触摸设备上出现（canShoot 门控）',
 ok('入库页标题改成老板的话（进货入库）', /title="进货入库"/.test(ib))
 ok('入库页有「批量导入 Excel」直达按钮', /批量导入 Excel/.test(ib) && /href="#\/import"/.test(ib))
 
+console.log('\n=== ⑨ 官网 / 联系方式只有一个事实源 ===')
+// owner 2026-09-14：「官网联系」。查证：客服微信硬编码在 GatewayQuotaCard 一处、
+// ActivationPage 让客户「联系客服微信获取激活码」却没给号码、官网/文档站又在 HelpPage 另写一遍。
+// ⇒ 换一次客服微信要改几个文件、重新打包。现在统一到 electron/site.js，
+//   并被本机 site.json 覆盖（换微信号不用发版）；界面只读它。
+const site = fs.readFileSync(path.join(REPO, 'electron', 'site.js'), 'utf8')
+const mainJs2 = fs.readFileSync(path.join(REPO, 'electron', 'main.js'), 'utf8')
+const preload2 = fs.readFileSync(path.join(REPO, 'electron', 'preload.cjs'), 'utf8')
+const contact = strip(read('pages/settings/SiteContactCard.tsx'))
+const setPage = strip(read('pages/SettingsPage.tsx'))
+ok('后端有单一事实源 electron/site.js', /export function getSiteContact/.test(site) && /export function setSiteContact/.test(site))
+ok('默认值集中在一处（SITE_DEFAULTS）', /export const SITE_DEFAULTS = \{/.test(site))
+ok('可被本机 site.json 覆盖（换客服微信不必发版）', /'site\.json'/.test(site) && /readOverride/.test(site))
+ok('写接口只收白名单字段（不让人往配置里塞任意键）', /const KEYS = Object\.keys\(SITE_DEFAULTS\)/.test(site))
+ok('① 主进程注册 site:contact / site:setContact', /'site:contact'/.test(mainJs2) && /'site:setContact'/.test(mainJs2))
+ok('② preload 白名单放行这两个通道', /'site:contact'/.test(preload2) && /'site:setContact'/.test(preload2))
+ok('③ site: 属本机通道（中心库模式下也走本机 IPC，不经 HTTP）', /'site:'/.test(read('lib/api.ts')))
+ok('④ 设置页挂了「官网 · 联系我们」卡片', /SiteContactCard/.test(setPage))
+ok('卡片能显示并复制客服微信', /客服微信/.test(contact) && /clipboard\.writeText/.test(contact))
+ok('卡片能打开官网与说明书', /打开官网/.test(contact) && /使用说明书/.test(contact))
+
 console.log('\n================ 结果 ================')
 console.log('PASS ' + pass + '   FAIL ' + fail)
 process.exit(fail === 0 ? 0 : 1)

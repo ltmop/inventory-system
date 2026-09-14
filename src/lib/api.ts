@@ -147,7 +147,7 @@ const central = getCentralConfig()
  * 所以：桌面端（有 `window.fi`）遇到这些前缀一律走本机 IPC；
  * 手机浏览器等没有 `window.fi` 的客户端行为完全不变（本来也没有"本机"这个概念）。
  */
-export const LOCAL_ONLY_PREFIXES = ['cloud:', 'update:'] as const
+export const LOCAL_ONLY_PREFIXES = ['cloud:', 'update:', 'site:'] as const
 
 export function isLocalOnlyChannel(channel: string): boolean {
   return LOCAL_ONLY_PREFIXES.some((p) => channel.indexOf(p) === 0)
