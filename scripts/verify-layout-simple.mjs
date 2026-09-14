@@ -111,6 +111,29 @@ ok('开发话术从正文移走（扫码枪长提示已缩短）', !/提示：�
 ok('今日出入账记录默认收起',
   /const \[showRecords, setShowRecords\] = useState\(false\)/.test(ob) && /\{showRecords && \(/.test(ob))
 
+console.log('\n=== ⑥ 常卖商品置顶（开单页的头号提速点）===')
+// owner 2026-09-14 要求「常卖商品置顶」：渔具店天天卖的就是那几样，点一下直接进清单。
+// 真机真数据实测过：出来的正是「倍利 / 东哥渔具（主线组）4.5m·3.9m·3.6m 各号数」。
+ok('开单页有「常卖商品」置顶区', /常卖商品/.test(ob))
+ok('口径是近 90 天', /90 \* 86400000/.test(ob))
+ok('只取出库单（type !== out 跳过）', /t\.type !== 'out'/.test(ob))
+ok('按笔数降序取前 8 个', /b\[1\] - a\[1\]/.test(ob) && /out\.length >= 8/.test(ob))
+ok('只收有货的（没货点进去也开不了单）', /totalStockOf\(id\) <= 0/.test(ob))
+ok('只收有价的（没价不能开单）', /cents <= 0/.test(ob))
+ok('价格口径 = 零售档价 → 建议价', /tier === 'retail'/.test(ob) && /p\.suggest_price/.test(ob))
+ok('点一下就进清单（quickAdd，数量 1）',
+  /const quickAdd = \(p: Product, cents: number\)/.test(ob) && /quantity: 1, priceCents: cents/.test(ob))
+
+console.log('\n=== ⑦ 侧栏字号够大 + 入库页说白话 ===')
+// owner 原话：「左边的功能页字体大点，太小了现在」。
+const sb = strip(read('components/layout/Sidebar.tsx'))
+const ib = strip(read('pages/InboundPage.tsx'))
+ok('导航项字号升到 text-base（16px，原 14px）', /rounded-lg text-base font-medium/.test(sb))
+ok('已无小号导航项残留', !/rounded-lg text-sm font-medium/.test(sb))
+ok('侧栏加宽以容纳大字号（w-60，原 w-56）', /'w-60'/.test(sb))
+ok('图标不再用半档尺寸 size-4.5', !/size-4\.5/.test(sb))
+ok('入库页去掉「USB 扫码枪即插即用」那句仓库话', !/USB 扫码枪即插即用/.test(ib))
+
 console.log('\n================ 结果 ================')
 console.log('PASS ' + pass + '   FAIL ' + fail)
 process.exit(fail === 0 ? 0 : 1)
