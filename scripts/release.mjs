@@ -199,12 +199,29 @@ function deployWeb(a) {
   const mobileFiles = [...new Set(page.match(/fishing-inventory-mobile-[0-9][0-9.]*\.apk/g) || [])]
   const mobileCount = (t) => mobileFiles.reduce((n, f) => n + (t.split(f).length - 1), 0)
   const mobileBefore = mobileCount(page)
+  // 桌面上「版本号写在哪」的全部已知写法（官网改版时看这里）：
+  //   ① 文件名  inventory-system-setup-<v>.exe / general-inventory-setup-<v>.exe
+  //   ② 文案    桌面 v<v> / 桌面版 v<v> / Windows 版 v<v>
+  // ⚠️ 2026-09-14 第三次踩坑（1.1.6 发布实测）：以前只换 ① 和「桌面 v」，于是
+  //    meta description 的「桌面版 v1.1.4」、底部「当前版本 桌面版 v1.1.4」、主按钮
+  //    「免费下载 Windows 版 v1.1.4」**三条都留在页面上** —— exe 换了、href 换了、chip 换了，
+  //    用户真正会读的那几行还在骗人。而且 [5b] 旧守卫只查「页面含本版本号」，
+  //    页面上别处有个 1.1.6 就把它骗过去了（1.1.6 就是这么过掉的）。
+  //    现在三种文案写法一次收口，且**与 oldV 无关地独立执行** —— oldV 是从 exe 文件名解析的，
+  //    那时文件名可能已经等于新版本（本次就是），只靠 oldV 就会整段跳过。
+  const DESKTOP_MENTION_RE = /((?:桌面版|桌面|Windows 版)\s?v)([0-9][0-9.]*)/g
+  // ⚠️ 别写成 DESKTOP_MENTION_RE.test(...)：带 /g 的正则有 lastIndex，连用两次结果不同。
+  const desktopMentions = (t) => [...new Set([...t.matchAll(DESKTOP_MENTION_RE)].map(m => m[2]))]
+  const desktopBefore = desktopMentions(page)
   if (oldV !== version) {
     page = page
       .split('inventory-system-setup-' + oldV + '.exe').join('inventory-system-setup-' + version + '.exe')
       .split('general-inventory-setup-' + oldV + '.exe').join('general-inventory-setup-' + version + '.exe')
-      .split('桌面 v' + oldV).join('桌面 v' + version)
   }
+  page = page.replace(DESKTOP_MENTION_RE, '$1' + version)
+  if (desktopBefore.length) console.log('  桌面版本号文案：' + desktopBefore.join(' / ') + ' → ' + version)
+  const desktopAfter = desktopMentions(page)
+  if (desktopAfter.some(v => v !== version)) throw new Error('下载页仍残留旧桌面版本号：' + desktopAfter.join(' / '))
   const mobileAfter = mobileCount(page)
   if (mobileBefore !== mobileAfter) throw new Error('手机版版本号被误改（' + mobileBefore + ' → ' + mobileAfter + '），已中止')
   // 主按钮指向官网本地文件；备用线路保持指更新源
@@ -220,11 +237,11 @@ function deployWeb(a) {
   if (up.status !== 0) throw new Error('上传下载页失败')
   console.log('  下载页：' + (oldV === version ? '已是 ' + version + '（版本号未改动）' : oldV + ' → ' + version) + ' OK')
 
-  // ③ 主站首页还有一处「桌面 vX.Y.Z」文案，一并跟上（没有就跳过，不当失败）
+  // ③ 主站首页还有「桌面 vX.Y.Z / 桌面版 vX.Y.Z」文案，一并跟上（没有就跳过，不当失败）
   const mainPage = '/var/www/junchengzn/index.html'
   const rm = ssh('cat ' + mainPage)
-  if (rm.status === 0 && /桌面 v[0-9.]+/.test(rm.stdout)) {
-    const mh = rm.stdout.replace(/(桌面 v)[0-9.]+/g, '$1' + version)
+  if (rm.status === 0 && desktopMentions(rm.stdout).length) {
+    const mh = rm.stdout.replace(DESKTOP_MENTION_RE, '$1' + version)
     const tmpMain = path.join(os.tmpdir(), 'fi-web-main-index.html')
     fs.writeFileSync(tmpMain, mh, 'utf8')
     scpTo(tmpMain, '/tmp/web-main-index.html')
@@ -269,6 +286,17 @@ function verifyWeb() {
   const page = sh('curl -sL ' + pageUrl).stdout
   if (!page.includes(version)) throw new Error('官网下载页里没有 ' + version + ' → ' + pageUrl)
   console.log('  官网下载页含 ' + version + ' OK')
+  // ⚠️ 「页面含本版本」这条太弱：页面上 chip / exe 名 / 备用线路 任意一处有 1.1.6 就能过，
+  //    而**主按钮文案**（用户唯一会读的那行）可以是 v1.1.4。1.1.6 发布时就真的这样过了。
+  //    所以额外钉两件事：主按钮文案 = 本版本；页面上不许再残留别的「Windows 版 vX」。
+  const btn = page.match(/<a href="\/download\/general-inventory-setup-[0-9][0-9.]*\.exe"[^>]*>([^<]*)</)
+  if (!btn) throw new Error('官网下载页找不到主按钮（结构可能又变了）→ ' + pageUrl)
+  if (!btn[1].includes(version)) throw new Error('官网主按钮文案没跟上版本：按钮写「' + btn[1].trim() + '」，本版本是 ' + version)
+  console.log('  官网主按钮文案含 ' + version + ' OK（' + btn[1].trim() + '）')
+  // 页面里任何一处桌面版本号文案都不许还是旧的（meta description / 底部当前版本 / 按钮文案）
+  const stale = desktopMentions(page).filter(v => v !== version)
+  if (stale.length) throw new Error('官网下载页还残留旧桌面版本号：' + stale.join(' / '))
+  console.log('  页面所有桌面版本号文案都是 ' + version + ' OK')
   const url = 'https://junchengzn.com/download/' + DOWNLOAD_EXE
   const code = sh('curl -sL -o NUL -w %{http_code} ' + url).stdout.trim()
   if (code !== '200') throw new Error('官网下载包 GET 失败：HTTP ' + code + ' → ' + url)
