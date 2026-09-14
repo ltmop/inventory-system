@@ -49,44 +49,61 @@ function throws(name, fn, needle) {
 }
 
 // ── 夹具：按官网真实结构写（改版时这里要跟着看）────────────────────────────
+//
+// ⚠️ 2026-09-14 教训（版本从 1.1.6 涨到 1.1.7 时现场踩到）：
+//    夹具里的版本号**不能写死成"当前版本"**。原先把 PAGE_HALF 的 exe 名写成 1.1.6、
+//    并断言 oldV === VERSION —— 那是拿"1.1.6 恰好就是当前版本"当巧合。
+//    版本一涨，这个夹具就不再代表"exe 名已是新版、文案还旧"那个场景，
+//    断言也从"真的测过"退化成"自我欺骗"。
+//    现在改成：旧版本用一个**结构性不会撞车**的假值 STALE_VER，新版本一律取 VERSION，
+//    并且加一条元断言守住这个前提（夹具若自己撞车，先红）。
+const STALE_VER = '0.9.9' // 桌面旧版本（假值：与任何真实发布版本都不会相同）
+const MOBILE_VER = '1.1.3' // 手机版（故意与桌面版号不同；A3 里再拿它测"同号"那一种）
+
 const PAGE_OLD = `<!doctype html><html><head>
-<meta name="description" content="免费下载通用进销存桌面版 v1.1.4：扫码开单、库存预警、利润报表">
+<meta name="description" content="免费下载通用进销存桌面版 v${STALE_VER}：扫码开单、库存预警、利润报表">
 </head><body>
-<span class="chip">免费 · 桌面 v1.1.4 · 手机 v1.1.3</span>
-<a href="https://sync.junchengzn.com/updates/inventory-system-setup-1.1.4.exe" class="btn btn-accent btn-lg">免费下载 Windows 版 v1.1.4</a>
-<a href="/download/fishing-inventory-mobile-1.1.3.apk" class="btn btn-dark btn-lg">下载手机 APP v1.1.3（安卓）</a>
-<div class="p-feat"><h3>当前版本</h3><p>桌面版 v1.1.4 · 手机版 v1.1.3</p></div>
-<a href="https://sync.junchengzn.com/updates/inventory-system-setup-1.1.4.exe" rel="noopener">sync.junchengzn.com 备用下载</a>
+<span class="chip">免费 · 桌面 v${STALE_VER} · 手机 v${MOBILE_VER}</span>
+<a href="https://sync.junchengzn.com/updates/inventory-system-setup-${STALE_VER}.exe" class="btn btn-accent btn-lg">免费下载 Windows 版 v${STALE_VER}</a>
+<a href="/download/fishing-inventory-mobile-${MOBILE_VER}.apk" class="btn btn-dark btn-lg">下载手机 APP v${MOBILE_VER}（安卓）</a>
+<div class="p-feat"><h3>当前版本</h3><p>桌面版 v${STALE_VER} · 手机版 v${MOBILE_VER}</p></div>
+<a href="https://sync.junchengzn.com/updates/inventory-system-setup-${STALE_VER}.exe" rel="noopener">sync.junchengzn.com 备用下载</a>
 </body></html>`
 
-// 坑③的真身：exe 名已经是新版本，文案还旧 —— oldV 等于目标版本，只靠 oldV 会整段跳过
+// 坑③的真身：exe 名**已经是目标版本**，文案还旧 —— oldV 等于目标版本，只靠 oldV 会整段跳过。
+// 按 VERSION 生成，所以不管版本涨到多少，它始终是这个场景。
 const PAGE_HALF = `<!doctype html><html><head>
-<meta name="description" content="免费下载通用进销存桌面版 v1.1.4：扫码开单">
+<meta name="description" content="免费下载通用进销存桌面版 v${STALE_VER}：扫码开单">
 </head><body>
-<span class="chip">免费 · 桌面 v1.1.6 · 手机 v1.1.3</span>
-<a href="/download/general-inventory-setup-1.1.6.exe" class="btn btn-accent btn-lg">免费下载 Windows 版 v1.1.4</a>
-<a href="/download/fishing-inventory-mobile-1.1.3.apk" class="btn btn-dark btn-lg">下载手机 APP v1.1.3（安卓）</a>
-<div class="p-feat"><p>桌面版 v1.1.4 · 手机版 v1.1.3</p></div>
+<span class="chip">免费 · 桌面 v${VERSION} · 手机 v${MOBILE_VER}</span>
+<a href="/download/general-inventory-setup-${VERSION}.exe" class="btn btn-accent btn-lg">免费下载 Windows 版 v${STALE_VER}</a>
+<a href="/download/fishing-inventory-mobile-${MOBILE_VER}.apk" class="btn btn-dark btn-lg">下载手机 APP v${MOBILE_VER}（安卓）</a>
+<div class="p-feat"><p>桌面版 v${STALE_VER} · 手机版 v${MOBILE_VER}</p></div>
 </body></html>`
 
 // 坑②的前提：手机版号与桌面版号**相同**
 const PAGE_SAME = `<!doctype html><html><body>
-<a href="https://sync.junchengzn.com/updates/inventory-system-setup-1.1.3.exe" class="btn btn-accent btn-lg">桌面 v1.1.3</a>
-<a href="/download/fishing-inventory-mobile-1.1.3.apk">下载手机 APP v1.1.3（安卓）</a>
-<p>桌面版 v1.1.3 · 手机版 v1.1.3</p>
+<a href="https://sync.junchengzn.com/updates/inventory-system-setup-${MOBILE_VER}.exe" class="btn btn-accent btn-lg">桌面 v${MOBILE_VER}</a>
+<a href="/download/fishing-inventory-mobile-${MOBILE_VER}.apk">下载手机 APP v${MOBILE_VER}（安卓）</a>
+<p>桌面版 v${MOBILE_VER} · 手机版 v${MOBILE_VER}</p>
 </body></html>`
 
 console.log('=== A. 固定夹具（离线）===')
 console.log('  目标版本（读 package.json）:', VERSION)
+// 元断言：夹具的"旧版本"必须真的不等于目标版本，否则下面几条都在自欺欺人
+ok('A0 夹具前提：旧版本 ' + STALE_VER + ' ≠ 目标版本 ' + VERSION, STALE_VER !== VERSION)
+ok('A0 夹具前提：手机版 ' + MOBILE_VER + ' ≠ 目标版本 ' + VERSION, MOBILE_VER !== VERSION)
+ok('A0 夹具前提：PAGE_HALF 的 exe 名已经是目标版本（就是"坑③"那个场景）',
+  PAGE_HALF.includes('general-inventory-setup-' + VERSION + '.exe'))
 
 // A1 老页面：桌面全部换新，手机一根头发都不许动
 {
   const r = rewriteDownloadPage(PAGE_OLD, VERSION)
   const out = r.html
-  ok('A1 老页面换完不含旧桌面版本号 1.1.4', !out.includes('1.1.4'))
+  ok('A1 老页面换完不含旧桌面版本号 ' + STALE_VER, !out.includes(STALE_VER))
   eq('A1 换完桌面版本号只剩目标版本', desktopMentions(out), [VERSION])
-  ok('A1 手机版 apk 文件名没动（1.1.3 仍在）', out.includes('fishing-inventory-mobile-1.1.3.apk'))
-  ok('A1 手机版文案没动（手机 v1.1.3 / 手机版 v1.1.3 仍在）', out.includes('手机 v1.1.3') && out.includes('手机版 v1.1.3'))
+  ok('A1 手机版 apk 文件名没动（' + MOBILE_VER + ' 仍在）', out.includes('fishing-inventory-mobile-' + MOBILE_VER + '.apk'))
+  ok('A1 手机版文案没动（手机 v / 手机版 v 都仍是 ' + MOBILE_VER + '）', out.includes('手机 v' + MOBILE_VER) && out.includes('手机版 v' + MOBILE_VER))
   eq('A1 手机版 apk 出现次数不变', r.mobileAfter, r.mobileBefore)
   ok('A1 两种 exe 命名都换了', out.includes('inventory-system-setup-' + VERSION + '.exe') || out.includes('general-inventory-setup-' + VERSION + '.exe'))
   const withBtn = pointMainButtonAtLocal(out, VERSION)
@@ -99,23 +116,24 @@ console.log('  目标版本（读 package.json）:', VERSION)
 // A2 坑③：exe 名已是新版、三处文案还旧 —— 这是 1.1.6 真发出去时漏掉的那种页面
 {
   const r = rewriteDownloadPage(PAGE_HALF, VERSION)
-  eq('A2 旧文案 1.1.4 被清干净（坑③回归）', desktopMentions(r.html).filter(v => v !== VERSION), [])
-  ok('A2 三处旧文案都改成目标版本', !r.html.includes('v1.1.4'))
+  eq('A2 旧文案 ' + STALE_VER + ' 被清干净（坑③回归）', desktopMentions(r.html).filter(v => v !== VERSION), [])
+  ok('A2 三处旧文案都改成目标版本', !r.html.includes('v' + STALE_VER))
   ok('A2 oldV 等于目标版本（证明这段没被 oldV 短路）', r.oldV === VERSION, 'oldV=' + r.oldV)
   throws('A2 页面还有旧文案时 assertPageCurrent 必须报错', () => assertPageCurrent(PAGE_HALF, VERSION), '残留旧桌面版本号')
   // 单独钉「主按钮文案」这条规则：按钮干脆不写版本号（不是旧版本，而是没版本）也必须被抓住 ——
   // 这正是 1.1.6 差点过去的形态：别的检查都过，只有用户会读的那行不对。
-  const PAGE_BUTTON_NO_VER = '<html><body><a href="/download/general-inventory-setup-1.1.6.exe" class="btn btn-accent btn-lg">免费下载 Windows 版</a></body></html>'
+  const PAGE_BUTTON_NO_VER = '<html><body><a href="/download/general-inventory-setup-' + VERSION + '.exe" class="btn btn-accent btn-lg">免费下载 Windows 版</a></body></html>'
   throws('A2 主按钮文案没写版本时必须报错', () => assertPageCurrent(PAGE_BUTTON_NO_VER, VERSION), '主按钮文案没跟上版本')
 }
 
 // A3 坑②：手机版号与桌面版号相同 —— 盲替换会改坏手机版，我们不许
 {
-  const naive = PAGE_SAME.split('1.1.3').join(VERSION)
+  // 反例用**同一个**版本号做整页盲替换（这正是当年 publish 脚本干的事）
+  const naive = PAGE_SAME.split(MOBILE_VER).join(VERSION)
   ok('A3 反例：整页盲替换确实会改坏手机版（坑②的证据）', naive.includes('fishing-inventory-mobile-' + VERSION + '.apk'))
   const out = rewriteDownloadPage(PAGE_SAME, VERSION).html
-  ok('A3 我们的实现不动手机版', out.includes('fishing-inventory-mobile-1.1.3.apk'))
-  ok('A3 手机版文案也没动', out.includes('手机版 v1.1.3'))
+  ok('A3 我们的实现不动手机版', out.includes('fishing-inventory-mobile-' + MOBILE_VER + '.apk'))
+  ok('A3 手机版文案也没动', out.includes('手机版 v' + MOBILE_VER))
   eq('A3 桌面版号换成目标版本', desktopMentions(out), [VERSION])
 }
 
@@ -139,7 +157,7 @@ throws(
 // A7 手机版计数守卫本身有效：拿一个"桌面文案换了但 apk 也被换"的页面直接调 assertPageCurrent 不做手机检查，
 //    这里改为证明 mobileApks 能识别出 apk 被换（守卫的判据本身可靠）
 {
-  const swapped = PAGE_OLD.replace('fishing-inventory-mobile-1.1.3.apk', 'fishing-inventory-mobile-' + VERSION + '.apk')
+  const swapped = PAGE_OLD.replace('fishing-inventory-mobile-' + MOBILE_VER + '.apk', 'fishing-inventory-mobile-' + VERSION + '.apk')
   ok('A7 守卫判据能发现 apk 名被换', mobileApks(swapped).join() !== mobileApks(PAGE_OLD).join())
 }
 
