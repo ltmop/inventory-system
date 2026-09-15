@@ -21,6 +21,17 @@ const dataDir = path.join(APP, 'data')
 fs.mkdirSync(dataDir, { recursive: true })
 const db = openDatabase(path.join(dataDir, 'data.db'))
 console.log('central db opened, products:', db.prepare('SELECT COUNT(*) n FROM products').get().n)
+// 功能开关（P3）：中心库服务器**也必须认开关** —— 手机/桌面打到的是这边，
+// 如果这边不认，那"关掉一个功能"就只关了桌面、没关服务端，等于没关。
+// 它读自己的 dataDir/flags.json，并同样去取服务端下发的那份静态 JSON。
+const { initFlags, refreshRemoteFlags, shouldFetchRemote } = await import('./electron/flags.js')
+initFlags(dataDir)
+const pullFlags = () => refreshRemoteFlags()
+  .then((r) => { if (!r.ok) console.log('[flags] 未更新：' + r.reason) })
+  .catch(() => { /* 拉不到不是故障 */ })
+pullFlags()
+setInterval(() => { if (shouldFetchRemote()) pullFlags() }, 3600 * 1000)
+
 const srv = createInventoryServer({ db, dataDir, basePort: 3200, webRoot: path.join(APP, 'dist') })
 const st = await srv.start()
 // ⚠️ 不要把 st.url 原样打出来：它形如 https://ip:3201/?token=<32位随机>。

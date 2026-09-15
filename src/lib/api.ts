@@ -290,6 +290,10 @@ export const LOCAL_ONLY_CHANNELS = [
   'webupdate:status',
   'webupdate:check',
   'webupdate:restart',
+  // 功能开关（P3）：问的是"这台机器算不算开"；中心库服务器那份是它自己的开关（它也会读同一份下发）
+  'flags:status',
+  'flags:set',
+  'flags:refresh',
 ] as const
 
 export function isLocalOnlyChannel(channel: string): boolean {

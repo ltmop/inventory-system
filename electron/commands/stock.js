@@ -25,6 +25,8 @@ import {
   productLabel,
   logAudit,
 } from './helpers.js'
+// 功能开关（P3）：**在执行点拦**，不只在界面上藏起来 —— 藏 UI 不等于关了，直接调接口照样能写库
+import * as flags from '../flags.js'
 
 /** 库位归一：null 与空串都当"未填库位"，避免它们被当成两个不同库位 */
 const normLoc = (v) => {
@@ -46,6 +48,8 @@ const normLoc = (v) => {
  * @returns {{ productId:number, product:string, moved:number, unitCosts:number[], fromBatches:Array, toBatches:Array }}
  */
 export function transferStock(db, { productId, quantity, fromLocation, toLocation, unitCost, operator, note } = {}) {
+  // 开关检查放在**最前面**：关掉时连"商品存不存在"都不该问，更不许写库
+  if (!flags.isEnabled('stockTransfer')) throw new Error('「库位调拨」当前已关闭（功能开关）')
   const prod = db.prepare('SELECT * FROM products WHERE id = ?').get(productId)
   if (!prod) throw new Error('商品不存在')
   const qty = assertQuantity(quantity, '调拨数量', prod.unit === '米' ? '米' : '件')

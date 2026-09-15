@@ -12,6 +12,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { BackupCard } from './settings/BackupCard'
 import { FeedbackCard } from './settings/FeedbackCard'
 import { SiteContactCard } from './settings/SiteContactCard'
+// 功能开关（P3）：出事秒关，不用发版。四层优先级见 electron/flags.js
+import { FeatureFlagsCard } from './settings/FeatureFlagsCard'
 import { MobileServerCard, type ServerStatus } from './settings/MobileServerCard'
 import { PaymentQrCard } from './settings/PaymentQrCard'
 import { CentralModeCard } from './settings/CentralModeCard'
@@ -508,6 +510,8 @@ export function SettingsPage() {
       {/* 官网 · 联系我们：单一事实源在 electron/site.js（出厂默认 + 本机 site.json 覆盖），
           客服微信改一处全局生效，不用重新发版。 */}
       <SiteContactCard />
+      {/* 功能开关（P3）：出厂默认 ← 本机 ← 服务端下发；"关"永远压过"开" */}
+      <FeatureFlagsCard />
       {/* 意见反馈 */}
       <FeedbackCard
         hasBackend={!!backend}

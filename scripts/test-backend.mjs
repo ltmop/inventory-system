@@ -26,6 +26,8 @@ import { logAudit } from '../electron/commands/helpers.js'
 import { analyticsOverview, analyticsTrend } from '../electron/commands/analytics.js'
 // 中心库配置的主进程事实源（P0 2026-09-15）：纯 Node、不 import electron，可直接单测
 import { initCentralConfig, getCentralConfigLocal, setCentralConfigLocal, isCentralConfigured } from '../electron/centralConfig.js'
+// 功能开关（P3）：出厂默认 + 本机文件 + 服务端下发；"关"永远压过"开"
+import * as flags from '../electron/flags.js'
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fi-test-'))
 const dbPath = path.join(tmp, 'data.db')
@@ -2888,6 +2890,161 @@ ok('preload 白名单含 expense 三通道',
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   ok('中心库配置：源码里没有任何把 token 打进 console 的地方',
     !/console\.[a-z]+\([^\n]*token/i.test(ccSrc), '出现了 console 打印 token')
+}
+
+// 50. 功能开关（P3 2026-09-15）—— "秒关"这件事，每条边界都要有断言盯着
+{
+  const fdir = path.join(tmp, 'flags')
+  fs.mkdirSync(fdir, { recursive: true })
+  const localFile = path.join(fdir, 'flags.json')
+  const remoteFile = path.join(fdir, 'flags-remote.json')
+  const fakeOk = (body) => async () => ({ ok: true, status: 200, json: async () => body })
+  const fakeStatus = (status) => async () => ({ ok: false, status, json: async () => ({}) })
+  // 关掉开关时**连数据库都不该碰** —— 用会爆炸的假库当探针，比"看返回值"硬得多
+  const trapDb = { prepare() { throw new Error('不该碰数据库') } }
+
+  console.log('\n=== 50. 功能开关（P3）===')
+
+  // ---- 出厂默认 / 坏文件 / 未登记 ----
+  flags.initFlags(fdir)
+  ok('开关：目录为空时按出厂默认', flags.isEnabled('stockTransfer') === true)
+  ok('开关：未登记的名字一律关（fail-closed）', flags.isEnabled('notAFlag') === false && flags.isEnabled('') === false)
+  fs.writeFileSync(localFile, '{ 这是坏掉的 JSON', 'utf8')
+  ok('开关：本机文件坏掉 → 按出厂默认（**不是**把所有功能关掉）', flags.isEnabled('stockTransfer') === true)
+  ok('开关：坏文件也不抛异常', flags.flagStatus().ok === true)
+
+  // ---- B6 执行点：关掉必须真的拦住，而不只是界面上藏起来 ----
+  flags.setLocalFlag('stockTransfer', false)
+  let tErr = ''
+  try { cmd.transferStock(trapDb, { productId: 1, quantity: 1, toLocation: 'X' }) } catch (e) { tErr = e.message }
+  ok('开关：关掉「库位调拨」后 transferStock 真的拒绝，且连数据库都没碰',
+    /已关闭/.test(tErr), tErr)
+  flags.setLocalFlag('stockTransfer', true)
+  let tErr2 = ''
+  try { cmd.transferStock(trapDb, { productId: 1, quantity: 1, toLocation: 'X' }) } catch (e) { tErr2 = e.message }
+  ok('开关：打开后不再是"已关闭"（走到真正的业务校验）', !/已关闭/.test(tErr2) && /不该碰数据库/.test(tErr2), tErr2)
+
+  flags.setLocalFlag('aiBriefing', false)
+  let bErr = ''
+  try { cmd.buildBriefing(trapDb) } catch (e) { bErr = e.message }
+  ok('开关：关掉「AI 简报」后 buildBriefing 真的拒绝', /已关闭/.test(bErr), bErr)
+  flags.setLocalFlag('aiBriefing', true)
+  let bErr2 = ''
+  try { cmd.buildBriefing(trapDb) } catch (e) { bErr2 = e.message }
+  ok('开关：打开后走到真正的业务（不再是"已关闭"）', !/已关闭/.test(bErr2), bErr2)
+
+  // ---- B7 秒级生效：改完不用重启（这是"秒关"的本体）----
+  flags.setLocalFlag('stockTransfer', false)
+  ok('开关：改完立刻生效（同一进程内，不用重启）', flags.isEnabled('stockTransfer') === false)
+  fs.writeFileSync(localFile, JSON.stringify({ stockTransfer: true }), 'utf8')
+  ok('开关：**手改本机文件**也立刻生效（按 mtime+size 热读，不用重启）', flags.isEnabled('stockTransfer') === true)
+  fs.writeFileSync(localFile, JSON.stringify({ stockTransfer: false, stockTrasnfer: false }), 'utf8')
+  const stTypo = flags.flagStatus()
+  ok('开关：名字打错**不会**生效（所以必须报出来，否则"以为关了其实没关"）',
+    stTypo.unknownLocal.includes('stockTrasnfer') && flags.isEnabled('stockTransfer') === false)
+  ok('开关：设置未登记的名字被拒（不让脏数据长进文件）', flags.setLocalFlag('nope', true).ok === false)
+
+  // ---- B4 四层优先级：表驱动，9 种组合逐个断言（★ 两条是核心语义）----
+  const cases = [
+    // [远端, 本机, 期望, 来源]
+    [null, null, true, 'default'],
+    [null, false, false, 'local'],
+    [null, true, true, 'local'],
+    [false, null, false, 'remote-off'],
+    [false, false, false, 'remote-off'],
+    [false, true, false, 'remote-off'], // ★ 远端"关"压过本机"开"
+    [true, null, true, 'remote-on'],
+    [true, false, false, 'local'], // ★ 本机"关"能否决远端"开"
+    [true, true, true, 'local'],
+  ]
+  for (const [remote, local, want, wantSrc] of cases) {
+    await flags.refreshRemoteFlags({ url: 'https://cfg.example/flags.json', fetchImpl: fakeOk(remote === null ? { flags: {} } : { flags: { stockTransfer: remote } }) })
+    flags.setLocalFlag('stockTransfer', local)
+    const label = `远端${remote === null ? '未下发' : remote ? '开' : '关'}·本机${local === null ? '未设' : local ? '开' : '关'}`
+    ok(`开关优先级（${label}）→ ${want ? '开' : '关'}（来源 ${wantSrc}）`,
+      flags.isEnabled('stockTransfer') === want && flags.flagSource('stockTransfer') === wantSrc,
+      `实际 ${flags.isEnabled('stockTransfer')} / ${flags.flagSource('stockTransfer')}`)
+  }
+
+  // ---- B5 缓存与节流：离线也要听服务端的（尤其是"关"）----
+  ok('开关：服务端下发会落盘（离线也生效）',
+    fs.existsSync(remoteFile) && typeof JSON.parse(fs.readFileSync(remoteFile, 'utf8')).fetchedAt === 'string')
+  ok('开关：刚同步过就不再重复去取（默认 6 小时节流）',
+    flags.shouldFetchRemote() === false && flags.shouldFetchRemote(0) === true)
+  await flags.refreshRemoteFlags({ url: 'https://cfg.example/flags.json', fetchImpl: fakeOk({ flags: { stockTransfer: false } }) })
+  flags.setLocalFlag('stockTransfer', null)
+  flags.initFlags(fdir) // 模拟重启
+  ok('开关：重启后仍记得服务端下发的"关"（离线也能秒关）', flags.isEnabled('stockTransfer') === false)
+
+  // ---- B8 下发失败不能成为新的故障面 ----
+  const before = flags.isEnabled('stockTransfer')
+  const r404 = await flags.refreshRemoteFlags({ url: 'https://cfg.example/f.json', fetchImpl: fakeStatus(404) })
+  ok('开关：下发 404 → 返回原因、现状不变', r404.ok === false && flags.isEnabled('stockTransfer') === before)
+  const rBad = await flags.refreshRemoteFlags({ url: 'https://cfg.example/f.json', fetchImpl: async () => ({ ok: true, status: 200, json: async () => { throw new Error('不是 JSON') } }) })
+  ok('开关：下发内容不是 JSON → 现状不变', rBad.ok === false && flags.isEnabled('stockTransfer') === before)
+  const rThrow = await flags.refreshRemoteFlags({ url: 'https://cfg.example/f.json', fetchImpl: async () => { throw new Error('网络不通') } })
+  ok('开关：网络不通 → 现状不变、不抛异常',
+    rThrow.ok === false && /网络不通/.test(rThrow.reason) && flags.isEnabled('stockTransfer') === before)
+  const rHttp = await flags.refreshRemoteFlags({ url: 'http://evil.example/f.json', fetchImpl: fakeOk({}) })
+  ok('开关：非 https 下发地址被拒', rHttp.ok === false && /只允许 https/.test(rHttp.reason), rHttp.reason)
+
+  // ---- B9 读开关本身绝不能崩（最坏情况一律回出厂默认）----
+  flags.initFlags(path.join(fdir, 'definitely-missing-dir'))
+  ok('开关：dataDir 不存在 → 按出厂默认，不抛', flags.isEnabled('stockTransfer') === true)
+  flags.initFlags('')
+  ok('开关：未初始化 → 按出厂默认，状态照样可读',
+    flags.isEnabled('stockTransfer') === true && flags.flagStatus().ok === true)
+  ok('开关：未初始化时 setLocalFlag 明确拒绝（不静默失败）', flags.setLocalFlag('stockTransfer', false).ok === false)
+
+  // ---- B10 可观测：每个开关都要能说清"为什么算开/算关" ----
+  flags.initFlags(fdir)
+  flags.setLocalFlag('stockTransfer', false)
+  const st = flags.flagStatus()
+  ok('开关：状态里每个开关都有 有效值 + 来源 + 人话说明',
+    st.flags.length === Object.keys(flags.FLAG_DEFS).length &&
+    st.flags.every((f) => typeof f.on === 'boolean' && typeof f.source === 'string' && typeof f.desc === 'string' && f.desc.length > 0))
+  ok('开关：本机文件原子写、不留 .tmp', !fs.existsSync(localFile + '.tmp'))
+  ok('开关：设置后本机文件真的存在', fs.existsSync(localFile))
+  flags.setLocalFlag('stockTransfer', null)
+  ok('开关：恢复默认后**不留空文件**（"这台机器有没有本机覆盖"要一眼看得出来）', !fs.existsSync(localFile))
+  flags.setLocalFlag('stockTransfer', false)
+  ok('开关：文件里只会有登记的键',
+    Object.keys(JSON.parse(fs.readFileSync(localFile, 'utf8'))).every((k) => k in flags.FLAG_DEFS))
+  if (process.platform !== 'win32') {
+    ok('开关：本机文件权限 0600', (fs.statSync(localFile).mode & 0o777) === 0o600)
+  } else {
+    ok('开关：Windows 上跳过权限位断言（POSIX mode 不适用）', true)
+  }
+
+  // ---- 登记表 vs 调用点：防止"开关是装饰品"或"名字打错导致功能被意外关掉" ----
+  const usedFlags = new Set()
+  const walkFlagsUse = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const a = path.join(d, e.name)
+      if (e.isDirectory()) { walkFlagsUse(a); continue }
+      if (!e.name.endsWith('.js')) continue
+      const s = fs.readFileSync(a, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+      for (const m of s.matchAll(/isEnabled\(\s*'([A-Za-z0-9_]+)'/g)) usedFlags.add(m[1])
+    }
+  }
+  walkFlagsUse(path.resolve('electron'))
+  const declared = Object.keys(flags.FLAG_DEFS)
+  ok('开关：登记表里每个开关都真的有调用点（否则它只是装饰品）',
+    declared.every((n) => usedFlags.has(n)), declared.filter((n) => !usedFlags.has(n)).join(' '))
+  ok('开关：代码里用到的每个名字都在登记表里（否则 isEnabled 恒为 false = 功能被意外关掉）',
+    [...usedFlags].every((n) => n in flags.FLAG_DEFS), [...usedFlags].filter((n) => !(n in flags.FLAG_DEFS)).join(' '))
+
+  // ---- 接线：界面能改、中心库服务器也认、通道归本机 ----
+  const apiSrcF = fs.readFileSync(path.resolve('src/lib/api.ts'), 'utf8')
+  const cardSrc = fs.readFileSync(path.resolve('src/pages/settings/FeatureFlagsCard.tsx'), 'utf8')
+  ok('开关：三个通道都归本机（否则中心库模式下会打到服务器 404）',
+    ['flags:status', 'flags:set', 'flags:refresh'].every((c) => apiSrcF.includes(`'${c}'`)))
+  ok('开关：设置页的卡片能看/能改/能同步，并且显示来源',
+    /flags:status/.test(cardSrc) && /flags:set/.test(cardSrc) && /flags:refresh/.test(cardSrc) && /SOURCE_LABEL/.test(cardSrc))
+  ok('开关：设置页真的挂了这张卡',
+    /<FeatureFlagsCard \/>/.test(fs.readFileSync(path.resolve('src/pages/SettingsPage.tsx'), 'utf8')))
+  ok('开关：中心库服务器启动脚本也初始化了开关（手机/桌面打到那边，不认开关等于没关）',
+    /initFlags\(dataDir\)/.test(fs.readFileSync(path.resolve('scripts/server/start-central.mjs'), 'utf8')))
 }
 
 fs.rmSync(tmp, { recursive: true, force: true })

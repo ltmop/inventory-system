@@ -197,6 +197,10 @@ const CHANNELS = new Set([
   'webupdate:status',
   'webupdate:check',
   'webupdate:restart',
+  // 功能开关（P3）：状态 / 本机改 / 立刻取服务端下发（都是"这台机器算不算开"的问题）
+  'flags:status',
+  'flags:set',
+  'flags:refresh',
   'license:status',
   'license:activate',
   'license:quota',

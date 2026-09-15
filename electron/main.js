@@ -32,6 +32,8 @@ import { initCentralConfig, getCentralConfigLocal, setCentralConfigLocal, isCent
 // B 通道（P1）：业务层 dist 的局部热更 + 四道护栏。目录由它决定，**同时**喂 loadFile 与 server 的 webRoot
 import { resolveWebRoot, markHealthy, markUnhealthy, checkAndStage, webUpdateStatus, readSupportedChannels, readWebState, writeWebState, DEFAULT_MANIFEST_URL } from './webUpdate.js'
 import { loadLicense, activateLicense, verifyLicenseCode, machineFingerprint, saveLevelToDb, quotaStatus, planFor } from './license.js'
+// 功能开关（P3）：出厂默认 + 本机 dataDir/flags.json + 服务端下发。三条腿里最安全的一条（秒关、离线可用）
+import * as flags from './flags.js'
 import { initCloud, pairWithCloud, syncSnapshot, uploadBackup, listCloudBackups, restoreFromCloud, regenViewLink, getCloudState, stopScheduler as stopCloudScheduler, exitSnapshot as exitCloudSnapshot, registerAccount as cloudRegisterAccount, loginAccount as cloudLoginAccount, logoutAccount as cloudLogoutAccount, resolveConflict, dismissRestoreHold, listSyncConflicts, resolveSyncConflict, syncBusinessData, fetchCentralConfig as cloudFetchCentralConfig, setCentralMode } from './cloud.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -58,6 +60,9 @@ initCentralConfig(dataDir)
 if (isCentralConfigured()) setCentralMode(true)
 // 官网/联系方式：默认值 + 本机 site.json 覆盖（换客服微信不必重新发版）
 site.initSite(dataDir)
+// 功能开关（P3）：必须在任何业务调用之前就绪（命令层会用 isEnabled）。
+// 任何异常都退回出厂默认 —— 读开关这件事本身绝不能成为新的故障面。
+flags.initFlags(dataDir)
 // 崩溃日志：主进程漏网异常/渲染进程崩溃的留痕文件（与 backup-error.log 平级）
 const crashLogPath = path.join(dataDir, 'crash.log')
 /** 写一行崩溃日志（失败静默，不干扰主流程） */
@@ -525,6 +530,14 @@ function registerIpc() {
   ipcMain.on('web:healthy', () => { try { markHealthy(dataDir, 'preload') } catch { /* 转正失败只会多回退一次，不阻断 */ } })
   // 自检没过：只记一笔，**本次会话照常跑**（真正回退发生在下次启动，避免营业中被换掉）
   ipcMain.on('web:broken', (_e, p) => { try { markUnhealthy(dataDir, p?.reason) } catch { /* 忽略 */ } })
+  // 功能开关（P3）：状态 / 本机改（秒级生效，不用重启）/ 立刻去取一次服务端下发
+  ipcMain.handle('flags:status', () => flags.flagStatus())
+  ipcMain.handle('flags:set', (_e, p) => flags.setLocalFlag(p?.name, p?.on))
+  ipcMain.handle('flags:refresh', async () => {
+    const r = await flags.refreshRemoteFlags()
+    if (!r.ok) console.log('[flags] 未更新：' + r.reason)
+    return { ...r, status: flags.flagStatus() }
+  })
   // 授权通道：状态查询 / 激活码验证 / 配额状态
   ipcMain.handle('license:status', () => {
     try {
@@ -842,6 +855,12 @@ app.whenReady().then(() => {
   // B 通道（P1）：启动 20 秒后静默查一次前端热更（避开启动高峰，每 6 小时最多一次）。
   // 只下载 + 校验，**不切换** —— 生效在下次启动，营业中的收银机不会被换掉页面。
   setTimeout(() => { runWebCheck().catch(() => { /* 静默：挂掉就是没有热更 */ }) }, 20_000)
+  // 功能开关（P3）：启动 22 秒后静默去取一次服务端下发的开关（6 小时节流）。
+  // 拉不到不影响任何功能 —— 它只是"没有新的远端意见"。真正的秒关靠本机 flags.json（离线也生效）。
+  setTimeout(() => {
+    if (!flags.shouldFetchRemote()) return
+    flags.refreshRemoteFlags().then((r) => { if (!r.ok) console.log('[flags] 未更新：' + r.reason) }).catch(() => { /* 静默 */ })
+  }, 22_000)
   // 云备份：try/catch 包裹——挂了是本地单机版，不是打不开
   try {
     initCloud(db, dbPath, dataDir, backupDir, () => true)

@@ -18,6 +18,8 @@
 //   教训与"宁少勿多"同源：宁可什么都不说，也不能说错 —— 说错一次，店主就再也不看了。
 
 import { lowStockProducts, DEFAULT_MIN_STOCK } from './reports.js'
+// 功能开关（P3）：**在执行点拦**，不只在界面上藏起来
+import * as flags from '../flags.js'
 
 const DAY_MS = 86400 * 1000
 
@@ -205,6 +207,8 @@ export function findRestockNeeds(db, opts = {}) {
 
 /** 汇总：纯数据，给人看的排版交给调用方 */
 export function buildBriefing(db, opts = {}) {
+  // 功能开关（P3）：在执行点拦 —— 否则"界面上看不到"并不等于真的关了
+  if (!flags.isEnabled('aiBriefing')) throw new Error('「AI 经营简报」当前已关闭（功能开关）')
   const thresholds = { ...BRIEFING_THRESHOLDS, ...opts }
   const data = assessDataSufficiency(db, thresholds)
   const stock = findStockAnomalies(db)
