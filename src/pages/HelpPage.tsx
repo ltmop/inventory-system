@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Bot, CircleHelp, Copy, ExternalLink, Keyboard, MessageCircleQuestion, Smartphone, Terminal, Truck } from 'lucide-react'
 import { PageHeader } from '@/components/feedback'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { openExternalUrl } from '@/lib/api'
 
 const QUICK_STEPS: { title: string; steps: string[] }[] = [
   {
@@ -51,10 +52,9 @@ export function HelpPage() {
       setTimeout(() => setCopied(false), 2000)
     } catch { /* 剪贴板不可用忽略 */ }
   }
-  const openSite = (url: string) => {
-    const w = window.open(url, '_blank')
-    if (!w) window.location.href = url
-  }
+  // 官网/说明书一律走系统浏览器：渲染层 window.open 被 main 拒掉，window.location.href 兜底
+  // 会把整个应用窗口导航走（回不来），所以这里只调 openExternalUrl。
+  const openSite = (url: string) => { void openExternalUrl(url) }
   return (
     <div className="space-y-4">
       <PageHeader title="帮助中心" subtitle="第一次用？从这里开始；卡住了先看常见问题" />

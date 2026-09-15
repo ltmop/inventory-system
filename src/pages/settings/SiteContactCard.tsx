@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { backend } from '@/lib/api'
+import { backend, openExternalUrl } from '@/lib/api'
 
 interface SiteContact {
   ok?: boolean
@@ -66,7 +66,13 @@ export function SiteContactCard() {
   }
   useEffect(() => { void load() }, [])
 
-  const openSite = (u: string) => { if (u) window.open(u, '_blank') }
+  /**
+   * 打开官网/说明书。
+   * 统一走 `openExternalUrl`（= main 的 app:openExternal）：渲染层 window.open 已被
+   * `setWindowOpenHandler(() => ({ action: 'deny' }))` 一律拒掉，点了等于没反应 ——
+   * owner 2026-09-14 反馈的「官网未链接」就是这个。
+   */
+  const openSite = (u: string) => { void openExternalUrl(u) }
   const copy = async (v: string) => {
     try {
       await navigator.clipboard.writeText(v)

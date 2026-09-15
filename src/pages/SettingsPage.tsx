@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import QRCode from 'qrcode'
 import { FolderOpen, Info, Key, Moon, Volume2, Type } from 'lucide-react'
 import { PageHeader } from '@/components/feedback'
-import { backend } from '@/lib/api'
+import { backend, getCentralConfig } from '@/lib/api'
 import { APP_VERSION } from '@/lib/version'
 import { useLicense, daysText, LEVEL_NAMES } from '@/lib/license'
 import { useAppStore } from '@/store/appStore'
@@ -54,6 +54,13 @@ export function SettingsPage() {
   // 壁纸 SVG、行业模板、数据位置（还带 SQLite/WAL 这种词）都是**装机时折腾一次**的东西，
   // 老板和店员日常不看。owner 原话「太专业，除了开发者没人会用」——默认收起，需要时点开。
   const [adv, setAdv] = useState(false)
+
+  // 「关于」里那行部署方式（owner 2026-09-14 反馈：明明连着中心库，底下还写着「本地单机部署」）。
+  // 事实源就是中心库配置本身（localStorage 的 fi-central-url/token），不是写死的文案。
+  const centralCfg = getCentralConfig()
+  const deployLabel = centralCfg.url && centralCfg.token
+    ? `中心库模式（${centralCfg.url}）· 多台电脑共用一份账`
+    : '本地单机部署 · 数据只在这台电脑上'
 
   // 使用偏好（本机保存，刷新/重启后仍生效）
   const soundEnabled = useAppStore((s) => s.soundEnabled)
@@ -168,14 +175,19 @@ export function SettingsPage() {
   const [serverBusy, setServerBusy] = useState(false)
   const applyServerStatus = (s: ServerStatus | null) => {
     setServerStatus(s)
-    if (s?.url) {
-      QRCode.toDataURL(s.url, { width: 220, margin: 1 })
+    // ⚠️ 扫码必须优先用 **http** 地址（s.httpUrl），不能用 s.url：
+    //   s.url 在开了 https 时是 `https://ip:17533/...`，而那是**自签证书** ——
+    //   微信「扫一扫」的内置浏览器不给点"继续访问"，扫了直接打不开（owner 2026-09-14 反馈的
+    //   「手机看店扫码没通过」就是这个）。只看账不需要 https，用 http 一扫就开。
+    const scanUrl = s?.httpUrl || s?.url || ''
+    if (scanUrl) {
+      QRCode.toDataURL(scanUrl, { width: 220, margin: 1 })
         .then(setQrDataUrl)
         .catch(() => setQrDataUrl(''))
       // 手机开店 /m/ 二维码（全功能操作端）：必须带上访问 token，否则扫码提示要密码
-      // s.url 形如 http://ip:port/?token=xxx → mUrl 应为 http://ip:port/m/?token=xxx
-      const base = s.url.split('?')[0].replace(/\/$/, '')
-      const query = s.url.includes('?') ? '?' + s.url.split('?')[1] : ''
+      // scanUrl 形如 http://ip:port/?token=xxx → mUrl 应为 http://ip:port/m/?token=xxx
+      const base = scanUrl.split('?')[0].replace(/\/$/, '')
+      const query = scanUrl.includes('?') ? '?' + scanUrl.split('?')[1] : ''
       const mUrl = base + '/m/' + query
       QRCode.toDataURL(mUrl, { width: 220, margin: 1 })
         .then(setPosQrDataUrl)
@@ -568,7 +580,7 @@ export function SettingsPage() {
         <CardContent className="space-y-2 text-sm text-slate-600">
           <div>AI 智能进销存系统 v{APP_VERSION}</div>
           <div className="text-xs text-muted-foreground">
-            Electron + React + SQLite（WAL）· 本地单机部署 · 断电不丢数据
+            Electron + React + SQLite（WAL）· {deployLabel} · 断电不丢数据
           </div>
           {/* 更新入口已移至页面顶部导航条 */}
         </CardContent>

@@ -77,14 +77,16 @@ export function MobileServerCard({
             <div className="space-y-2 text-sm">
               <div className="font-medium text-slate-800">微信「扫一扫」扫这个二维码，直接打开看店页面</div>
               <div className="text-muted-foreground">
-                服务地址：<span className="font-mono text-xs text-brand-700">{`http://${serverStatus.ip}:${serverStatus.port}`}</span>
+                服务地址：<span className="font-mono text-xs text-brand-700">{serverStatus.httpUrl || `http://${serverStatus.ip}:${serverStatus.port}`}</span>
               </div>
             <div className="space-y-1 text-xs text-muted-foreground">
                 <p>· 手机要和这台电脑连同一个 WiFi 才打得开。</p>
                 <p>· 首次使用如弹出 Windows 防火墙提示，请点「允许」。</p>
+                <p>· 二维码用的是 http 地址，微信里一扫就能开（不用点任何「继续访问」）。</p>
                 {serverStatus?.httpsEnabled && (
                   <p className="text-amber-700">
-                    · 链接用的是 https（语音/摄像头识别需要）。第一次打开手机会提示「连接不是私密连接」→ 点「高级」→「继续访问」，只需这一次。
+                    · 另有一个 https 地址，只有「拍照识别 / 语音助手」才需要它；自签证书会让微信提示不安全，
+                    那种情况请用手机自带浏览器（Chrome / Safari）打开并选「继续访问」。
                   </p>
                 )}
                 {serverStatus?.running && !serverStatus.httpsEnabled && (

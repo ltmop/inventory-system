@@ -157,4 +157,52 @@ describe('isLocalOnlyChannel', () => {
       expect(mod.isLocalOnlyChannel(ch)).toBe(false)
     }
   })
+
+  /**
+   * 同一前缀下两种东西的经典陷阱（owner 2026-09-14 反馈「收款码无法上传」的现场）：
+   *   payment:record = 记账（客户还款）→ **业务**，必须打到中心库
+   *   payment:getQr/saveQr/deleteQr = 这台电脑上的收款码图片 → **本机**
+   * 所以只能逐个点名，不许按 payment: 前缀一刀切。
+   */
+  it('payment: 前缀不能一刀切：记账走中心库、收款码图片走本机', async () => {
+    const { mod } = await loadApi({ withFi: true })
+    expect(mod.isLocalOnlyChannel('payment:record')).toBe(false)
+    for (const ch of ['payment:getQr', 'payment:saveQr', 'payment:deleteQr']) {
+      expect(mod.isLocalOnlyChannel(ch)).toBe(true)
+    }
+  })
+
+  it('本机名单覆盖本次修的那批「问本机」通道', async () => {
+    const { mod } = await loadApi({ withFi: true })
+    for (const ch of [
+      'app:info', 'app:openExternal', 'server:status', 'server:toggle', 'server:regenerateToken',
+      'license:status', 'license:activate', 'feedback:send',
+      'backup:now', 'backup:status', 'backup:restore', 'onboarding:status',
+      'tts:speak', 'kws:status', 'voice:parseOrder', 'commands:list',
+      'ai:setKey', 'ai:providers', 'ai:localUsageStats',
+    ]) {
+      expect(mod.isLocalOnlyChannel(ch)).toBe(true)
+    }
+  })
+
+  it('backup:list 是故意的服务端通道（中心库服务端每日备份），不许归本机', async () => {
+    const { mod } = await loadApi({ withFi: true })
+    expect(mod.isLocalOnlyChannel('backup:list')).toBe(false)
+  })
+})
+
+describe('中心库模式下本机通的真实分路（修「设置里点了没反应」的那批）', () => {
+  it('center库模式下 payment:saveQr 走本机 IPC，一个字节都不发 HTTP', async () => {
+    const { mod, ipcCalls, fetchCalls } = await loadApi({ centralUrl: 'https://app.junchengzn.com', withFi: true })
+    await mod.backend!.invoke('payment:saveQr', { type: 'wx', base64: 'x' })
+    expect(ipcCalls).toEqual(['payment:saveQr'])
+    expect(fetchCalls).toEqual([])
+  })
+
+  it('center库模式下 payment:record 仍走中心库 HTTP（记账不能被本机截走）', async () => {
+    const { mod, ipcCalls, fetchCalls } = await loadApi({ centralUrl: 'https://app.junchengzn.com', withFi: true })
+    await mod.backend!.invoke('payment:record', { id: 1 })
+    expect(fetchCalls).toEqual(['payment:record'])
+    expect(ipcCalls).toEqual([])
+  })
 })

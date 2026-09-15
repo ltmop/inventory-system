@@ -104,7 +104,9 @@ function createHttpBackend(token: string, baseUrl = ''): FiBridge {
       }
       if (!r.ok) {
         // A3 离线层：带上 HTTP 状态码 → 离线层据此判定「业务拒绝，绝不入队」
-        const err = new Error(data.error ?? `请求失败（${r.status}）`)
+        // ⚠️ 「unknown channel」必须翻译：中心库模式下把"问本机"的通道发过去就是这句，
+        //    原文对店老板毫无意义，而它恰恰是「点了没反应」那一大类问题的真正原因。
+        const err = new Error(friendlyChannelError(channel, data.error ?? `请求失败（${r.status}）`))
         ;(err as Error & { status?: number }).status = r.status
         throw err
       }
@@ -114,6 +116,20 @@ function createHttpBackend(token: string, baseUrl = ''): FiBridge {
 }
 
 // 中心库模式（P2：桌面软件连云端）——设置里配了「连接云端中心库」的 URL+token, 桌面版也走 http-backend 连它（覆盖本地 IPC），读写全走中心库（多点实时共享）
+
+/**
+ * 把服务器返回的错误原文翻译成用户能懂的话。
+ * 目前只翻译一种，但它是最常见、也最难自己看懂的一种：
+ *   中心库模式下，凡是"问本机"的通道（app:/server:/license:/feedback:/payment 的收款码…）
+ *   打到中心库，server.js 一律回 404 `unknown channel`。
+ * 原文照给 = 用户看到一句英文，然后以为"软件坏了"。
+ */
+export function friendlyChannelError(channel: string, raw: string): string {
+  if (/unknown channel/i.test(raw)) {
+    return `「${channel}」这个功能在中心库模式下还没开通：本机有、中心库那台服务器上没有。请先用「断开中心库」回到本机模式，或把它加进本机通道表（见 docs/中心库模式-通道缺口清单.md）`
+  }
+  return raw
+}
 const CENTRAL_URL_KEY = 'fi-central-url'
 const CENTRAL_TOKEN_KEY = 'fi-central-token'
 export function getCentralConfig(): { url: string; token: string } {
@@ -147,6 +163,32 @@ export function reportCentralModeToMain(cfg: { url: string; token: string } = ge
     void Promise.resolve(local.invoke('cloud:setCentralMode', { on: !!cfg.url && !!cfg.token })).catch(() => {})
   } catch { /* ignore */ }
 }
+
+/**
+ * 用系统浏览器打开外链（官网、说明书…）。
+ *
+ * ⚠️ 三个坑，都踩过：
+ *   ① 渲染层 `window.open` 会被 main 的 `setWindowOpenHandler(() => ({ action: 'deny' }))` **一律拒掉**
+ *      —— 点了等于没反应（owner 反馈的「官网未链接」）。正确出口是 main 的 `app:openExternal`。
+ *   ② 该通道必须走本机：已加进 LOCAL_ONLY_CHANNELS，否则中心库模式下又会打到服务器上。
+ *   ③ 打不开时**绝不能** `window.location.href = url` 兜底 —— 那会把整个应用窗口导航到外站，回不来
+ *      （HelpPage 原来是这么写的）。只退回"让用户自己复制地址"。
+ */
+export async function openExternalUrl(url: string): Promise<boolean> {
+  if (!url) return false
+  const local = localBridge()
+  if (!local) {
+    try { window.prompt('复制这个地址到浏览器打开：', url) } catch { /* ignore */ }
+    return false
+  }
+  try {
+    await local.invoke('app:openExternal', url)
+    return true
+  } catch {
+    try { window.prompt('没能自动打开浏览器，复制这个地址手动打开：', url) } catch { /* ignore */ }
+    return false
+  }
+}
 const central = getCentralConfig()
 
 /**
@@ -169,8 +211,77 @@ const central = getCentralConfig()
  */
 export const LOCAL_ONLY_PREFIXES = ['cloud:', 'update:', 'site:'] as const
 
+/**
+ * 精确到**通道名**的本机通道（只按前缀不够用 —— 会误伤同前缀的业务通道）。
+ *
+ * 为什么不能只按前缀分：`payment:record` 是**记账**（业务，必须打到中心库），
+ * 而 `payment:getQr/saveQr/deleteQr` 读写的是**这台电脑上的图片文件**（手机端由本机局域网服务读同一份）。
+ * 同前缀下两种东西，只能逐个点名。
+ *
+ * 2026-09-14 owner 反馈「设置里一堆功能不能用」的真根因：
+ *   中心库模式下 rawBackend 把所有非本机通道都发给中心库，而**中心库上没有这些通道**
+ *   （server.js 的 INVOKE_CHANNELS 里没有 app: / server: / license: / feedback: 等）→
+ *   HTTP 404 `unknown channel` → 渲染层 .catch 一吞 → 用户看到的就是「点了没反应」。
+ *   实测这类通道共 62 个（见 docs/中心库模式-通道缺口清单.md），下面是**答案只可能来自这台电脑**的那部分。
+ *
+ * 判定标准一条就够：**这个通道的答案，中心库那台服务器上有没有？**
+ *   没有 → 本机（加到这里）；有 → 仍走中心库，别加（哪怕语义上看起来重复）。
+ */
+export const LOCAL_ONLY_CHANNELS = [
+  // 关于「这台电脑 / 这个软件本身」
+  'app:info',                 // 本机数据库与备份目录、最近备份时间
+  'app:openExternal',         // 打开本机浏览器（渲染层 window.open 已被 main 的 setWindowOpenHandler 拒掉）
+  'server:status',            // 本机局域网看店服务的运行状态/端口/token
+  'server:toggle',
+  'server:regenerateToken',
+  // 授权绑的是本机机器码
+  'license:status',
+  'license:activate',
+  'ai:bindLicense',
+  // 反馈是从这台电脑发出去的
+  'feedback:send',
+  // 本机硬件：麦克风/扬声器只长在这台电脑上
+  'tts:speak',
+  'tts:status',
+  'kws:push',
+  'kws:status',
+  'voice:parseOrder',
+  // 本机文件：收款码图片（中心库上那份即使存在，也和这台电脑柜台贴的不是同一张）
+  'payment:getQr',
+  'payment:saveQr',
+  'payment:deleteQr',
+  // 本机磁盘：备份/恢复的都是这台电脑 data 目录里的文件
+  // ⚠️ 不含 backup:list —— 那一个**故意**留在服务端：CloudCard 只在实际连了中心库时才调它，
+  //    列的是「中心库服务端每日备份」（见 CloudCard.handleListBackups）。服务端有、本机没有。
+  'backup:now',
+  'backup:status',
+  'backup:restore',
+  'backup:setExtraDir',
+  'backup:clearExtraDir',
+  // 本机首次引导状态（写本机 settings 的 fi-onboarded）
+  'onboarding:status',
+  'onboarding:finish',
+  'onboarding:reset',
+  // 本机 AI 配置与用量（不读账本；带账本语义的 ai: 通道见缺口清单，不能本机化）
+  'ai:setKey',
+  'ai:clearKey',
+  'ai:providers',
+  'ai:setProvider',
+  'ai:test',
+  'ai:quota',
+  'ai:gatewayQuota',
+  'ai:localUsageStats',
+  'ai:history',
+  // 命令台：命令在本机执行
+  'commands:list',
+  'commands:invoke',
+] as const
+
 export function isLocalOnlyChannel(channel: string): boolean {
-  return LOCAL_ONLY_PREFIXES.some((p) => channel.indexOf(p) === 0)
+  return (
+    LOCAL_ONLY_PREFIXES.some((p) => channel.indexOf(p) === 0) ||
+    (LOCAL_ONLY_CHANNELS as readonly string[]).includes(channel)
+  )
 }
 
 /** 本机 IPC 桥（只有 Electron 里有）；手机浏览器 / 纯网页为 null */

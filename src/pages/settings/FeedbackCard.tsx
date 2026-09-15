@@ -1,8 +1,10 @@
-import { CheckCircle2, Loader2, MessageSquarePlus, Send } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { CheckCircle2, Copy, Loader2, MessageSquarePlus, Send } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { backend } from '@/lib/api'
 
 interface FeedbackCardProps {
   hasBackend: boolean
@@ -30,6 +32,33 @@ export function FeedbackCard({
   result,
   onSend,
 }: FeedbackCardProps) {
+  // 我们的联系方式：与「官网 · 联系我们」同一份事实源（electron/site.js），不在这里写死
+  const [ours, setOurs] = useState<{ wechat?: string; email?: string }>({})
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!backend) return
+    backend.invoke('site:contact')
+      .then((r) => { if (r) setOurs({ wechat: r.wechat || '', email: r.email || '' }) })
+      .catch(() => { /* 读不到就不显示 */ })
+  }, [])
+
+  /**
+   * 一键复制反馈内容。
+   * 为什么要有（owner 2026-09-14 反馈「意见反馈邮箱没用」）：
+   *   那个「接收地址」**只支持飞书机器人的 https 地址**，填邮箱进去是不会发出去的（只存本机）。
+   *   与其让老板配一个发不出去的邮箱，不如让他把内容一键复制、直接从微信/邮箱发给我们。
+   */
+  const copyContent = async () => {
+    const text = [message.trim(), contact.trim() ? `联系方式：${contact.trim()}` : ''].filter(Boolean).join('\n')
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      window.prompt('复制失败，请手动复制下面的内容：', text)
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -63,7 +92,7 @@ export function FeedbackCard({
           <Input
             value={webhook}
             onChange={(e) => onWebhookChange(e.target.value)}
-            placeholder="接收地址（选填，店主配了才能转发到后台，不填也会保存在本机）"
+            placeholder="飞书机器人地址（选填，必须是 https://…）"
             className="w-96 font-mono text-xs"
             disabled={!hasBackend}
           />
@@ -75,6 +104,23 @@ export function FeedbackCard({
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
             {busy ? '发送中...' : '提交反馈'}
           </Button>
+          <Button variant="outline" onClick={() => void copyContent()} disabled={!message.trim()}>
+            {copied ? <CheckCircle2 className="size-4 text-green-600" /> : <Copy className="size-4" />}
+            {copied ? '已复制' : '复制内容'}
+          </Button>
+        </div>
+        <div className="space-y-1 text-xs text-muted-foreground">
+          {/* 说清楚这个框是什么、不是什么 —— 老板填邮箱进去是发不出去的 */}
+          <p>· 「飞书机器人地址」只有店主配了自己的飞书机器人才用得上；<b>填邮箱没用</b>，它不会发邮件。</p>
+          <p>· 不填也能提交：反馈会存到本机（数据目录的 feedback.log），你说一声我们就能取。</p>
+          {(ours.wechat || ours.email) && (
+            <p>
+              · 想直接找我们：{ours.wechat ? `客服微信 ${ours.wechat}` : ''}
+              {ours.wechat && ours.email ? ' · ' : ''}
+              {ours.email ? `邮箱 ${ours.email}` : ''}
+              （点上面的「复制内容」，粘给我们即可）
+            </p>
+          )}
         </div>
         {result && (
           <div
