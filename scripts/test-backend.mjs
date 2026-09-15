@@ -2753,5 +2753,43 @@ ok('preload 白名单含 expense 三通道',
   gdb.close()
 }
 
+// 47. AI 简报（只算不推）的口径闸门 —— 锁住 2026-09-15 用真实数据当场证伪的那个 bug：
+//     第一版把**所有 type='out'** 当动销，于是把"优选仓备货发货"（无售价、入 10 当天出 10）
+//     算成了动销，给出 14 条**假补货建议**。这一段就是防它复发，以及防"数据不足"变成恒假闸门。
+{
+  const bdb = openDatabase(path.join(tmp, 'briefing.db'))
+  cmd.createProduct(bdb, { sku_code: 'BR-1', category: '鱼钩', brand: '测试牌', model: '渠道款', cost_price: 100, suggest_price: 200, min_stock: 5, status: '在售' })
+  const pid = bdb.prepare("SELECT id FROM products WHERE sku_code='BR-1'").get().id
+  const ts = new Date().toISOString()
+  const insTx = bdb.prepare("INSERT INTO transactions (product_id, type, quantity, unit_price, selling_price, timestamp, operator, notes, channel, store_code) VALUES (?,?,?,?,?,?,?,?,?,?)")
+  // 造一个"优选仓备货发货"：入库 10、当天无售价出库 10（第一版就是把它当成了动销）
+  insTx.run(pid, 'in', 10, 0, null, ts, '优选仓发货-测试', null, null, '')
+  insTx.run(pid, 'out', 10, 0, null, ts, '优选仓发货-测试', null, '优选仓', '')
+
+  const brief1 = cmd.buildBriefing(bdb)
+  ok('简报：无售价的渠道发货**不算**动销（第一版的假阳性不再出现）', brief1.restock.needs.length === 0, '该补货 ' + brief1.restock.needs.length + ' 条')
+  ok('简报：这类商品进"渠道发货/不能替你决定"那一栏', brief1.counts.channelOnly + brief1.counts.lowButSlow >= 1)
+  ok('简报：真实零售为 0 → 判定数据不足、不给出补货建议', brief1.data.enough === false && brief1.stance !== 'actionable')
+  ok('简报：数据不足时头条说的是"为什么不出建议"，不是硬编一条', /没有足够|先修账/.test(brief1.headline), brief1.headline)
+
+  // 造够真实零售（≥门槛）→ 闸门必须真的能过，否则"数据不足"就成了恒假
+  for (let i = 0; i < 25; i++) insTx.run(pid, 'out', 1, 100, 200, ts, '店长', null, '线下', '')
+  const brief2 = cmd.buildBriefing(bdb)
+  ok('简报：真实零售够了以后，数据不足判定解除（闸门不是恒假）', brief2.data.enough === true, JSON.stringify(brief2.data.reasons))
+  ok('简报：这时才给出该补货（低库存 ∩ 有真实零售）', brief2.restock.needs.length === 1 && brief2.restock.needs[0].soldInWindow >= 25,
+    JSON.stringify(brief2.restock.needs.map((r) => r.soldInWindow)))
+  ok('简报：建议补货量可复算（日均×覆盖天数 − 现有）',
+    brief2.restock.needs[0].suggestQty === Math.ceil((25 / brief2.restock.windowDays) * brief2.restock.coverDays),
+    'suggest=' + brief2.restock.needs[0].suggestQty)
+
+  // 盘点："还没开始盘" 不等于 "没有差异"（第一版把前者说成了后者）
+  const takeId = bdb.prepare("INSERT INTO stock_takes (take_no, status, started_at, operator) VALUES (?,?,?,?)").run('ST-TEST', '进行中', ts, '测试').lastInsertRowid
+  bdb.prepare("INSERT INTO stock_take_items (stock_take_id, product_id, system_qty, actual_qty) VALUES (?,?,?,?)").run(Number(takeId), pid, 10, null)
+  const brief3 = cmd.buildBriefing(bdb)
+  ok('简报：盘点"已盘 0 项"必须说成"还没盘"，不能说成"差异 0 项 ✓"',
+    brief3.stock.take.counted === 0 && brief3.stock.take.notCounted === 1 && brief3.stock.take.diffCount === 0)
+  bdb.close()
+}
+
 fs.rmSync(tmp, { recursive: true, force: true })
 console.log(`\n全部 ${passed} 项断言通过`)
