@@ -160,7 +160,12 @@ export function reportCentralModeToMain(cfg: { url: string; token: string } = ge
   const local = localBridge()
   if (!local) return
   try {
-    void Promise.resolve(local.invoke('cloud:setCentralMode', { on: !!cfg.url && !!cfg.token })).catch(() => {})
+    // 带上 url/token：主进程把它落盘成 dataDir/central.json（**单一事实源**，P0 2026-09-15）。
+    // 好处两条：①「整库上传闸门」与"渲染层实际连哪本账"不可能漂移；
+    //          ② preload 下次启动能据此把被清掉/换存储后缺失的 localStorage 补齐。
+    void Promise.resolve(local.invoke('cloud:setCentralMode', {
+      on: !!cfg.url && !!cfg.token, url: cfg.url, token: cfg.token,
+    })).catch(() => {})
   } catch { /* ignore */ }
 }
 

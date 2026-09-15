@@ -1,6 +1,21 @@
 // preload：contextIsolation 下的最小桥接面，channel 白名单防任意调用
 const { contextBridge, ipcRenderer } = require('electron')
 
+// ---- 中心库配置的**启动补齐**（P0 2026-09-15）----
+// 为什么必须在 preload 做：`src/lib/api.ts` 在**模块加载时**就同步决定"连本机还是连中心库"，
+// 而配置的事实源现在在主进程文件（dataDir/central.json）。preload 早于页面脚本执行，正好在这一刻补齐。
+// 只补**缺失**的情况，不覆盖当次修改：
+//   · 正常启动：localStorage 里已有 → 不动（避免与用户当次的修改打架）
+//   · 被清站点数据 / 换了存储 / 新机器：补上 → 收银机不会"静默退回本地模式"（看错账）
+// 实测（2026-09-15，独立 profile 探针）：sandbox:true 的 preload 能读写 localStorage，且**页面读得到**。
+try {
+  const cfg = ipcRenderer.sendSync('cloud:centralSync') || {}
+  if (cfg.url && cfg.token && !localStorage.getItem('fi-central-url')) {
+    localStorage.setItem('fi-central-url', cfg.url)
+    localStorage.setItem('fi-central-token', cfg.token)
+  }
+} catch { /* 读不到就按老行为：localStorage 原样 */ }
+
 const CHANNELS = new Set([
   'data:loadAll',
   'product:create',

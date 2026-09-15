@@ -126,6 +126,22 @@ ok('调拨在 server.js 被登记为**写**通道（只读令牌不能调拨）'
 ok('调拨命令**不写 transactions**（写了就会被算成销售/出货 —— 这是那堆乱账的根源）', !/INSERT INTO transactions/.test(stockSrc))
 ok('调拨命令不碰 inventory_batches 的 updated_at/guid（中心库没这两列，写了就在中心库报错）',
   !/INSERT INTO inventory_batches[\s\S]{0,300}?(updated_at|guid)/.test(stockSrc) && !/UPDATE inventory_batches[\s\S]{0,120}?(updated_at|guid)/.test(stockSrc))
+
+console.log('\n=== ⑦ 中心库配置的主进程事实源（P0）：接线 + 语义守卫 ===')
+const preloadSrc = stripComments(preload)
+const apiSrc2 = stripComments(apiTs)
+ok('main.js 有同步读通道 cloud:centralSync（preload 要在页面脚本前拿配置，只能同步）',
+  /ipcMain\.on\(\s*'cloud:centralSync'/.test(mainJs))
+ok('main.js 的 cloud:setCentralMode 会把 url/token 落到文件（不只是置内存标志）',
+  /setCentralConfigLocal\(/.test(mainJs) && /isCentralConfigured\(\)/.test(mainJs))
+ok('main.js 启动即用文件决定闸门（不等渲染层上报）', /initCentralConfig\(dataDir\)/.test(mainJs))
+ok('preload 在启动时补齐中心库配置', preloadSrc.includes('cloud:centralSync') && preloadSrc.includes('fi-central-url'))
+ok('preload 的补齐是**只补缺失、不覆盖**（防退化成覆盖式注入，跟用户当次修改打架）',
+  /!\s*localStorage\.getItem\(\s*'fi-central-url'\s*\)/.test(preloadSrc))
+ok('api.ts 上报中心库模式时带上 url/token（否则文件永远是空的）',
+  /cloud:setCentralMode[\s\S]{0,200}?url:\s*cfg\.url/.test(apiSrc2))
+ok('preload 里没有把 token 打进 console 的地方',
+  !/console\.[a-z]+\([^\n]*token/i.test(preloadSrc))
 ok('手机看店二维码优先用 http 地址（微信绕不过自签证书）', /httpUrl \|\| s\?\.url|httpUrl \|\| s\.url/.test(read('src/pages/SettingsPage.tsx')))
 ok('unknown channel 有人话翻译（否则用户只看到一句英文）', /friendlyChannelError/.test(apiTs) && /unknown channel/i.test(apiTs))
 

@@ -24,6 +24,8 @@ import { localFuzzyMatch } from '../electron/localSearch.js'
 import { logAudit } from '../electron/commands/helpers.js'
 // analytics 不在 commands.js 桶文件里（server.js 也是直接 import 这个模块）→ 这里照样直接引
 import { analyticsOverview, analyticsTrend } from '../electron/commands/analytics.js'
+// 中心库配置的主进程事实源（P0 2026-09-15）：纯 Node、不 import electron，可直接单测
+import { initCentralConfig, getCentralConfigLocal, setCentralConfigLocal, isCentralConfigured } from '../electron/centralConfig.js'
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fi-test-'))
 const dbPath = path.join(tmp, 'data.db')
@@ -2845,6 +2847,47 @@ ok('preload 白名单含 expense 三通道',
   ok('调拨命令不在 inventory_batches 上写 updated_at/guid（否则在中心库直接报错）',
     !/INSERT INTO inventory_batches[\s\S]{0,300}?(updated_at|guid)/.test(stockSrc) && !/UPDATE inventory_batches[\s\S]{0,120}?(updated_at|guid)/.test(stockSrc))
   sdb.close()
+}
+
+// 49. 中心库配置的主进程事实源（P0 2026-09-15）—— 防的是"收银机静默退回本地模式"这类最难发现的错
+{
+  const cdir = path.join(tmp, 'centralcfg')
+  const file = path.join(cdir, 'central.json')
+
+  const c0 = initCentralConfig(cdir)
+  ok('中心库配置：目录为空时判定"没配"', c0.url === '' && c0.token === '' && isCentralConfigured() === false)
+
+  // 写：带尾部斜杠和空格，必须被归一（否则两台机器写出来的 URL 不一样，比对/排查都会踩坑）
+  const w = setCentralConfigLocal({ url: '  https://app.junchengzn.com/  ', token: '  tok-abc  ' })
+  ok('中心库配置：URL 去掉尾部斜杠、token 去空格', w.url === 'https://app.junchengzn.com' && w.token === 'tok-abc', JSON.stringify(w))
+  ok('中心库配置：文件已落盘', fs.existsSync(file))
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8'))
+  ok('中心库配置：文件里只有 url/token 两个字段', Object.keys(raw).sort().join() === 'token,url')
+  ok('中心库配置：临时文件没留下（原子替换）', !fs.existsSync(file + '.tmp'))
+  // 0600：只给本用户读（同目录下的 server-token.txt 也是这个规ge）
+  if (process.platform !== 'win32') {
+    ok('中心库配置：文件权限 0600', (fs.statSync(file).mode & 0o777) === 0o600, (fs.statSync(file).mode & 0o777).toString(8))
+  } else {
+    ok('中心库配置：Windows 上跳过权限位断言（POSIX mode 不适用）', true)
+  }
+
+  // 重启后仍在（这就是"文件是事实源"的意义）
+  initCentralConfig(cdir)
+  ok('中心库配置：重启后仍读得到（不依赖 localStorage）', isCentralConfigured() === true && getCentralConfigLocal().url === 'https://app.junchengzn.com')
+
+  // 半截配置一律当"没配"（与 cloud.js 的 saveLocalConfig 同一铁律）
+  setCentralConfigLocal({ url: 'https://only-url.example', token: '' })
+  ok('中心库配置：只有 URL 没 token → 当成没配（不留半截）', isCentralConfigured() === false && getCentralConfigLocal().url === '')
+
+  // 断开
+  setCentralConfigLocal({ url: '', token: '' })
+  ok('中心库配置：清空后判定"没配"', isCentralConfigured() === false)
+
+  // 🔴 负向守卫：这个模块绝不能把 token 打进日志（与 start-central.mjs 那次泄露同一类教训）
+  const ccSrc = fs.readFileSync(path.resolve('electron/centralConfig.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  ok('中心库配置：源码里没有任何把 token 打进 console 的地方',
+    !/console\.[a-z]+\([^\n]*token/i.test(ccSrc), '出现了 console 打印 token')
 }
 
 fs.rmSync(tmp, { recursive: true, force: true })

@@ -25,6 +25,8 @@ import { createInventoryServer } from './server.js'
 import { createPhotoStore } from './photo.js'
 import { initAutoUpdater, checkForUpdates, downloadAndInstall } from './updater.js'
 import * as site from './site.js'
+// 中心库连接配置的主进程单一事实源（P0）：文件 dataDir/central.json，preload 启动时用它补齐 localStorage
+import { initCentralConfig, getCentralConfigLocal, setCentralConfigLocal, isCentralConfigured } from './centralConfig.js'
 import { loadLicense, activateLicense, verifyLicenseCode, machineFingerprint, saveLevelToDb, quotaStatus, planFor } from './license.js'
 import { initCloud, pairWithCloud, syncSnapshot, uploadBackup, listCloudBackups, restoreFromCloud, regenViewLink, getCloudState, stopScheduler as stopCloudScheduler, exitSnapshot as exitCloudSnapshot, registerAccount as cloudRegisterAccount, loginAccount as cloudLoginAccount, logoutAccount as cloudLogoutAccount, resolveConflict, dismissRestoreHold, listSyncConflicts, resolveSyncConflict, syncBusinessData, fetchCentralConfig as cloudFetchCentralConfig, setCentralMode } from './cloud.js'
 
@@ -46,6 +48,10 @@ if (!app.requestSingleInstanceLock()) {
 const dataDir = path.join(app.getPath('appData'), 'fishing-inventory')
 const dbPath = path.join(dataDir, 'data.db')
 const backupDir = path.join(dataDir, 'backup')
+// 中心库连接配置的**主进程单一事实源**（P0 2026-09-15）：dataDir/central.json
+// 必须尽早读出来 —— 下面 initCloud 要用它**自己**决定"整库上传闸门"开不开，不能等渲染层上报。
+initCentralConfig(dataDir)
+if (isCentralConfigured()) setCentralMode(true)
 // 官网/联系方式：默认值 + 本机 site.json 覆盖（换客服微信不必重新发版）
 site.initSite(dataDir)
 // 崩溃日志：主进程漏网异常/渲染进程崩溃的留痕文件（与 backup-error.log 平级）
@@ -586,9 +592,19 @@ ipcMain.handle('commands:invoke', async (_e, p) => {
   ipcMain.handle('cloud:logout', () => cloudLogoutAccount())
   // 登录后自动取中心库连接配置（凭设备令牌换）：用户不再手填 URL+token
   ipcMain.handle('cloud:centralConfig', () => cloudFetchCentralConfig())
-  // 渲染层上报「本机是不是中心库模式」：配置在 localStorage，主进程看不见，
-  // 但主进程必须据此在中心库模式下禁止整库上传（快照/每日备份）——方案A 2026-09-14 owner 拍板
-  ipcMain.handle('cloud:setCentralMode', (_e, p) => setCentralMode(p?.on === true))
+  // 渲染层上报「本机是不是中心库模式」+ 把中心库地址/token 回写文件（P0 2026-09-15）：
+  // 从此**文件是事实源**，主进程不再依赖"渲染层一定会上报"；渲染层负责在配置变更时回写。
+  // 带上 url/token 时一并落盘（空串 = 断开，清空文件）—— 半截配置由 centralConfig 归一成"没配"。
+  ipcMain.handle('cloud:setCentralMode', (_e, p) => {
+    if (p && ('url' in p || 'token' in p)) {
+      setCentralConfigLocal({ url: p.url ?? '', token: p.token ?? '' })
+      return setCentralMode(isCentralConfigured())
+    }
+    return setCentralMode(p?.on === true)
+  })
+  // 同步读（sendSync）：preload 在**页面脚本之前**要把配置补齐到 localStorage，
+  // 而 api.ts 是在模块加载时同步决定"连本机还是连中心库"的 —— 只能用同步通道。
+  ipcMain.on('cloud:centralSync', (e) => { e.returnValue = getCentralConfigLocal() })
   // 首登恢复：用户确认"我是新店/不用恢复"，解除上传挂起
   ipcMain.handle('cloud:dismissRestore', () => dismissRestoreHold())
   // 应用信息（设置页展示数据位置 + 最近备份时间：扫描备份目录最新文件）
