@@ -18,9 +18,9 @@
       "skipMarkers": [],
       "floor": 701,
       "note": "本机齐全：spike/ 与 %APPDATA% 的模型、夹具音频都在",
-      "commit": "491d4a0",
-      "worktreeDirty": true,
-      "updatedAt": "2026-09-15T11:39:16.663Z"
+      "commit": "288f59c",
+      "worktreeDirty": false,
+      "updatedAt": "2026-09-15T11:40:27.535Z"
     },
     {
       "key": "partial:KWS 夹具检出",
