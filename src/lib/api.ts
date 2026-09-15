@@ -272,6 +272,11 @@ export const LOCAL_ONLY_CHANNELS = [
   'ai:gatewayQuota',
   'ai:localUsageStats',
   'ai:history',
+  // 纯 AI 能力（照片 → 文字 / 单据 → 结构化）：**不需要账本**，但需要本机的 AI KEY 与用量额度
+  // （main.js 里它们是 ai.parseXxx + checkAiQuota/recordAiUsage，额度记在本机）。
+  // 注意 ai:smartSearch **不在**这里 —— 它要搜商品，必须与账本同源，已补到服务端。
+  'ai:analyzePhoto',
+  'ai:parseInboundNote',
   // 命令台：命令在本机执行
   'commands:list',
   'commands:invoke',

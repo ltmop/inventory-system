@@ -2683,5 +2683,75 @@ ok('preload 白名单含 expense 三通道',
   b3Db.close()
 }
 
+// 46. 中心库模式的通道缺口（2026-09-14 owner 反馈「设置里一堆功能不能用」）
+//     背景：中心库模式下桌面端把非本机通道全发给中心库，而中心库上没有这些通道 → 404 unknown channel。
+//     本段是**行为级**的：真起一个服务器，逐个 POST /api/invoke 打过去，断言"不再 404"。
+//     同时守住写通道：只读（视图）令牌必须 403 —— 漏了就等于把员工/单位/知识库的写权限给了只读账号。
+{
+  const gdb = openDatabase(path.join(tmp, 'gapch.db'))
+  const gDir = path.join(tmp, 'srvgap')
+  const srvG = createInventoryServer({ db: gdb, dataDir: gDir, basePort: 0 })
+  const stG = await srvG.start()
+  const gBase = `http://127.0.0.1:${stG.port}`
+  const gToken = fs.readFileSync(path.join(gDir, 'server-token.txt'), 'utf8').trim()
+  const gView = fs.readFileSync(path.join(gDir, 'server-view-token.txt'), 'utf8').trim()
+
+  const callG = async (channel, payload = {}, tk = gToken) => {
+    const r = await fetch(`${gBase}/api/invoke`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-token': tk },
+      body: JSON.stringify({ channel, payload }),
+    })
+    return { status: r.status, body: await r.json().catch(() => null) }
+  }
+
+  // 46.1 这批以前是 404 —— 客户端每个都点过、每个都"没反应"
+  const GAP_READ = ['ai:smartSearch', 'category:listWithCount', 'clearance:get', 'pricing:get', 'knowledge:list', 'template:list', 'unit:list', 'user:list', 'user:current', 'user:staffLoginEnabled']
+  for (const ch of GAP_READ) {
+    const { status, body } = await callG(ch, {})
+    ok(`中心库通道 ${ch} 已开通且返回 ok`, status === 200 && body?.ok === true, `HTTP ${status} ${JSON.stringify(body).slice(0, 120)}`)
+  }
+  // 读通道要给出**真的数据形状**（不是"200 但空壳"）
+  const rCnt = await callG('category:listWithCount')
+  ok('category:listWithCount 返回数组（分类管理页要显示计数）', Array.isArray(rCnt.body?.result))
+  const rTpl = await callG('template:list')
+  ok('template:list 返回行业模板数组', Array.isArray(rTpl.body?.result))
+  const rUsr = await callG('user:list')
+  ok('user:list 返回员工数组', Array.isArray(rUsr.body?.result))
+  const rKn = await callG('knowledge:list')
+  ok('knowledge:list 返回数组', Array.isArray(rKn.body?.result))
+  const rCl = await callG('clearance:get')
+  ok('clearance:get 返回清仓建议对象', rCl.body?.result && typeof rCl.body.result === 'object' && 'items' in rCl.body.result)
+  const rPr = await callG('pricing:get')
+  ok('pricing:get 返回定价建议对象', rPr.body?.result && typeof rPr.body.result === 'object' && 'items' in rPr.body.result)
+  // 搜索：服务端跑本地兜底口径（与桌面端共用 commands/search.js）
+  const rSs = await callG('ai:smartSearch', { text: '' })
+  ok('ai:smartSearch 空串返回 ok:false/empty（不是 404）', rSs.status === 200 && rSs.body?.result?.ok === false)
+  const rSs2 = await callG('ai:smartSearch', { text: 'zzzqqqxyz' })
+  ok('ai:smartSearch 有结果形状（source 字段在）', rSs2.status === 200 && typeof rSs2.body?.result?.source === 'string')
+
+  // 46.2 写通道：普通令牌能调、**只读令牌必须 403**
+  const GAP_WRITE = ['user:create', 'user:update', 'user:delete', 'user:setStaffLogin', 'unit:create', 'unit:update', 'unit:delete', 'unit:move', 'knowledge:save', 'knowledge:update', 'knowledge:delete', 'template:apply']
+  for (const ch of GAP_WRITE) {
+    const rw = await callG(ch, {})
+    ok(`中心库写通道 ${ch} 已开通（不再 404）`, rw.status !== 404, `HTTP ${rw.status}`)
+    const rv = await callG(ch, {}, gView)
+    ok(`视图（只读）令牌调 ${ch} 必须 403`, rv.status === 403, `HTTP ${rv.status}`)
+  }
+
+  // 46.3 真做一遍：建单位 → 列表里有它（证明不是"通道在但没用"）
+  await callG('unit:create', { name: '闸门测试单位', operator: 'gate' })
+  const rUnits = await callG('unit:list')
+  ok('经服务端新建的单位真的落进服务端账本', JSON.stringify(rUnits.body?.result ?? '').includes('闸门测试单位'))
+
+  // 46.4 本机能力**不许**被开出去（回归：tts/kws/app 这些是"问本机"的）
+  for (const ch of ['tts:speak', 'kws:status', 'app:info', 'server:status', 'feedback:send']) {
+    const r = await callG(ch, {})
+    ok(`本机通道 ${ch} 仍不开放给服务端（404）`, r.status === 404, `HTTP ${r.status}`)
+  }
+
+  await srvG.stop()
+  gdb.close()
+}
+
 fs.rmSync(tmp, { recursive: true, force: true })
 console.log(`\n全部 ${passed} 项断言通过`)

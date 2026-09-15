@@ -18,6 +18,11 @@ import { ensureTlsCert } from './tls.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 import { confirmOutbound, listCustomers, lowStockProducts, auditLog, supplierStatement, todayPaymentSplit } from './commands.js'
 import * as cmds from './commands.js'
+// 中心库模式下必须由**服务端**跑的通道（2026-09-14 补，见 docs/中心库模式-通道缺口清单.md）：
+//   · 商品模糊搜索的本地兜底口径 → 与桌面端 ai-orchestrator 共用 commands/search.js（红线①：口径只走命令层）
+//   · 知识库读写 → db.js 的助手（与桌面端同一份实现）
+import { productNamesForSearch, localSearchHit } from './commands/search.js'
+import { saveInsight, listInsights, updateInsight, deleteInsight } from './db.js'
 import { analyticsTrend, analyticsCategory, analyticsTop, analyticsStockValue, analyticsOverview } from './commands/analytics.js'
 import { createPhotoStore } from './photo.js'
 
@@ -856,6 +861,12 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     // 分类管理（2026-09-13 补）：这几条一直是写操作，但漏在白名单外 ——
     // 后果是**只读/视图令牌也能改分类**。顺手补齐（与 receipt:reconcile 那条注释同一个道理）。
     'category:create','category:rename','category:delete','category:move','category:setParent',
+    // 员工账号与单位管理（2026-09-14 补进服务端时，一起登记为**写通道**）：
+    // 漏在这里的后果与上面分类那批一样 —— **只读/视图令牌也能改员工和单位**。
+    'user:create','user:update','user:delete','user:setStaffLogin',
+    'unit:create','unit:update','unit:delete','unit:move',
+    // 知识库与模板：都是写库
+    'knowledge:save','knowledge:update','knowledge:delete','template:apply',
   ])
 
   function tokenOk(provided) {
@@ -1297,6 +1308,49 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
         return { ok: false, reason: 'no-audio' }
       } catch (e) { return { ok: false, reason: e.message } }
     },
+
+    // ===== 2026-09-14 补：中心库模式下原本"打到服务器 404"的那批（owner 反馈「设置里一堆功能不能用」）=====
+    // 归服务端的判据：**这些通道的答案在服务端那份账上**。桌面端主进程里是同名的 commands.* 调用，
+    // 所以两边口径一致（红线①：口径只走 electron/commands/）。
+    // 注意：真正的"问本机"通道（app: / server: / license: / feedback: / 收款码图…）**不在这里**，
+    // 它们在桌面端走本机 IPC（src/lib/api.ts 的 LOCAL_ONLY_CHANNELS），实现到服务端反而是错的。
+
+    // 开单页的搜索框：本地兜底口径与桌面端共用一份（commands/search.js）
+    'ai:smartSearch': (d, p) => localSearchHit(String(p?.text ?? '').trim(), productNamesForSearch(d)).result,
+
+    // 分类管理：写通道早就在，**计数**这条一直漏（分类管理页要显示每个分类下多少货）
+    'category:listWithCount': (d) => cmds.listCategoriesWithCount(d),
+
+    // 清仓 / 定价建议（纯读；与桌面端同为 commands.buildXxx）
+    'clearance:get': (d) => cmds.buildClearance(d),
+    'pricing:get': (d) => cmds.buildPricing(d),
+
+    // 知识库（店级数据；与桌面端同用 db.js 的助手）
+    'knowledge:list': (d, p) => listInsights(d, p ?? {}),
+    'knowledge:save': (d, p) => saveInsight(d, p.kind, p.content, { tags: p.tags ?? null, source: '手动' }),
+    'knowledge:update': (d, p) => updateInsight(d, p.id, p),
+    'knowledge:delete': (d, p) => deleteInsight(d, p.id),
+
+    // 行业模板
+    'template:list': () => cmds.listTemplates(),
+    'template:apply': (d, p) => cmds.applyIndustryTemplate(d, p),
+
+    // 单位管理（服务端原来只有 unit:list）
+    'unit:create': (d, p) => cmds.createUnit(d, p),
+    'unit:update': (d, p) => cmds.updateUnit(d, p.id, p),
+    'unit:delete': (d, p) => cmds.deleteUnit(d, p.id, p.operator),
+    'unit:move': (d, p) => cmds.moveUnit(d, p.id, p.dir),
+
+    // 员工账号（店级：两台电脑必须看到同一份员工名单 —— 所以绝不能归本机）
+    'user:list': (d) => cmds.listUsers(d),
+    'user:current': (d) => cmds.currentUser(d),
+    'user:create': (d, p) => cmds.createUser(d, p, p?.operator),
+    'user:update': (d, p) => cmds.updateUser(d, p.id, p, p?.operator),
+    'user:delete': (d, p) => cmds.deleteUser(d, p.id, p?.operator),
+    'user:login': (d, p) => cmds.login(d, p),
+    'user:logout': (d) => cmds.logout(d),
+    'user:setStaffLogin': (d, p) => cmds.setStaffLogin(d, p.on, p?.operator),
+    'user:staffLoginEnabled': (d) => cmds.staffLoginEnabled(d),
   }
 
   /** POST /api/invoke：{ channel, payload } → { ok:true, result }；业务错误 400 原样带中文提示 */

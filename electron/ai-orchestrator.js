@@ -6,7 +6,7 @@
 import * as ai from './ai.js'
 import * as doubao from './doubao.js'
 import { logAudit } from './commands/helpers.js'
-import { localFuzzyMatch } from './localSearch.js'
+import { productNamesForSearch, localSearchHit } from './commands/search.js'
 
 // ---------- AI 动作审计（M3-3：识别/建议写 audit_log，失败不阻断业务） ----------
 
@@ -45,20 +45,13 @@ export function initOrchestrator(db, dataDir) {
 /** 模糊搜索：本地兜底优先，AI 增强；断网/无 KEY 返回本地结果不哑 */
 export async function smartSearch(rawText, { useAI = true } = {}) {
   const text = String(rawText ?? '').trim()
-  if (!text) return { ok: false, reason: 'empty' }
-  // 取商品清单（与 ai.correctSearchTerm 同源）
-  const rows = dbRef
-    ? dbRef.prepare("SELECT p.brand, p.model, p.sku_code FROM products p WHERE p.status != '停产' ORDER BY p.id LIMIT 300").all()
-    : []
-  const productNames = rows.map((r) => [r.brand, r.model].filter(Boolean).join(' ') || r.sku_code || '').filter(Boolean)
-  if (productNames.length === 0) return { ok: true, corrected: text, matched: false, source: 'none' }
-
-  // ① 本地兜底（永远可用）
-  const local = localFuzzyMatch(text, productNames)
-  if (local && local.method !== 'fuzzy' && local.score === 0) {
-    // 精确/子串命中直接返回（最快，不用 AI）
-    return auditSearch(dbRef, text, { ok: true, corrected: local.name, matched: true, source: 'local:' + local.method })
-  }
+  // 本地那一段（清单口径 + 模糊判定）已抽到命令层：中心库服务端要跑**同一段**（红线①）。
+  // 见 electron/commands/search.js —— 那边改口径，这里跟着变，不会漂移。
+  const local = localSearchHit(text, productNamesForSearch(dbRef))
+  if (!local.result.ok) return local.result // 空串
+  if (local.result.source === 'none') return local.result // 没有可比对的商品（旧行为：不写审计）
+  // ① 本地已经够准 → 直接返回（最快，不用 AI）
+  if (local.decisive) return auditSearch(dbRef, text, local.result)
 
   // ② AI 增强（可选；无 KEY/断网自动回落本地）
   if (useAI) {
@@ -69,8 +62,7 @@ export async function smartSearch(rawText, { useAI = true } = {}) {
   }
 
   // ③ 本地模糊（含编辑距离）兜底
-  if (local) return auditSearch(dbRef, text, { ok: true, corrected: local.name, matched: true, source: 'local:' + local.method })
-  return { ok: true, corrected: text, matched: false, source: 'local:none' }
+  return auditSearch(dbRef, text, local.result)
 }
 
 /** AI 助手问答（统一出口；无 KEY 返回明确提示不哑） */

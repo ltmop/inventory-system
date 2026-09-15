@@ -47,8 +47,10 @@ const walk = (dir) => {
 walk('src')
 
 // ---------- ② 两侧的能力表 ----------
+// ⚠️ 前缀必须写成 [a-zA-Z]+：驼峰通道名（priceTier:set / category:listWithCount / ai:smartSearch）
+//    用 [a-z]+ 会**整条漏掉** → 把已经实现好的通道误判成缺口，然后去"修"没坏的东西（本闸门第一版就是这么错的）。
 const serverJs = read('electron/server.js')
-const serverChannels = new Set([...serverJs.matchAll(/'([a-z]+:[A-Za-z]+)'\s*:/g)].map((m) => m[1]))
+const serverChannels = new Set([...serverJs.matchAll(/'([a-zA-Z]+:[A-Za-z]+)'\s*:/g)].map((m) => m[1]))
 
 const apiTs = read('src/lib/api.ts')
 const localPrefixes = [...(apiTs.match(/LOCAL_ONLY_PREFIXES\s*=\s*\[([^\]]*)\]/)?.[1] ?? '').matchAll(/'([^']+)'/g)].map((m) => m[1])
@@ -59,36 +61,14 @@ const localChannels = new Set([...localListBlock.matchAll(/'([a-zA-Z]+:[A-Za-z]+
  * 已知缺口：既不在服务端、也还没归本机的通道。
  * ⚠️ 这张表**只能变短**：修好一个就从这里删掉（不删会导致下面「清单与实际缺口必须完全一致」红）。
  * 每一条都必须写清"为什么还没修"，见 docs/中心库模式-通道缺口清单.md。
+ *
+ * 2026-09-14：原 62 个缺口已全部处理完 ——
+ *   35 个"问本机"的归本机（LOCAL_ONLY_CHANNELS），25 个带账本语义的补进 server.js
+ *   （23 个服务端通道 + ai:analyzePhoto / ai:parseInboundNote 归本机，因为它们是纯 AI 能力、
+ *    吃的是本机 AI KEY 与用量额度，不需要账本）。
+ *   所以现在是**空的** —— 但机制留着：以后新增裸通道，这里仍是唯一合法的登记处。
  */
-const KNOWN_GAP = new Map([
-  ['ai:analyzePhoto', '要读商品库做匹配 → 必须与账本同源，本机化会读到旧账；待服务端补'],
-  ['ai:smartSearch', '搜的是商品 → 同上，必须与账本同源'],
-  ['ai:parseInboundNote', '解析入库单文本并对照商品库 → 同上'],
-  ['user:login', '员工账号是"店"的东西，不是"这台电脑"的东西 → 待服务端补（本机化会让两台机账号不一致）'],
-  ['user:logout', '同上'],
-  ['user:current', '同上'],
-  ['user:list', '同上'],
-  ['user:create', '同上'],
-  ['user:update', '同上'],
-  ['user:delete', '同上'],
-  ['user:setStaffLogin', '同上'],
-  ['user:staffLoginEnabled', '同上'],
-  ['priceTier:set', '价格档是店级账本数据 → 待服务端补（线上服务端也缺，见缺口清单）'],
-  ['priceTier:delete', '同上'],
-  ['unit:create', '单位是店级账本数据（服务端只有 unit:list）→ 待服务端补'],
-  ['unit:update', '同上'],
-  ['unit:delete', '同上'],
-  ['unit:move', '同上'],
-  ['knowledge:list', '知识库是店级数据 → 待服务端补'],
-  ['knowledge:save', '同上'],
-  ['knowledge:update', '同上'],
-  ['knowledge:delete', '同上'],
-  ['category:listWithCount', '分类计数要读账本（服务端只有 category:list）→ 待服务端补'],
-  ['clearance:get', '清仓建议读库存 → 待服务端补'],
-  ['pricing:get', '定价建议读成本/售价 → 待服务端补'],
-  ['template:list', '行业模板作用于整个账本 → 待服务端补'],
-  ['template:apply', '同上'],
-])
+const KNOWN_GAP = new Map([])
 
 const isLocal = (ch) => localPrefixes.some((p) => ch.startsWith(p)) || localChannels.has(ch)
 
