@@ -1,18 +1,20 @@
-// B 通道（前端局部热更）闸门：npm run check:webupdate
+// 业务层局部热更闸门：npm run check:webupdate
 //
-// 这个闸门跟前面那些"读源码找关键字"的闸门不一样：它**真的把四道护栏跑一遍** ——
-// 在系统临时目录里造一个假的内置 dist、一个假的更新源（内存里的假 fetch），
-// 然后验证：正常安装能成、每种坏包都被拒、坏包不留残留、没通过自检会回退、回退是有界的。
-// 全程不碰网络、不碰 %APPDATA%、不碰生产。
+// B 通道（前端）+ C 通道（口径层）。这个闸门跟前面那些"读源码找关键字"的不一样：
+// 它**真的把护栏跑一遍** —— 在系统临时目录里造假的内置包与假的更新源（内存假 fetch），
+// 验证：正常安装能成、每种坏包都被拒、坏包不留残留、没通过自检会回退、回退有界、
+// **口径层真的能被 ESM 加载起来**、加载失败绝不砖机。全程不碰网络、不碰 %APPDATA%、不碰生产。
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  installBundle, validateManifest, resolveWebRoot, markHealthy, readWebState,
+  installBundle, validateManifest, resolveWebRoot, markHealthy, readWebState, writeWebState,
   isSafeRelPath, isAllowedSource, readSupportedChannels, readBuiltinWebVersion,
   sha256Hex, cmpVersion, ALLOWED_EXT,
+  resolveCodeDir, abandonHotCode, pickCodeModule, CODE_ENTRIES, CODE_ROOT_FILE, CODE_ALLOWED_EXT,
 } from '../electron/webUpdate.js'
+import { computeCodeClosure } from './lib/code-closure.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(HERE, '..')
@@ -61,8 +63,42 @@ function makeBundle(webVersion, opts = {}) {
       sha256: opts.badShaOn === f.path ? 'f'.repeat(64) : sha256Hex(f.buf),
     })),
   }
+  // 可选的口径层（C 通道）：文件与前端共用一个 base URL，所以合进同一张 source 表
+  if (opts.code) {
+    manifest.codeFiles = opts.code.entries
+    Object.assign(source, opts.code.source)
+  }
   return { manifest, source }
 }
+
+/**
+ * 造一个最小的"口径层包"：三个入口各导出一个可调用函数。
+ * 用最小的假包（而不是真命令层）是为了：① 闸门不执行真实业务代码；② 能精确构造坏包。
+ */
+function makeCodeBundle(opts = {}) {
+  const files = {
+    'commands.js': `export function alpha() { return '${opts.alpha ?? 'a'}' }\n`,
+    'commands/search.js': `export function beta() { return 'b' }\n`,
+    'commands/analytics.js': `export function gamma() { return 'g' }\n`,
+  }
+  if (opts.breakSyntax) files['commands.js'] = 'export function alpha( {\n'
+  if (opts.extra) Object.assign(files, opts.extra)
+  if (opts.drop) for (const d of opts.drop) delete files[d]
+  const source = {}
+  const entries = []
+  for (const [p, body] of Object.entries(files)) {
+    const buf = Buffer.from(body)
+    source[p] = buf
+    entries.push({ path: p, size: buf.byteLength, sha256: sha256Hex(buf) })
+  }
+  return { source, entries }
+}
+/** 闸门里用的假"内置口径层"：三个入口各有一个导出 */
+const FAKE_BUILTINS = () => ({
+  commands: { alpha() { return 'builtin' } },
+  search: { beta() { return 'builtin' } },
+  analytics: { gamma() { return 'builtin' } },
+})
 
 const MANIFEST_URL = 'https://sync.junchengzn.com/web/latest.json'
 /** 文件地址形如 /web/<版本>/<路径>：去掉 base 前缀就是包内相对路径 */
@@ -323,6 +359,8 @@ ok('preload 暴露订阅', preloadSrc.includes('onWebUpdateReady') && preloadSrc
 ok('横幅组件挂着（App.tsx 里真的有它）', /import \{ WebUpdateBanner \}/.test(appTsx) && /<WebUpdateBanner \/>/.test(appTsx))
 ok('横幅把"立即生效"做成按钮（由人点，不自动重启）', /webupdate:restart/.test(banner) && /立即生效/.test(banner))
 ok('横幅能解释"已自动退回上一版"', /已自动退回上一版/.test(banner) && /lastRollback/.test(banner))
+ok('横幅也会说明口径层为什么没用（不是静默回内置）',
+  /lastCodeError/.test(banner) && /口径层更新未启用/.test(banner))
 ok('横幅不自动重启：组件里没有直接 relaunch/自动调用 restart',
   !/useEffect\([\s\S]{0,600}?applyNow\(\)/.test(banner))
 
@@ -378,6 +416,194 @@ console.log('\n=== ⑩ 省流量：本地已有的同内容文件不下载（逐
   ok('本地那份内容对不上 → 不复用，老老实实下载（sha256 是唯一判据，防把坏文件带进新版）',
     rA.ok && rA.reused === 0 && fA.hit.some((u) => u.endsWith('assets/app.js')),
     JSON.stringify({ reused: rA.reused, hit: fA.hit }))
+}
+
+console.log('\n=== ⑪ C 通道（口径层）：清单校验 ===')
+const CV = (code, extra = {}) => validateManifest(
+  { webVersion: '1.1.8.1', minShellVersion: '1.1.8', files: good, ...(code === null ? {} : { codeFiles: code }), ...extra },
+  { shellVersion: SHELL, currentWebVersion: '1.1.8.0', supportedChannels: supported },
+)
+{
+  const code = makeCodeBundle().entries
+  const r = CV(code)
+  ok('合法口径层清单通过', r.ok, r.reason)
+  ok('通过时把口径层文件数与字节数一并算出来（发布侧/界面要显示）',
+    r.ok && r.codeFiles.length === 3 && r.codeBytes > 0, JSON.stringify({ n: r.ok ? r.codeFiles.length : -1 }))
+  const noCode = CV(null)
+  ok('不写 codeFiles：清单照样通过（语义 = 口径层回内置，也是"单独撤掉坏口径层"的办法）',
+    noCode.ok && noCode.codeFiles.length === 0)
+  ok('拒绝：codeFiles 是空数组', !CV([]).ok)
+  ok('拒绝：codeFiles 不是数组', !CV('nope').ok)
+  ok('拒绝：缺 barrel（commands.js）', !CV(makeCodeBundle({ drop: ['commands.js'] }).entries).ok)
+  ok('拒绝：缺 search.js（否则一半走热更、一半走内置）', !CV(makeCodeBundle({ drop: ['commands/search.js'] }).entries).ok)
+  ok('拒绝：缺 analytics.js', !CV(makeCodeBundle({ drop: ['commands/analytics.js'] }).entries).ok)
+  ok('拒绝：package.json 混进来（模块解析方式不许由更新源决定）',
+    !CV([...makeCodeBundle().entries, { path: 'package.json', size: 20, sha256: 'a'.repeat(64) }]).ok)
+  ok('拒绝：非 .js（原生件 .node 不能进口径层）',
+    !CV([...makeCodeBundle().entries, { path: 'x.node', size: 10, sha256: 'a'.repeat(64) }]).ok)
+  ok('拒绝：路径越界（../）',
+    !CV([...makeCodeBundle().entries, { path: '../evil.js', size: 10, sha256: 'a'.repeat(64) }]).ok)
+  ok('拒绝：重复路径', !CV([...makeCodeBundle().entries, makeCodeBundle().entries[0]]).ok)
+  ok('拒绝：sha256 不合法', !CV(makeCodeBundle().entries.map((e, i) => (i === 0 ? { ...e, sha256: 'zz' } : e))).ok)
+  ok('拒绝：总大小超上限', !CV(makeCodeBundle().entries.map((e, i) => (i === 0 ? { ...e, size: 9 * 1024 * 1024 } : e))).ok)
+}
+
+console.log('\n=== ⑫ C 通道：安装 + **真实 ESM 加载**（证明生成的 package.json 真的让 import 生效）===')
+{
+  const { dataDir } = workspace()
+  const code = makeCodeBundle({ alpha: 'HOT' })
+  const { manifest, source } = makeBundle('1.1.8.1', { code })
+  const f = makeFetch(source, manifest)
+  const r = await installBundle({ manifest, baseUrl: manifest.baseUrl, dataDir, fetchImpl: f })
+  ok('安装成功并报出装了 3 个口径层文件', r.ok && r.codeFiles === 3, JSON.stringify({ codeFiles: r.codeFiles }))
+  ok('口径层落到 code/<版本>/', fs.existsSync(path.join(dataDir, 'code', '1.1.8.1', 'commands.js')))
+  ok('三个入口都在（相对 import 也跟着摆对了位置）',
+    [CODE_ROOT_FILE, ...Object.values(CODE_ENTRIES)].every((rel) => fs.existsSync(path.join(dataDir, 'code', '1.1.8.1', ...rel.split('/')))))
+  ok('客户端自己生成了 {"type":"module"}（没有它 .js 会被当 CommonJS → import 直接语法错误）',
+    JSON.parse(fs.readFileSync(path.join(dataDir, 'code', '1.1.8.1', 'package.json'), 'utf8')).type === 'module')
+  ok('状态里记下口径层目录与入口 sha256',
+    readWebState(dataDir).current?.codeDir === path.join('code', '1.1.8.1') &&
+    /^[0-9a-f]{64}$/.test(readWebState(dataDir).current?.codeEntrySha256 || ''))
+
+  const hot = resolveCodeDir({ dataDir, shellVersion: SHELL })
+  ok('resolveCodeDir 给出热更目录（1.1.8.1 > 壳 1.1.8）', hot === path.join(dataDir, 'code', '1.1.8.1'), String(hot))
+  const picked = await pickCodeModule({ hotDir: hot, builtins: FAKE_BUILTINS() })
+  ok('★ 真实 import 成功：口径层来自热更', picked.source === 'hot' && !picked.error, picked.error)
+  ok('★ 真的调到了热更那份实现（alpha() === "HOT"）', picked.modules.commands.alpha() === 'HOT')
+  ok('search / analytics 也是同一份（否则就是口径分叉）',
+    picked.modules.search.beta() === 'b' && picked.modules.analytics.gamma() === 'g')
+}
+
+console.log('\n=== ⑬ C 通道：用不用热更口径层的判断（版本 / 转正状态 / 内容完好）===')
+{
+  const { dataDir } = workspace()
+  const code = makeCodeBundle()
+  const { manifest, source } = makeBundle('1.1.8.1', { code })
+  await installBundle({ manifest, baseUrl: manifest.baseUrl, dataDir, fetchImpl: makeFetch(source, manifest) })
+  const at = (v) => resolveCodeDir({ dataDir, shellVersion: v })
+  ok('壳涨到 ≥ 热更版本 → 弃用（装完新壳不该再跑旧口径层）', at('1.1.8').length > 0 && at('1.1.8.1') === null && at('1.1.9') === null)
+  ok('壳比 minShellVersion 还老 → 不用', at('1.1.7') === null)
+  // 模拟"上次启动记了尝试、但始终没等到健康确认"
+  writeWebState(dataDir, { ...readWebState(dataDir), attemptedAt: new Date().toISOString(), confirmedAt: null })
+  ok('上次没转正 → 这次先用内置（与页面层同一套回退规则）', at('1.1.8') === null)
+  markHealthy(dataDir, 'gate')
+  ok('转正之后又能用了', at('1.1.8') !== null)
+  // 入口被人手改坏 → sha 对不上 → 不认
+  fs.writeFileSync(path.join(dataDir, 'code', '1.1.8.1', 'commands.js'), 'export function alpha() { return "tampered" }\n')
+  ok('入口内容对不上（磁盘坏/被改过）→ 拒绝加载', at('1.1.8') === null)
+  ok('作废会落盘（不落盘就会每次启动都重试一遍、每次都失败）', abandonHotCode(dataDir, 'gate 测试作废').ok === true &&
+    readWebState(dataDir).current.codeDir === null && /口径层已放弃/.test(readWebState(dataDir).lastCodeError || ''))
+  ok('作废时记下时间（界面据此决定还要不要打扰用户）', !!readWebState(dataDir).lastCodeErrorAt)
+  // 真机验证抓到的 bug：页面自检通过时 markHealthy 会清 lastError，把"口径层为什么没用"一起抹掉
+  markHealthy(dataDir, 'gate')
+  ok('★ 页面自检通过**不会**抹掉口径层的错误记录（用独立字段 lastCodeError）',
+    /口径层已放弃/.test(readWebState(dataDir).lastCodeError || '') && readWebState(dataDir).lastError === null)
+  ok('作废之后 resolveCodeDir 自然也不认', at('1.1.8') === null)
+  ok('作废只影响口径层，页面层的版本信息还在', readWebState(dataDir).current.webVersion === '1.1.8.1')
+}
+
+console.log('\n=== ⑭ C 通道：绝不砖机（加载失败/出口不全都静默回内置）===')
+{
+  const { dataDir } = workspace()
+  const code = makeCodeBundle({ breakSyntax: true })
+  const { manifest, source } = makeBundle('1.1.8.1', { code })
+  await installBundle({ manifest, baseUrl: manifest.baseUrl, dataDir, fetchImpl: makeFetch(source, manifest) })
+  const hot = resolveCodeDir({ dataDir, shellVersion: SHELL })
+  const picked = await pickCodeModule({ hotDir: hot, builtins: FAKE_BUILTINS() })
+  ok('语法坏掉的口径层：不抛异常，静默回内置', picked.source === 'builtin' && picked.modules.commands.alpha() === 'builtin')
+  ok('并且说清原因（能显示给 owner 看）', /加载失败/.test(picked.error || ''), picked.error)
+}
+{
+  const { dataDir } = workspace()
+  const code = makeCodeBundle({ alpha: 'HOT' })
+  const { manifest, source } = makeBundle('1.1.8.1', { code })
+  await installBundle({ manifest, baseUrl: manifest.baseUrl, dataDir, fetchImpl: makeFetch(source, manifest) })
+  const hot = resolveCodeDir({ dataDir, shellVersion: SHELL })
+  // 内置比热更多一个导出 = 热更包打歪了/漏了文件
+  const picked = await pickCodeModule({
+    hotDir: hot,
+    builtins: { commands: { alpha() {}, extraOne() {} }, search: { beta() {} }, analytics: { gamma() {} } },
+  })
+  ok('出口集合不全 → 整包拒用（专拦"一半新一半旧"，它比彻底坏掉更难查）',
+    picked.source === 'builtin' && /少了 1 个导出/.test(picked.error || '') && /extraOne/.test(picked.error || ''), picked.error)
+}
+{
+  const picked = await pickCodeModule({
+    hotDir: 'C:/definitely/not/here',
+    builtins: FAKE_BUILTINS(),
+    importFn: async () => { throw new Error('boom') },
+  })
+  ok('import 抛的错不会外泄（C1：宁可没热更，也不能把启动搞崩）', picked.source === 'builtin' && /boom/.test(picked.error))
+  const none = await pickCodeModule({ hotDir: null, builtins: FAKE_BUILTINS() })
+  ok('没有热更口径层时：直接用内置，不算错误', none.source === 'builtin' && none.error === null)
+}
+
+console.log('\n=== ⑮ 单入口 + 闭包：口径层只能有一个入口，且包必须完整 ===')
+{
+  const electronFiles = fs.readdirSync(path.join(REPO, 'electron')).filter((f) => f.endsWith('.js'))
+  // commands.js 自己就是 barrel（属于命令层内部）；commandsLive.js 是**唯一**允许跨进来的入口
+  const allowed = new Set(['commands.js', 'commandsLive.js'])
+  const offenders = []
+  for (const f of electronFiles) {
+    if (allowed.has(f)) continue
+    const src = read(path.join('electron', f))
+    if (/from\s+'\.\/commands(\.js|\/[^']*)'/.test(src)) offenders.push(f)
+  }
+  ok('electron/ 下除 commandsLive.js 外没人直接 import 命令层（否则两份口径同时活着）',
+    offenders.length === 0, offenders.join(' '))
+  ok('commandsLive 三个入口都导出', /export const commands = /.test(read('electron/commandsLive.js')) &&
+    /export const search = /.test(read('electron/commandsLive.js')) &&
+    /export const analytics = /.test(read('electron/commandsLive.js')))
+  ok('main.js 走唯一入口', /from '\.\/commandsLive\.js'/.test(read('electron/main.js')) && !/from '\.\/commands\.js'/.test(read('electron/main.js')))
+  ok('server.js 走唯一入口', /from '\.\/commandsLive\.js'/.test(read('electron/server.js')) && !/from '\.\/commands\.js'/.test(read('electron/server.js')))
+  ok('ai-orchestrator.js 走唯一入口', /from '\.\/commandsLive\.js'/.test(read('electron/ai-orchestrator.js')) && !/from '\.\/commands(\.js|\/)/.test(read('electron/ai-orchestrator.js')))
+  ok('commandsLive 用 top-level await（口径层必须在 app.whenReady 之前定下来）',
+    /const picked = await pickCodeModule\(/.test(read('electron/commandsLive.js')))
+  ok('加载失败会把那一版作废（不反复重试）',
+    /abandonHotCode\(runtime\.dataDir, picked\.error\)/.test(read('electron/commandsLive.js')))
+  ok('webupdate:status 带上了口径层来源（界面能解释"为什么没用热更代码"）',
+    /webUpdateStatus\(dataDir, resolvedWeb, codeOrigin\)/.test(read('electron/main.js')))
+}
+console.log('\n--- ⑮b 纯 Node 兼容：中心库服务器与后端断言都是在没有 Electron 的环境里 import 这份代码的 ---')
+{
+  // 这一次真的踩过：commandsLive 一开始写成静态 `import { app } from 'electron'`，
+  // server.js 间接引用它 → 纯 Node 下解析就 SyntaxError → 后端 711 项断言一条都不出、中心库服务起不来。
+  const src = read('electron/commandsLive.js')
+  ok('没有静态 import electron（必须动态且容错地取）', !/^import\s+\{[^}]*\}\s+from\s+'electron'/m.test(src))
+  ok('用动态 import 并容错（取不到就当不在 Electron 里）',
+    /await import\('electron'\)/.test(src) && /catch \{ return null \}/.test(src))
+  const live = await import('../electron/commandsLive.js')
+  ok('★ 纯 Node 下 import 得动（否则中心库服务器直接起不来）', typeof live.commands === 'object' && live.commands !== null)
+  ok('纯 Node 下自动回落内置口径层，且不算错误',
+    live.codeOrigin.source === 'builtin' && live.codeOrigin.dir === null && live.codeOrigin.error === null,
+    JSON.stringify(live.codeOrigin))
+  ok('纯 Node 下三个命名空间都拿到了真东西',
+    Object.keys(live.commands).length > 100 && typeof live.search.productNamesForSearch === 'function' &&
+    typeof live.analytics.analyticsOverview === 'function',
+    `commands 导出 ${Object.keys(live.commands).length} 个`)
+  // server.js 是**中心库服务器**上那份（用纯 node 起），它绝不能因为口径层入口而变得不可 import。
+  // 注意 ai-orchestrator.js 本来就依赖 electron（只在 Electron 里用），不在这一条的范围里。
+  const srv = await import('../electron/server.js')
+  ok('★ server.js 在纯 Node 下 import 得动（中心库服务器就是 `node` 起它的）',
+    typeof srv.createInventoryServer === 'function')
+}
+{
+  const cl = computeCodeClosure(path.join(REPO, 'electron'))
+  ok('口径层闭包不含 import electron（含了就换不掉）', cl.electronImports.length === 0, cl.electronImports.join(' '))
+  ok('口径层闭包没有跳出 electron/ 的相对 import', cl.escapes.length === 0, cl.escapes.join(' | '))
+  ok(`口径层闭包规模合理（${cl.files.length} 文件），不是把整个 electron/ 都装进去`, cl.files.length > 20 && cl.files.length < 200)
+  ok('闭包包含 barrel 与三个入口', [CODE_ROOT_FILE, ...Object.values(CODE_ENTRIES)].every((e) => cl.files.includes(e)))
+  ok('闭包带上了目录外的依赖（license / channels / localSearch）—— 漏了就是"一半新一半旧"',
+    ['license.js', 'channels.js', 'localSearch.js'].every((f) => cl.files.includes(f)))
+  ok('外部依赖只有 Node 内置（因此不需要带 node_modules）',
+    [...cl.externals.keys()].every((s) => s.startsWith('node:')), [...cl.externals.keys()].join(' '))
+}
+{
+  const build = read('scripts/build-web-bundle.mjs')
+  ok('发布侧用同一套闭包算法（不是各写一份）', /computeCodeClosure/.test(build))
+  ok('发布侧会拦住"闭包里 import 了 electron"', /import 了 electron/.test(build))
+  ok('发布侧支持 --no-code（单独撤掉一个坏口径层的办法）', /--no-code/.test(build))
+  ok('CODE_ALLOWED_EXT 只收 .js', CODE_ALLOWED_EXT.size === 1 && CODE_ALLOWED_EXT.has('.js'))
 }
 
 // 清理临时目录

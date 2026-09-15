@@ -5,7 +5,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { openDatabase, finalCheckpoint, listInsights, saveInsight, updateInsight, deleteInsight, aiUsageStats, listAiUsageLog } from './db.js'
-import * as commands from './commands.js'
+// 口径层的**唯一入口**（P2 2026-09-15）：commandsLive 先尝试热更的口径层，加载失败静默回内置。
+// 全仓库只有它允许 import './commands.js' —— 否则就会出现两份口径同时活着。
+import { commands, codeOrigin } from './commandsLive.js'
 import * as commandApi from './commandApi.js'
 import * as ai from './ai.js'
 import * as aiQuota from './aiQuota.js' // P0 计费阀门：AI 统一计费入口
@@ -506,7 +508,7 @@ function registerIpc() {
     try { await downloadAndInstall() } catch (e) { throw new Error(e?.message ?? '下载失败') }
   })
   // B 通道（前端热更）：状态查询 / 立即检查 / 重启生效
-  ipcMain.handle('webupdate:status', () => webUpdateStatus(dataDir, resolvedWeb))
+  ipcMain.handle('webupdate:status', () => webUpdateStatus(dataDir, resolvedWeb, codeOrigin))
   ipcMain.handle('webupdate:check', async () => {
     try {
       return await runWebCheck({ manual: true })
@@ -668,6 +670,8 @@ async function runWebCheck({ manual = false } = {}) {
     manifestUrl: process.env.FI_WEB_UPDATE_URL || DEFAULT_MANIFEST_URL,
     shellVersion: app.getVersion(),
     builtinDir: path.join(__dirname, '../dist'),
+    // C 通道（口径层）在本地复用时要比对的"内置那份"= electron/ 目录本身
+    builtinCodeDir: __dirname,
     // 护栏③：热更包引用的通道必须 ⊆ 当前壳真正支持的通道
     // = preload 白名单（本机 IPC）∪ server.js 路由（中心库模式下走 HTTP 的那批，不过 preload）
     supportedChannels: readSupportedChannels(path.join(__dirname, 'preload.cjs'), path.join(__dirname, 'server.js')),

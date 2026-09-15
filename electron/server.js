@@ -16,14 +16,17 @@ import { ensureTlsCert } from './tls.js'
 
 // ESM 无 __dirname，这里补一个（serveMobile 托管 electron/mobile/ 用）
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-import { confirmOutbound, listCustomers, lowStockProducts, auditLog, supplierStatement, todayPaymentSplit } from './commands.js'
-import * as cmds from './commands.js'
+// 口径层的**唯一入口**（P2 2026-09-15）：commandsLive 会先尝试热更的口径层，失败静默回内置。
+// 这里只是把同一份命名空间摊开成原来的名字，**不改任何调用点**；但绝不许再直接 import './commands.js'
+// —— 那样会出现"一半走热更、一半走内置"的口径分叉（同一件事桌面端和服务端算出不同结果）。
+import { commands as cmds, search, analytics } from './commandsLive.js'
+const { confirmOutbound, listCustomers, lowStockProducts, auditLog, supplierStatement, todayPaymentSplit } = cmds
 // 中心库模式下必须由**服务端**跑的通道（2026-09-14 补，见 docs/中心库模式-通道缺口清单.md）：
-//   · 商品模糊搜索的本地兜底口径 → 与桌面端 ai-orchestrator 共用 commands/search.js（红线①：口径只走命令层）
+//   · 商品模糊搜索的本地兜底口径 → 与桌面端 ai-orchestrator 共用同一份 search（红线①：口径只走命令层）
 //   · 知识库读写 → db.js 的助手（与桌面端同一份实现）
-import { productNamesForSearch, localSearchHit } from './commands/search.js'
+const { productNamesForSearch, localSearchHit } = search
 import { saveInsight, listInsights, updateInsight, deleteInsight } from './db.js'
-import { analyticsTrend, analyticsCategory, analyticsTop, analyticsStockValue, analyticsOverview } from './commands/analytics.js'
+const { analyticsTrend, analyticsCategory, analyticsTop, analyticsStockValue, analyticsOverview } = analytics
 import { createPhotoStore } from './photo.js'
 
 const DEFAULT_PORT = 17532

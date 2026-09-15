@@ -1,8 +1,11 @@
-// B 通道：业务层（dist）局部热更 + 四道护栏（P1，2026-09-15）
+// 业务层局部热更：B 通道（前端 dist）+ C 通道（口径层 electron/commands）（P1/P2，2026-09-15）
 //
-// 为什么要这条通道：桌面端「每次更新 = 退应用 + 装 124MB 整包 + 重启」，而那 124MB 里
+// 为什么要这两条通道：桌面端「每次更新 = 退应用 + 装 124MB 整包 + 重启」，而那 124MB 里
 // 业务层（dist 15.3MB + electron 1.1MB）只占约 11%，其余是几乎不变的 Electron 运行时与原生依赖。
-// B 通道把这 11% 里的**前端部分**单独发、单独换：下载 → 逐文件校验 → 原子切换 → 下次启动生效。
+//
+//   B 通道（dist）      ：秒级生效，收银机营业中只提示、不换页面
+//   C 通道（口径层）    ：改的是**主进程里的代码**，必须重启进程才生效（约 2 秒，不是重装）
+//                       实测闭包 35 个文件 / 208 KB，只依赖 Node 内置，**零 `import electron`**
 //
 // 四道护栏（缺一个都不上，逐条对应下面的函数）：
 //   ① 逐文件 sha256 + 原子改名（installBundle）：任何失败保留旧目录，绝不半可用
@@ -12,18 +15,33 @@
 //      否则会重演 2026-09-14 那 62 个通道的静默失败（"点了没反应"）
 //   ④ 用户可见（主进程发 webupdate:ready）：渲染层显示"新版本已就绪"，绝不静默替换
 //
-// 🔴 诚实边界：本期**没有做签名校验**。清单靠 HTTPS + 逐文件 sha256 保证**完整性**，
-//    不保证**来源**。也就是说"能改到更新源的人 = 能改前端页面"。
+// C 通道另有三条**它独有**的护栏（因为它是在主进程执行代码，比页面层危险一档）：
+//   C1 绝不砖机：口径层在**启动时**被 import，任何加载失败都必须静默回退内置（见 commandsLive.js）
+//   C2 出口集合校验：热更的 barrel 必须**导出内置 barrel 的全部名字**（缺一个就整包拒用），
+//      这条专拦"发布时打歪了/漏文件"这类一半新一半旧的病
+//   C3 单入口：全仓库只有 commandsLive.js 允许 import 命令层（闸门 check:webupdate 会断言）
+//
+// 🔴 诚实边界：**两条通道都没有签名校验**。清单靠 HTTPS + 逐文件 sha256 保证**完整性**，
+//    不保证**来源**。B 通道改的是沙箱里的页面（受 preload 通道白名单约束）；
+//    **C 通道改的是主进程代码 —— 能改到更新源的人就能在这台机器上执行任意代码**。
 //    这与手机线网页层热更的信任模型一致，但**不等于**安装包的签名强度。
 //    撤下热更包的办法：删掉更新源上的 latest.json（客户端拿不到清单就不动，退化为现状）。
+//    想在某台机器上永久关掉：环境变量 FI_NO_WEB_UPDATE=1，或删 dataDir/web-current.json。
 
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { pathToFileURL } from 'node:url'
 
 export const WEB_DIR = 'web'
+/** C 通道目录：`electron/` 的一个子树镜像（commands.js + commands/** + 它的相对依赖） */
+export const CODE_DIR = 'code'
 export const STATE_FILE = 'web-current.json'
 export const VERSION_FILE = 'web-version.txt'
+/** C 通道三个入口（相对 code 根目录）：barrel + 两个被运行时**直接**引用的模块 */
+export const CODE_ENTRIES = { commands: 'commands.js', search: 'commands/search.js', analytics: 'commands/analytics.js' }
+/** 有它才叫一个能用的口径层包 */
+export const CODE_ROOT_FILE = 'commands.js'
 /** 清单地址（可用 FI_WEB_UPDATE_URL 覆盖；FI_NO_WEB_UPDATE=1 整条通道关闭） */
 export const DEFAULT_MANIFEST_URL = 'https://sync.junchengzn.com/web/latest.json'
 
@@ -33,10 +51,15 @@ export const ALLOWED_EXT = new Set([
   '.png', '.jpg', '.jpeg', '.svg', '.webp', '.gif', '.ico',
   '.woff', '.woff2', '.ttf', '.otf',
 ])
+/** C 通道只收纯 JS（口径层不 import electron，也正因如此才能单独热更） */
+export const CODE_ALLOWED_EXT = new Set(['.js'])
 
 const MAX_FILES = 400
 const MAX_FILE_BYTES = 40 * 1024 * 1024
 const MAX_TOTAL_BYTES = 80 * 1024 * 1024
+/** 口径层实测 208 KB / 35 个文件；上限给足余量，但拦住"打包打歪了" */
+const MAX_CODE_FILES = 200
+const MAX_CODE_TOTAL_BYTES = 8 * 1024 * 1024
 const FETCH_TIMEOUT_MS = 15_000
 
 /** 版本号数字比较（1.1.8.1 vs 1.1.8 这种不能被字符串比较糊弄过去）：a>b 返回正数 */
@@ -61,7 +84,7 @@ export function sha256Hex(buf) {
  * 拦的是真实存在的几种越界写法：`../` 跳出、绝对路径、Windows 盘符/ADS（`C:`、`f.txt:ads`）、
  * 反斜杠混用、空段、超长名。返回 null 表示不合法（调用方把 null 当拒绝理由）。
  */
-export function isSafeRelPath(rel) {
+export function isSafeRelPath(rel, allowedExt = ALLOWED_EXT) {
   const s = String(rel ?? '')
   if (!s || s.length > 200) return null
   if (s.includes('\0')) return null
@@ -71,7 +94,7 @@ export function isSafeRelPath(rel) {
   const segs = s.split('/')
   if (segs.some((x) => x === '' || x === '.' || x === '..')) return null
   const ext = path.extname(segs[segs.length - 1]).toLowerCase()
-  if (!ALLOWED_EXT.has(ext)) return null
+  if (!allowedExt.has(ext)) return null
   return s
 }
 
@@ -173,6 +196,39 @@ export function validateManifest(manifest, opts = {}) {
   // 入口必须在：没有 index.html 的热更包装上去就是白屏
   if (!seen.has('index.html')) return reject('缺少入口 index.html')
 
+  // ---------- C 通道（口径层）文件集：可选，但写了就必须完整 ----------
+  // ⚠️ 只收 .js（CODE_ALLOWED_EXT）—— 于是 `package.json` 天然进不来：
+  //    热更目录的 {"type":"module"} 由**客户端自己生成**，绝不让清单来决定模块解析方式。
+  const codeFiles = []
+  let codeBytes = 0
+  if (manifest.codeFiles !== undefined) {
+    if (!Array.isArray(manifest.codeFiles) || manifest.codeFiles.length === 0) {
+      return reject('codeFiles 不是非空数组（不带口径层就别写这个字段）')
+    }
+    if (manifest.codeFiles.length > MAX_CODE_FILES) {
+      return reject(`口径层文件数 ${manifest.codeFiles.length} 超过上限 ${MAX_CODE_FILES}`)
+    }
+    const seenCode = new Set()
+    for (const f of manifest.codeFiles) {
+      const rel = isSafeRelPath(f?.path, CODE_ALLOWED_EXT)
+      if (!rel) return reject(`非法口径层路径：${String(f?.path ?? '')}`)
+      if (seenCode.has(rel)) return reject(`重复口径层路径：${rel}`)
+      seenCode.add(rel)
+      const size = Number(f?.size)
+      if (!Number.isFinite(size) || size < 0) return reject(`${rel} 的 size 不合法`)
+      const sha = String(f?.sha256 ?? '').trim().toLowerCase()
+      if (!/^[0-9a-f]{64}$/.test(sha)) return reject(`${rel} 的 sha256 不是 64 位十六进制`)
+      codeBytes += size
+      if (codeBytes > MAX_CODE_TOTAL_BYTES) return reject(`口径层总大小超过上限 ${MAX_CODE_TOTAL_BYTES} 字节`)
+      codeFiles.push({ path: rel, size, sha256: sha })
+    }
+    // 三个入口一个都不能少：少了 barrel 就用不了；少了 search/analytics 会出现
+    // "一半走热更、一半走内置" —— 正是这个项目一直在治的口径分叉
+    for (const e of [CODE_ROOT_FILE, ...Object.values(CODE_ENTRIES)]) {
+      if (!seenCode.has(e)) return reject(`口径层缺少入口 ${e}`)
+    }
+  }
+
   // 通道子集：热更包引用的通道必须是当前壳**真的**支持的（否则用户看到"点了没反应"）
   let channels = []
   if (manifest.channels !== undefined) {
@@ -186,7 +242,7 @@ export function validateManifest(manifest, opts = {}) {
       if (missing.length) return reject(`热更包用到当前壳不支持的通道：${missing.join(' ')}`)
     }
   }
-  return { ok: true, webVersion, minShellVersion, files, channels, totalBytes: total }
+  return { ok: true, webVersion, minShellVersion, files, channels, totalBytes: total, codeFiles, codeBytes }
 }
 
 // ---------- 状态文件（只存指针，不存内容） ----------
@@ -196,7 +252,7 @@ function statePath(dataDir) {
 }
 
 export function readWebState(dataDir) {
-  const empty = { current: null, previous: null, attemptedAt: null, confirmedAt: null, lastRollback: null, lastError: null }
+  const empty = { current: null, previous: null, attemptedAt: null, confirmedAt: null, lastRollback: null, lastError: null, lastCodeError: null, lastCodeErrorAt: null }
   try {
     const raw = JSON.parse(fs.readFileSync(statePath(dataDir), 'utf8'))
     if (!raw || typeof raw !== 'object') return empty
@@ -311,6 +367,99 @@ export function markUnhealthy(dataDir, error) {
   return { ok: true }
 }
 
+// ---------- C 通道（口径层）：目录判定 / 作废 / 加载 ----------
+
+/** 口径层目录必须真的能用：三个入口都在 + 入口内容与安装时记下的 sha256 一致 */
+function codeDirUsable(dataDir, e) {
+  if (!e || typeof e.codeDir !== 'string' || !e.codeDir) return false
+  const abs = path.join(dataDir, e.codeDir)
+  if (!isInside(path.join(dataDir, CODE_DIR), abs)) return false
+  for (const rel of [CODE_ROOT_FILE, ...Object.values(CODE_ENTRIES)]) {
+    if (!fs.existsSync(path.join(abs, ...rel.split('/')))) return false
+  }
+  const entryFile = path.join(abs, CODE_ROOT_FILE)
+  if (e.codeEntrySha256) {
+    try {
+      if (sha256Hex(fs.readFileSync(entryFile)) !== e.codeEntrySha256) return false
+    } catch {
+      return false
+    }
+  }
+  return true
+}
+
+/**
+ * 决定这次启动要不要用热更的口径层 → 返回它的绝对目录（不用就是 null）。
+ *
+ * ⚠️ 它**必须独立**判断，不能复用 resolveWebRoot 的结果：commandsLive.js 是在**模块加载时**
+ *    （top-level await）就把口径层 import 进来的，而 resolveWebRoot 跑在 `app.whenReady()` 里 ——
+ *    顺序是反的。所以这里自己读状态，但规则与 resolveWebRoot 保持一致
+ *    （尤其"上次记了尝试却没转正 → 这次先回内置"）。
+ *
+ * 版本基线用**壳版本**：内置口径层的版本就等于壳版本，所以壳涨上去（如 1.1.9）以后，
+ * 旧热更口径层（1.1.8.1）会自动弃用，不需要人工清理。
+ */
+export function resolveCodeDir({ dataDir, shellVersion }) {
+  const state = readWebState(dataDir)
+  const e = state.current
+  if (!e || !e.codeDir) return null
+  if (state.attemptedAt && !state.confirmedAt) return null // 上次没转正：这次先用内置
+  if (!codeDirUsable(dataDir, e)) return null
+  if (cmpVersion(e.webVersion, String(shellVersion || '0')) <= 0) return null
+  if (cmpVersion(String(shellVersion || '0'), e.minShellVersion || '0') < 0) return null
+  return path.join(dataDir, e.codeDir)
+}
+
+/**
+ * 口径层加载失败时把它作废 —— **必须落盘**：不落盘的话每次启动都会再试一次、每次都失败。
+ * 只作废口径层，页面层不受影响（页面对了、代码错了，就只退代码这一层）。
+ */
+export function abandonHotCode(dataDir, reason) {
+  const state = readWebState(dataDir)
+  if (!state.current?.codeDir) return { ok: false }
+  const next = {
+    ...state,
+    current: { ...state.current, codeDir: null, codeEntrySha256: '' },
+    // ⚠️ 用**独立的字段**记口径层的错：曾经写进 lastError，结果被 markHealthy 清成 null
+    //    （页面自检通过时会清 lastError）→ owner 永远看不到"口径层为什么没用"。真机验证抓到的。
+    lastCodeError: `口径层已放弃：${String(reason || '').slice(0, 200)}`,
+    lastCodeErrorAt: new Date().toISOString(),
+  }
+  writeWebState(dataDir, next)
+  return { ok: true, reason: String(reason || '') }
+}
+
+/**
+ * 护栏 C1+C2：挑口径层模块。热更的每个入口必须**导出内置的全部名字**（缺一个就整包拒用）。
+ *   · C1 绝不砖机：这里**从不抛异常**，任何失败都返回内置模块 —— 口径层坏了顶多是"没热更"，不是打不开
+ *   · C2 出口集合：专拦"发布时打歪了/漏了文件"这类"一半新一半旧"，它比彻底坏掉更难查
+ * importFn 可注入（闸门里用假的），默认用真的动态 import。
+ */
+export async function pickCodeModule({ hotDir, entries = CODE_ENTRIES, builtins, importFn }) {
+  const doImport = importFn || ((u) => import(u))
+  const modules = { ...builtins }
+  if (!hotDir) return { source: 'builtin', modules, error: null }
+  try {
+    const hot = {}
+    for (const [k, rel] of Object.entries(entries)) {
+      hot[k] = await doImport(pathToFileURL(path.join(hotDir, ...rel.split('/'))).href)
+    }
+    for (const [k, builtinNs] of Object.entries(builtins)) {
+      const missing = Object.keys(builtinNs).filter((n) => !(n in (hot[k] || {})))
+      if (missing.length) {
+        return {
+          source: 'builtin',
+          modules,
+          error: `热更口径层 ${entries[k] || k} 少了 ${missing.length} 个导出（如 ${missing.slice(0, 5).join(', ')}）`,
+        }
+      }
+    }
+    return { source: 'hot', modules: hot, error: null }
+  } catch (e) {
+    return { source: 'builtin', modules, error: `热更口径层加载失败：${(e && e.message) || e}` }
+  }
+}
+
 // ---------- 下载与安装 ----------
 
 const joinUrl = (base, rel) => String(base).replace(/\/+$/, '') + '/' + rel.replace(/^\/+/, '')
@@ -356,75 +505,112 @@ function tryReuse(dirs, f) {
 }
 
 /**
- * 护栏①：逐文件下载到 `<版本>.tmp/` → 每个文件都验 sha256 与 size → 全部通过才原子改名。
- * 任何一步失败：删掉 .tmp，正式目录与指针**原样不动**（宁可没有热更，也不要半可用）。
- * reuseDirs：可以本地复用的目录（当前热更包 / 内置 dist）——纯 UI 改动通常只需下几个文件。
+ * 护栏①：把两个部分**都**准备到各自的 `<版本>.tmp/` → 每个文件验 sha256 与 size →
+ * **两边都通过**才分别原子改名。任何一步失败：删掉两个 .tmp，正式目录与指针原样不动
+ * （"页面是新的、代码是旧的"这种半成品最难查，所以宁可整包不要）。
+ * reuseDirs / reuseCodeDirs：可以本地复用的目录（上一版 / 内置）——纯 UI 改动通常只需下几个文件。
+ * manifest 不带 codeFiles 时的语义：**口径层回内置**（用来单独撤掉一个坏的口径层）。
  */
-export async function installBundle({ manifest, baseUrl, dataDir, fetchImpl, onProgress, reuseDirs = [] }) {
+export async function installBundle({ manifest, baseUrl, dataDir, fetchImpl, onProgress, reuseDirs = [], reuseCodeDirs = [] }) {
   const v = String(manifest.webVersion)
-  const targetDir = path.join(dataDir, WEB_DIR, v)
-  const tmpDir = targetDir + '.tmp'
-  const files = manifest.files
+  const webTarget = path.join(dataDir, WEB_DIR, v)
+  const webTmp = webTarget + '.tmp'
+  const codeTarget = path.join(dataDir, CODE_DIR, v)
+  const codeTmp = codeTarget + '.tmp'
+  const webFiles = manifest.files
+  const codeFiles = Array.isArray(manifest.codeFiles) ? manifest.codeFiles : []
+  const total = webFiles.length + codeFiles.length
 
-  fs.rmSync(tmpDir, { recursive: true, force: true })
-  fs.mkdirSync(tmpDir, { recursive: true })
+  fs.rmSync(webTmp, { recursive: true, force: true })
+  fs.rmSync(codeTmp, { recursive: true, force: true })
+  fs.mkdirSync(webTmp, { recursive: true })
 
   let done = 0
   let bytes = 0 // 真正从网络下来的字节
   let reused = 0 // 本地复制、没走网络的文件数
   let reusedBytes = 0
-  try {
-    for (const f of files) {
-      const abs = path.join(tmpDir, ...f.path.split('/'))
-      if (!isInside(tmpDir, abs)) throw new Error(`路径越界：${f.path}`)
-      let buf = tryReuse(reuseDirs, f)
-      if (buf) {
-        reused++
-        reusedBytes += buf.byteLength
-      } else {
-        const res = await fetchImpl(joinUrl(baseUrl, f.path), { cache: 'no-store' })
-        if (!res || !res.ok) throw new Error(`${f.path} 下载失败 HTTP ${res ? res.status : '?'}`)
-        buf = Buffer.from(await res.arrayBuffer())
-        if (buf.byteLength !== f.size) throw new Error(`${f.path} 大小不符：${buf.byteLength} ≠ ${f.size}`)
-        if (sha256Hex(buf) !== f.sha256) throw new Error(`${f.path} sha256 校验失败`)
-        bytes += buf.byteLength
-      }
-      fs.mkdirSync(path.dirname(abs), { recursive: true })
-      fs.writeFileSync(abs, buf)
-      done++
-      try {
-        onProgress?.({ done, total: files.length, percent: Math.round((done / files.length) * 100), bytes, reused, reusedBytes })
-      } catch { /* 回调出错不影响安装 */ }
+
+  const one = async (tmpDir, reuseSources, f) => {
+    const abs = path.join(tmpDir, ...f.path.split('/'))
+    if (!isInside(tmpDir, abs)) throw new Error(`路径越界：${f.path}`)
+    let buf = tryReuse(reuseSources, f)
+    if (buf) {
+      reused++
+      reusedBytes += buf.byteLength
+    } else {
+      const res = await fetchImpl(joinUrl(baseUrl, f.path), { cache: 'no-store' })
+      if (!res || !res.ok) throw new Error(`${f.path} 下载失败 HTTP ${res ? res.status : '?'}`)
+      buf = Buffer.from(await res.arrayBuffer())
+      if (buf.byteLength !== f.size) throw new Error(`${f.path} 大小不符：${buf.byteLength} ≠ ${f.size}`)
+      if (sha256Hex(buf) !== f.sha256) throw new Error(`${f.path} sha256 校验失败`)
+      bytes += buf.byteLength
     }
-    // 原子换目录：先清掉可能存在的同名半成品，再改名（Windows 下 rename 不覆盖已存在目录）
-    fs.rmSync(targetDir, { recursive: true, force: true })
-    fs.renameSync(tmpDir, targetDir)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, buf)
+    done++
+    try {
+      onProgress?.({ done, total, percent: Math.round((done / total) * 100), bytes, reused, reusedBytes })
+    } catch { /* 回调出错不影响安装 */ }
+  }
+
+  try {
+    for (const f of webFiles) await one(webTmp, reuseDirs, f)
+    if (codeFiles.length) {
+      fs.mkdirSync(codeTmp, { recursive: true })
+      for (const f of codeFiles) await one(codeTmp, reuseCodeDirs, f)
+      // ⚠️ 这一行是 C 通道能不能跑起来的关键：热更目录在 %APPDATA% 下，**祖先目录里没有 package.json**，
+      //    于是 .js 会被 Node 当成 CommonJS，而口径层用的是 ESM 语法 → import 直接 SyntaxError。
+      //    由客户端自己生成（而不是从清单里下载）也就顺带堵死了"让更新源决定模块解析方式"。
+      fs.writeFileSync(path.join(codeTmp, 'package.json'), JSON.stringify({ type: 'module' }), 'utf8')
+    }
+    // 两边都准备好了才动正式目录
+    fs.rmSync(webTarget, { recursive: true, force: true })
+    fs.renameSync(webTmp, webTarget)
+    if (codeFiles.length) {
+      fs.rmSync(codeTarget, { recursive: true, force: true })
+      fs.renameSync(codeTmp, codeTarget)
+    }
   } catch (e) {
-    fs.rmSync(tmpDir, { recursive: true, force: true })
+    fs.rmSync(webTmp, { recursive: true, force: true })
+    fs.rmSync(codeTmp, { recursive: true, force: true })
     throw e
   }
 
   // 指针切到新版本：attemptedAt 留空 → 下次启动才记"尝试"，那时开始等健康确认
   const state = readWebState(dataDir)
   const relDir = path.join(WEB_DIR, v)
-  const indexSha256 = files.find((x) => x.path === 'index.html')?.sha256 || ''
+  const indexSha256 = webFiles.find((x) => x.path === 'index.html')?.sha256 || ''
   const next = {
     ...state,
-    current: entry(relDir, v, String(manifest.minShellVersion), indexSha256),
+    current: {
+      ...entry(relDir, v, String(manifest.minShellVersion), indexSha256),
+      codeDir: codeFiles.length ? path.join(CODE_DIR, v) : null,
+      codeEntrySha256: codeFiles.find((x) => x.path === CODE_ROOT_FILE)?.sha256 || '',
+    },
     previous: state.current && state.current.webVersion !== v ? state.current : state.previous,
     attemptedAt: null,
     confirmedAt: null, // 还没转正：下次启动若没等到健康确认就自动回退
     lastError: null,
   }
   writeWebState(dataDir, next)
-  return { ok: true, webVersion: v, files: done, bytes, reused, reusedBytes, dir: targetDir }
+  return {
+    ok: true,
+    webVersion: v,
+    files: done,
+    bytes,
+    reused,
+    reusedBytes,
+    dir: webTarget,
+    codeDir: codeFiles.length ? codeTarget : null,
+    codeFiles: codeFiles.length,
+  }
 }
 
 /**
  * 完整流程：取清单 → 校验 → 安装。**任何失败都只返回结果，不抛异常**（挂掉 = 没有热更，不是打不开）。
  * 这一步只负责"把新前端准备好"，生效在下次启动 —— 收银机在营业中不会被换掉页面。
  */
-export async function checkAndStage({ dataDir, manifestUrl, shellVersion, builtinDir, supportedChannels, fetchImpl, onProgress }) {
+export async function checkAndStage({ dataDir, manifestUrl, shellVersion, builtinDir, builtinCodeDir, supportedChannels, fetchImpl, onProgress }) {
   const f = fetchImpl || globalThis.fetch
   const url = String(manifestUrl || DEFAULT_MANIFEST_URL)
   if (process.env.FI_NO_WEB_UPDATE === '1') return { ok: false, reason: '本机已关闭热更（FI_NO_WEB_UPDATE=1）' }
@@ -447,22 +633,28 @@ export async function checkAndStage({ dataDir, manifestUrl, shellVersion, builti
   const baseUrl = manifest.baseUrl || url.replace(/\/[^/]*$/, '/') + v.webVersion + '/'
   if (!isAllowedSource(baseUrl)) return { ok: false, reason: `只允许 https 下载地址：${baseUrl}` }
   try {
-    // 本地可复用的三处：当前正在用的热更包、上一版热更包、安装包内置的 dist
+    // 本地可复用的几处：当前正在用的热更包、上一版热更包、安装包内置的 dist / electron
     const reuseDirs = [
       state.current?.dir ? path.join(dataDir, state.current.dir) : null,
       state.previous?.dir ? path.join(dataDir, state.previous.dir) : null,
       builtinDir,
     ].filter(Boolean)
-    const r = await installBundle({ manifest, baseUrl, dataDir, fetchImpl: f, onProgress, reuseDirs })
+    const reuseCodeDirs = [
+      state.current?.codeDir ? path.join(dataDir, state.current.codeDir) : null,
+      state.previous?.codeDir ? path.join(dataDir, state.previous.codeDir) : null,
+      builtinCodeDir,
+    ].filter(Boolean)
+    const r = await installBundle({ manifest, baseUrl, dataDir, fetchImpl: f, onProgress, reuseDirs, reuseCodeDirs })
     const saved = r.reusedBytes > 0 ? `，其中 ${r.reused} 个文件本地已有、省下 ${(r.reusedBytes / 1048576).toFixed(1)} MB` : ''
-    return { ok: true, staged: true, reason: `已就绪 v${r.webVersion}（下次启动生效${saved}）`, ...r }
+    const code = r.codeFiles ? `；口径层 ${r.codeFiles} 个文件（重启后生效）` : '；口径层回内置'
+    return { ok: true, staged: true, reason: `已就绪 v${r.webVersion}（下次启动生效${saved}）${code}`, ...r }
   } catch (e) {
     return { ok: false, reason: `安装失败（已回滚，旧版本未受影响）：${(e && e.message) || e}` }
   }
 }
 
 /** 给界面看的当前状态（不含任何路径以外的敏感信息） */
-export function webUpdateStatus(dataDir, resolved) {
+export function webUpdateStatus(dataDir, resolved, codeInfo) {
   const state = readWebState(dataDir)
   return {
     source: resolved?.source ?? 'builtin',
@@ -471,6 +663,13 @@ export function webUpdateStatus(dataDir, resolved) {
     ready: state.current && !state.confirmedAt ? { webVersion: state.current.webVersion, dir: state.current.dir } : null,
     lastRollback: state.lastRollback || null,
     lastError: state.lastError || null,
+    // C 通道（口径层）：这次启动到底用的是热更那份还是内置那份，以及为什么没用
+    codeSource: codeInfo?.source ?? 'builtin',
+    codeError: codeInfo?.error ?? null,
+    // 上一次被放弃的原因（存活在状态文件里，不会被页面自检的"清错误"清掉）
+    lastCodeError: state.lastCodeError || null,
+    lastCodeErrorAt: state.lastCodeErrorAt || null,
+    codePending: !!(state.current?.codeDir && !state.confirmedAt),
     manifestUrl: process.env.FI_WEB_UPDATE_URL || DEFAULT_MANIFEST_URL,
     disabled: process.env.FI_NO_WEB_UPDATE === '1',
   }

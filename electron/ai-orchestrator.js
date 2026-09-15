@@ -5,8 +5,11 @@
 //   3. 前端只调本模块，不再散调 ai.js / doubao.js
 import * as ai from './ai.js'
 import * as doubao from './doubao.js'
-import { logAudit } from './commands/helpers.js'
-import { productNamesForSearch, localSearchHit } from './commands/search.js'
+// 口径层的**唯一入口**（P2 2026-09-15）：与 main.js / server.js 共用同一份，
+// 否则热更之后会出现"桌面端算一套、服务端算另一套"（红线①：口径只走命令层）
+import { commands, search } from './commandsLive.js'
+const { logAudit } = commands
+const { productNamesForSearch, localSearchHit } = search
 
 // ---------- AI 动作审计（M3-3：识别/建议写 audit_log，失败不阻断业务） ----------
 

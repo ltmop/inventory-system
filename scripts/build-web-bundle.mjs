@@ -12,8 +12,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { validateManifest, isSafeRelPath, isAllowedSource, readSupportedChannels, sha256Hex, cmpVersion, VERSION_FILE, ALLOWED_EXT } from '../electron/webUpdate.js'
+import { validateManifest, isSafeRelPath, isAllowedSource, readSupportedChannels, sha256Hex, cmpVersion, VERSION_FILE, ALLOWED_EXT, CODE_ALLOWED_EXT } from '../electron/webUpdate.js'
 import { channelsUsedInSrc } from './lib/channels.mjs'
+import { computeCodeClosure } from './lib/code-closure.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(HERE, '..')
@@ -79,7 +80,28 @@ files.sort((a, b) => (a.path < b.path ? -1 : 1))
 const totalBytes = files.reduce((s, f) => s + f.size, 0)
 if (fail === 0) good(`${files.length} 个文件，合计 ${(totalBytes / 1048576).toFixed(1)} MB`)
 
-console.log('\n=== ③ 通道闭包：热更包引用的通道必须 ⊆ 当前壳支持的通道 ===')
+console.log('\n=== ③ 口径层（C 通道）：闭包必须完整，且不能依赖 electron ===')
+let codeFiles = []
+let codeBytes = 0
+if (process.argv.includes('--no-code')) {
+  good('--no-code：本次不带口径层 —— 客户端会把口径层退回内置（这也是"单独撤掉一个坏口径层"的办法）')
+} else {
+  const cl = computeCodeClosure(path.join(REPO, 'electron'))
+  if (cl.electronImports.length) {
+    bad(`口径层闭包里 import 了 electron：${cl.electronImports.join(', ')} —— 主进程模块换不掉，这些文件不能进热更包`)
+  }
+  if (cl.escapes.length) bad(`口径层有相对 import 跳出 electron/：${cl.escapes.join(' | ')}`)
+  for (const rel of cl.files) {
+    if (!isSafeRelPath(rel, CODE_ALLOWED_EXT)) { bad(`口径层路径/后缀不合法：${rel}`); continue }
+    const buf = fs.readFileSync(path.join(REPO, 'electron', ...rel.split('/')))
+    codeFiles.push({ path: rel, size: buf.byteLength, sha256: sha256Hex(buf) })
+  }
+  codeBytes = codeFiles.reduce((s, f) => s + f.size, 0)
+  const ext = [...cl.externals.keys()].sort()
+  good(`${codeFiles.length} 个文件 / ${(codeBytes / 1024).toFixed(1)} KB（外部依赖：${ext.join(' ') || '无'}）`)
+}
+
+console.log('\n=== ④ 通道闭包：热更包引用的通道必须 ⊆ 当前壳支持的通道 ===')
 const channels = [...channelsUsedInSrc(REPO)].sort()
 // 与客户端同一套算法：preload 白名单（本机 IPC）∪ server.js 路由（中心库模式下走 HTTP，不过 preload）
 const supported = readSupportedChannels(path.join(REPO, 'electron', 'preload.cjs'), path.join(REPO, 'electron', 'server.js'))
@@ -88,7 +110,7 @@ console.log(`  渲染层用到 ${channels.length} 个 · 壳放行 ${supported.s
 if (missing.length) bad(`热更包用到壳不支持的通道：${missing.join(' ')}（客户端会**拒绝加载**，避免"点了没反应"）`)
 else good('通道全部落在壳的放行名单里')
 
-console.log('\n=== ④ 用客户端同一套判据自检清单 ===')
+console.log('\n=== ⑤ 用客户端同一套判据自检清单 ===')
 const manifest = {
   webVersion,
   minShellVersion,
@@ -96,6 +118,7 @@ const manifest = {
   publishedAt: new Date().toISOString(),
   channels,
   files,
+  ...(codeFiles.length ? { codeFiles } : {}),
 }
 const v = validateManifest(manifest, {
   shellVersion: minShellVersion, // 最老的、要能收下这个包的壳
@@ -103,9 +126,9 @@ const v = validateManifest(manifest, {
   supportedChannels: supported,
 })
 if (!v.ok) bad('客户端会拒绝这个清单：' + v.reason)
-else good(`客户端判据通过（${v.files.length} 文件 / ${(v.totalBytes / 1048576).toFixed(1)} MB / 通道 ${v.channels.length}）`)
+else good(`客户端判据通过（前端 ${v.files.length} 文件 / ${(v.totalBytes / 1048576).toFixed(1)} MB / 通道 ${v.channels.length} / 口径层 ${v.codeFiles.length} 文件 ${(v.codeBytes / 1024).toFixed(1)} KB）`)
 
-console.log('\n=== ⑤ 不许倒退：不能低于线上已发布的版本 ===')
+console.log('\n=== ⑥ 不许倒退：不能低于线上已发布的版本 ===')
 const latestPath = path.join(outRoot, 'latest.json')
 if (fs.existsSync(latestPath)) {
   try {
@@ -126,7 +149,7 @@ if (CHECK_ONLY) {
   process.exit(0)
 }
 
-console.log('\n=== ⑥ 写出 release/web/（版本目录只增不改）===')
+console.log('\n=== ⑦ 写出 release/web/（版本目录只增不改）===')
 const verDir = path.join(outRoot, webVersion)
 if (fs.existsSync(verDir)) {
   bad(`版本目录已存在：${verDir} —— 同版本号不许覆盖（热更包必须不可变，否则客户端校验会飘）`)
@@ -136,6 +159,12 @@ for (const f of files) {
   const dest = path.join(verDir, ...f.path.split('/'))
   fs.mkdirSync(path.dirname(dest), { recursive: true })
   fs.copyFileSync(path.join(distDir, ...f.path.split('/')), dest)
+}
+// 口径层：源在 electron/ 下，按同样的相对路径摆放（客户端会原样装到 dataDir/code/<版本>/）
+for (const f of codeFiles) {
+  const dest = path.join(verDir, ...f.path.split('/'))
+  fs.mkdirSync(path.dirname(dest), { recursive: true })
+  fs.copyFileSync(path.join(REPO, 'electron', ...f.path.split('/')), dest)
 }
 fs.mkdirSync(outRoot, { recursive: true })
 fs.writeFileSync(latestPath, JSON.stringify(manifest, null, 2), 'utf8')
