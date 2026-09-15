@@ -37,12 +37,15 @@
 { "stockTransfer": false }
 ```
 
-**关全部门店**（含中心库服务器）：把下面这个文件放上静态目录（和热更包同一个发布机就行）：
+**关全部门店**（含中心库服务器）：把下面这个文件放到生产机的 `/opt/inventory-cloud/updates/flags.json`
+（线上地址就是 `https://sync.junchengzn.com/updates/flags.json`）：
 
 ```
-https://sync.junchengzn.com/flags/latest.json
 { "flags": { "stockTransfer": false } }
 ```
+
+> ⚠️ **必须是 `/updates/` 这个前缀**：`sync.junchengzn.com` 反代给 inventory-cloud，
+> 只有 `/updates/*` 是现成的静态托管（`/flags/` 会 404）。好处是**零服务端代码改动、不用重启生产**。
 
 各机器每 6 小时来取一次（启动后 22 秒也会取一次），**取到就落盘** —— 所以之后即使断网、或那个地址删了，**"关"仍然继续生效**。
 

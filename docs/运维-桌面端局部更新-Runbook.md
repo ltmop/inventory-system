@@ -41,7 +41,12 @@ node scripts/build-web-bundle.mjs
 上传是**单独一步**（脚本只写本地 `release/web/`，绝不碰线上）：
 
 1. 先备份线上目录（红线⑦：改服务器先备份再覆盖）。
-2. 把 `release/web/` 整个传到静态目录 `web/` 下 —— 目标是 `web/latest.json` 与 `web/<版本>/**`。
+2. 把 `release/web/` 整个传到**生产机 `/opt/inventory-cloud/updates/web/`** 下 ——
+   目标是 `updates/web/latest.json` 与 `updates/web/<版本>/**`
+   （线上地址就是 `https://sync.junchengzn.com/updates/web/latest.json`）。
+   > ⚠️ **必须是 `/updates/` 这个前缀**：`sync.junchengzn.com` 在 Caddy 里是反代给 inventory-cloud 的，
+   > 除了 `/updates/*` 与 `/cockpit-updates/*` **没有别的静态托管路由**；写成 `/web/` 会 404，
+   > 而且表现是"静默没有热更"。2026-09-15 上生产机核对过，闸门里也钉了断言。
 3. 老版本目录**保留**（回退时要退回去），不要删。
 
 > ⚠️ `latest.json` 里的 `baseUrl` **必须以版本号结尾**（如 `…/web/1.1.8.1/`）。

@@ -32,7 +32,7 @@ const good = (msg) => console.log('  ✓ ' + msg)
 const pkgVersion = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8')).version
 const distDir = path.join(REPO, 'dist')
 const outRoot = path.resolve(REPO, arg('out', path.join('release', 'web')))
-const baseRoot = arg('base-url', 'https://sync.junchengzn.com/web/')
+const baseRoot = arg('base-url', 'https://sync.junchengzn.com/updates/web/')
 const minShellVersion = arg('min-shell', pkgVersion)
 
 console.log('=== ① 前置：dist 存在、有 web-version.txt ===')
@@ -50,8 +50,10 @@ if (!/^\d+(\.\d+){0,3}$/.test(webVersion)) {
 } else {
   good(`前端版本 ${webVersion}（壳版本 ${pkgVersion}，minShellVersion ${minShellVersion}）`)
 }
-// 下载地址必须**以版本号结尾**（清单在 /web/latest.json，文件在 /web/<版本>/**）。
-// 少了这一层不会在校验时红，但会让**每一个文件**都 404 —— 真机验证时踩过，所以这里强制拼上。
+// 下载地址必须**以版本号结尾**（清单在 .../updates/web/latest.json，文件在 .../updates/web/<版本>/**）。
+// 少了版本段不会在校验时红，但会让**每一个文件**都 404 —— 真机验证时踩过，所以这里强制拼上。
+// ⚠️ 用 `/updates/` 前缀是有原因的：`sync.junchengzn.com` 只有 `/updates/*` 这一个现成的静态托管
+//    （Caddy 把该域名整个反代给 inventory-cloud，没有 `/web/` 路由）。详见 electron/webUpdate.js。
 const baseUrl = baseRoot.replace(/\/+$/, '') + '/' + webVersion + '/'
 if (!isAllowedSource(baseUrl)) bad(`下载地址必须 https（或本机 127.0.0.1 验证）：${baseUrl}`)
 else good(`下载地址 ${baseUrl}`)

@@ -42,8 +42,17 @@ export const VERSION_FILE = 'web-version.txt'
 export const CODE_ENTRIES = { commands: 'commands.js', search: 'commands/search.js', analytics: 'commands/analytics.js' }
 /** 有它才叫一个能用的口径层包 */
 export const CODE_ROOT_FILE = 'commands.js'
-/** 清单地址（可用 FI_WEB_UPDATE_URL 覆盖；FI_NO_WEB_UPDATE=1 整条通道关闭） */
-export const DEFAULT_MANIFEST_URL = 'https://sync.junchengzn.com/web/latest.json'
+/**
+ * 清单地址（可用 FI_WEB_UPDATE_URL 覆盖；FI_NO_WEB_UPDATE=1 整条通道关闭）
+ *
+ * ⚠️ 为什么是 `/updates/web/` 而不是看着更整齐的 `/web/`：2026-09-15 上生产机核对过 ——
+ *    `sync.junchengzn.com` 在 Caddy 里是 `reverse_proxy 127.0.0.1:3100`（inventory-cloud 这个 Node 服务），
+ *    **没有** `/web/` 或 `/flags/` 路由；而 `/updates/*` 已经有现成的静态托管
+ *    （`STATIC_ROOT = index.js 所在目录 = /opt/inventory-cloud/`，任意后缀、支持 Range、GET/HEAD 都认）。
+ *    所以把热更包与开关下发放在 `/updates/` 下面 = **零服务端代码改动、不用重启生产**。
+ *    写 `/web/` 的话会 404 —— 而且是"清单取不到 → 静默没有热更"这种最难发现的失败。
+ */
+export const DEFAULT_MANIFEST_URL = 'https://sync.junchengzn.com/updates/web/latest.json'
 
 /** dist 里真实出现过的后缀（allowlist：比 denylist 明确，新增资源类型会**在发布侧**就报错而不是静默放行） */
 export const ALLOWED_EXT = new Set([

@@ -22,8 +22,12 @@ import path from 'node:path'
 
 const LOCAL_FILE = 'flags.json'
 const REMOTE_FILE = 'flags-remote.json'
-/** 服务端下发的开关对象（一个静态 JSON 就够，不需要改云服务代码） */
-export const DEFAULT_REMOTE_URL = 'https://sync.junchengzn.com/flags/latest.json'
+/**
+ * 服务端下发的开关对象（一个静态 JSON 就够，不需要改云服务代码）。
+ * ⚠️ 路径与理由同 webUpdate.js 的 DEFAULT_MANIFEST_URL：`sync.junchengzn.com` 只有 `/updates/*`
+ *    这一个现成的静态托管前缀（`/flags/` 没有路由 → 会 404），所以放在 `/updates/` 下面。
+ */
+export const DEFAULT_REMOTE_URL = 'https://sync.junchengzn.com/updates/flags.json'
 /** 自动去取服务端的节流：6 小时最多一次 */
 export const REMOTE_TTL_MS = 6 * 3600 * 1000
 

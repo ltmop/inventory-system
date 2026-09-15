@@ -606,6 +606,15 @@ console.log('\n--- ⑮b 纯 Node 兼容：中心库服务器与后端断言都�
   ok('CODE_ALLOWED_EXT 只收 .js', CODE_ALLOWED_EXT.size === 1 && CODE_ALLOWED_EXT.has('.js'))
 }
 
+console.log('\n=== ⑯ 下发地址必须落在"已被静态托管"的前缀下（2026-09-15 上生产机核对过）===')
+// sync.junchengzn.com 在 Caddy 里是 reverse_proxy 到 inventory-cloud（无 /web/、/flags/ 路由）；
+// 只有 /updates/* 是现成的静态托管。写成 /web/ 会 404，而且表现是"静默没有热更"——最难发现的那种。
+ok('清单默认落在 sync.junchengzn.com/updates/ 下（该域名只有这一个静态托管前缀）',
+  /DEFAULT_MANIFEST_URL = 'https:\/\/sync\.junchengzn\.com\/updates\//.test(read('electron/webUpdate.js')),
+  (read('electron/webUpdate.js').match(/DEFAULT_MANIFEST_URL = '([^']+)'/) || [])[1])
+ok('发布脚本默认 base-url 也在 /updates/ 下',
+  /arg\('base-url',\s*'https:\/\/sync\.junchengzn\.com\/updates\/web\/'\)/.test(read('scripts/build-web-bundle.mjs')))
+
 // 清理临时目录
 for (const d of tmpRoots) { try { fs.rmSync(d, { recursive: true, force: true }) } catch { /* 忽略 */ } }
 

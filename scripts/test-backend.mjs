@@ -3045,6 +3045,10 @@ ok('preload 白名单含 expense 三通道',
     /<FeatureFlagsCard \/>/.test(fs.readFileSync(path.resolve('src/pages/SettingsPage.tsx'), 'utf8')))
   ok('开关：中心库服务器启动脚本也初始化了开关（手机/桌面打到那边，不认开关等于没关）',
     /initFlags\(dataDir\)/.test(fs.readFileSync(path.resolve('scripts/server/start-central.mjs'), 'utf8')))
+  // 2026-09-15 上生产机核对：sync.junchengzn.com 是反代给 inventory-cloud，只有 /updates/* 是静态托管。
+  // 写成 /flags/ 会 404，表现是"拉不到下发" —— 静默失效，所以钉一条断言。
+  ok('开关：远端下发默认地址落在 /updates/ 下（/flags/ 没有路由会 404）',
+    /DEFAULT_REMOTE_URL = 'https:\/\/sync\.junchengzn\.com\/updates\//.test(fs.readFileSync(path.resolve('electron/flags.js'), 'utf8')))
 }
 
 fs.rmSync(tmp, { recursive: true, force: true })
