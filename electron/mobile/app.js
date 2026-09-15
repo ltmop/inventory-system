@@ -304,7 +304,7 @@ function openConnectPanel(firstRun) {
   }
   ov.querySelector('#cn-go').onclick = connect
   const upBtn = ov.querySelector('#cn-up')   // 还没连上时的更新入口（1.1.2 起；浏览器页面没有这个按钮）
-  if (upBtn) upBtn.onclick = function () { checkUpdate(false) }
+  if (upBtn) upBtn.onclick = function () { checkAllUpdates(false) }
   ov.querySelector('#cn-off').onclick = function () {
     try { localStorage.removeItem('fi-mobile-token'); localStorage.removeItem('fi-server') } catch (e) {}
     toast('已断开，重开 APP 再连一次')
@@ -322,8 +322,9 @@ let renderGen = 0 // 页面代次：切页后旧请求的续写一律丢弃，�
 function navigate(hash) { location.hash = hash }
 window.addEventListener('hashchange', () => renderPage())
 document.addEventListener('DOMContentLoaded', () => {
-  // 更新检查**不依赖「是否已连上」**：卡在连接面板的机器也要能收到新版本（1.1.2 修）。
-  // 仍然只对装了 APP 的机器生效（SERVER 有值），浏览器 / 局域网 /m/ 直接跳过。
+  // ① 网页层热更：报心跳 + 顺手查新版（只对装了 APP 的机器生效；不依赖是否已连店铺）
+  initWebUpdate()
+  // ② 原生壳检查（只有壳变了才有内容），同样不依赖「是否已连上」
   setTimeout(function () { checkUpdate(true) }, 3000)
   // 没有连接码：用页内面板（可粘整条链接 / 扫码），不再用系统弹窗 —— 店主不会打长串；
   // 官网 / 局域网 /m/ 也一样走这里（粘连接码即可，SERVER 留空=同源）。
@@ -389,12 +390,66 @@ function phColor(p) { return COLORS[(p.id || 0) % COLORS.length] }
 function phChar(p) { const name = (((p.brand || '') + ' ' + (p.model || '')).trim() || p.sku_code || ''); return name[0] || '?' }
 function prodName(p) { const n = ((p.brand || '') + ' ' + (p.model || '')).trim(); return (n || p.sku_code || '未知') }
 
-// ========== 应用内更新（只对 APK 生效；浏览器 /m/ 页面不弹）==========
+// ========== 更新：分两层，各管各的 ==========
+// 第 1 层（主力）网页层热更新：这套 APP 的原生部分只有一层薄壳（WebView + 安装器），
+//   业务代码 100% 是网页（app.js / pages/*.js / index.html / offline.js / sw.js）。
+//   所以绝大多数改动（页面、逻辑、文案、样式）根本不用重装 APK ——
+//   原生插件 WebUpdater 拉清单比对 sha256，**只下载改动的那几个文件**，校验后直接换资源目录并重载。
+//   实测：改一个页面 ≈ 几 KB~几十 KB，秒级生效，没有安装界面、没有"允许安装未知来源"。
+// 第 2 层（兜底）原生壳更新：只有壳本身变了（权限、插件、图标、包名、TargetSdk）才需要重新装 APK，
+//   也就是下面这套「下载安装包 → 拉起系统安装器」。
 // 版本号必须与 android/app/build.gradle 的 versionCode/versionName 一致 ——
 // 有 scripts/check-version-sync.mjs 强制校验，发版前必跑（否则会重演「版本号三处不一致、更新永远是哑的」）。
-const APP_VERSION = 'v1.1.3'
-const APP_VERSION_CODE = 1103
+const APP_VERSION = 'v1.2.0'
+const APP_VERSION_CODE = 1104
 const UPDATE_BASE = 'http://43.128.20.39:17533'
+const WEB_MANIFEST = 'https://junchengzn.com/download/web/manifest.json'   // 网页层清单（HTTPS 静态）
+let WEB_VERSION_APPLIED = ''   // 当前真正跑着的网页层版本（热更后会与 APP_VERSION 不同）
+let WEB_USING_BUNDLE = false   // true = 现在跑的是热更包（不是安装包自带素材）
+
+/** 取原生热更插件（只装了 APP 才有；浏览器 / 局域网 /m/ 没有这层） */
+function webUpdaterPlugin() {
+  try { return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.WebUpdater) || null } catch (e) { return null }
+}
+
+// 开机三件事：① 报心跳（告诉原生「这一版网页跑得起来，别回退」）
+//            ② 读当前生效的热更版本 ③ 2.5 秒后顺手查有没有新版
+function initWebUpdate() {
+  const WU = webUpdaterPlugin()
+  if (!WU) return
+  // 顺序要紧：先读状态（拿「上次刚热更到哪一版」，好告诉用户一声），再报心跳（心跳会把这条提醒清掉）
+  try {
+    WU.getState().then(function (s) {
+      WEB_USING_BUNDLE = !!(s && s.usingBundle)
+      if (s && s.usingBundle && s.version) WEB_VERSION_APPLIED = s.version
+      if (s && s.justUpdated) toast('已热更到 ' + s.justUpdated + '（只下了 ' + (s.lastDownloaded | 0) + ' 个文件）')
+      return WU.markHealthy()
+    }).catch(function () {})
+  } catch (e) {}
+  setTimeout(function () {
+    try {
+      // 有新版就自动换：插件内部会切资源目录并重载（所以这里的回调常常来不及跑到，属正常）
+      WU.sync({ manifestUrl: WEB_MANIFEST }).catch(function () {})
+    } catch (e) {}
+  }, 2500)
+}
+
+/** 手动「检查更新」：先热更（局部），没有网页层更新再查原生壳 */
+function checkAllUpdates(silent) {
+  const WU = webUpdaterPlugin()
+  if (!WU) { checkUpdate(silent); return }
+  if (!silent) toast('正在检查更新…')
+  WU.sync({ manifestUrl: WEB_MANIFEST }).then(function (r) {
+    if (r && r.updated) { toast('网页层更新到 ' + r.version + '（' + (r.downloaded | 0) + ' 个文件）'); return }
+    fetchUpdateManifest().then(function (m) {
+      if (!m) { if (!silent) toast('网页层已是最新；原生壳没连上更新服务器'); return }
+      if (m.versionCode > APP_VERSION_CODE) askUpdate(m)
+      else if (!silent) toast('已是最新版（网页层 ' + (WEB_VERSION_APPLIED || APP_VERSION) + '）')
+    })
+  }).catch(function () { checkUpdate(silent) })
+}
+
+// ========== 第 2 层：原生壳更新（只有壳变了才用；浏览器 /m/ 页面不弹）==========
 
 // 拉更新清单：8 秒超时、不走缓存；任何异常都当作「连不上」，绝不阻塞使用
 function fetchUpdateManifest() {
@@ -422,7 +477,8 @@ function askUpdate(meta) {
   ov.id = "up-panel"
   ov.style.cssText = "position:fixed;inset:0;background:rgba(10,22,40,.96);z-index:320;padding:22px;color:#e6edf5;overflow:auto"
   var h = '<div style="font-size:22px;font-weight:800;margin-bottom:6px">发现新版本 ' + escHtml(meta.versionName || "") + '</div>' +
-    '<div style="font-size:13px;color:#8fa3c0;margin-bottom:14px">当前 ' + escHtml(APP_VERSION) + '</div>'
+    '<div style="font-size:13px;color:#8fa3c0;margin-bottom:14px">当前原生壳 ' + escHtml(APP_VERSION) + '</div>' +
+    '<div style="font-size:12px;color:#8fa3c0;margin-bottom:14px">这一次动到了原生壳（权限/插件/图标这类），所以要重装一次；平时改页面只会自动热更，不用装。</div>'
   if (meta.changelog) h += '<div style="font-size:14px;line-height:1.8;color:#c7d2e0;background:rgba(255,255,255,.06);border-radius:10px;padding:12px;margin-bottom:14px">' + escHtml(meta.changelog) + '</div>'
   h += '<button id="up-go" style="width:100%;height:60px;border-radius:14px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:19px;font-weight:800">下载更新</button>' +
     '<button id="up-no" style="width:100%;height:50px;margin-top:10px;border-radius:12px;border:none;background:rgba(255,255,255,.12);color:#e6edf5;font-size:16px">稍后再说</button>'
@@ -432,10 +488,10 @@ function askUpdate(meta) {
   ov.querySelector("#up-no").onclick = function () { ov.remove() }
 }
 
-// 手动检查：silent=false 时会给出「已是最新版 / 连不上」反馈
+// 原生壳检查（第 2 层）：silent=false 时会给出反馈。只比原生壳版本，与网页层热更互不干扰。
 function checkUpdate(silent) {
   if (!SERVER) return            // 浏览器/局域网页面没有安装包可更新
-  if (!silent) toast("正在检查更新…")
+  if (!silent) toast("正在检查…")
   fetchUpdateManifest().then(function (m) {
     if (!m) { if (!silent) toast("连不上更新服务器，请稍后再试"); return }
     if (m.versionCode > APP_VERSION_CODE) askUpdate(m)
@@ -572,9 +628,25 @@ page('more', (app) => {
   })
   if (SERVER) {   // APK 才显示：浏览器页面点它没有意义
     const upCard = document.createElement('div')
-    upCard.className = 'card'; upCard.style.cursor = 'pointer'; upCard.onclick = function () { checkUpdate(false) }
-    upCard.innerHTML = '<div class="font-bold">🔄 检查更新</div><div class="text-sm text-muted mt-sm">当前 ' + APP_VERSION + ' · 有新版本会提示下载</div>'
+    upCard.className = 'card'; upCard.style.cursor = 'pointer'; upCard.onclick = function () { checkAllUpdates(false) }
+    upCard.innerHTML = '<div class="font-bold">🔄 检查更新</div>' +
+      '<div class="text-sm text-muted mt-sm">页面 ' + (WEB_VERSION_APPLIED || APP_VERSION) + (WEB_USING_BUNDLE ? '（热更）' : '（安装包自带）') + ' · 只下改动的那几个文件</div>' +
+      '<div class="text-sm text-muted mt-sm">安装包壳 ' + APP_VERSION + ' · 只有壳变了才需要重新安装</div>'
     app.appendChild(upCard)
+    // 跑在热更包上时，给一个「一键回退」的后路（万一下发的网页有问题，不用重装）
+    if (WEB_USING_BUNDLE) {
+      const backCard = document.createElement('div')
+      backCard.className = 'card'; backCard.style.cursor = 'pointer'
+      backCard.onclick = function () {
+        const WU = webUpdaterPlugin()
+        if (!WU) return
+        if (!confirm('回退到安装包自带的版本（' + APP_VERSION + '）？回退后下次有新版本还会自动热更。')) return
+        WU.rollback().then(function () { toast('已回退，正在重开…') }).catch(function () { toast('回退失败，请重开 APP 再试') })
+      }
+      backCard.innerHTML = '<div class="font-bold">↩︎ 回退到安装包版本</div>' +
+        '<div class="text-sm text-muted mt-sm">当前跑的是热更包 ' + (WEB_VERSION_APPLIED || '') + '；点这里换回安装包自带的 ' + APP_VERSION + '</div>'
+      app.appendChild(backCard)
+    }
   }
   const connCard = document.createElement('div')
   connCard.className = 'card'; connCard.style.cursor = 'pointer'; connCard.onclick = function () { openConnectPanel() }

@@ -115,6 +115,17 @@ ok('开外链统一走 openExternalUrl（单一出口，便于以后加白名单
 const settingsPage = read('src/pages/SettingsPage.tsx')
 ok('「关于」不再写死"本地单机部署"（改为按中心库配置拼）',
   !settingsPage.includes('SQLite（WAL）· 本地单机部署') && /deployLabel/.test(settingsPage) && /getCentralConfig\(\)/.test(settingsPage))
+
+console.log('\n=== ⑥ 库位调拨（stock:transfer）的接线与"不污染口径"守卫 ===')
+const stockSrc = stripComments(read('electron/commands/stock.js'))
+ok('调拨通道在 main.js 注册', mainJs.includes("'stock:transfer'"))
+ok('调拨通道在 preload 放行', preload.includes("'stock:transfer'"))
+ok('调拨通道在 server.js 有（中心库模式下必须能用）', serverChannels.has('stock:transfer'))
+ok('调拨在 server.js 被登记为**写**通道（只读令牌不能调拨）',
+  /'stock:transfer'/.test(read('electron/server.js').split('WRITE_CHANNELS')[1]?.split('])')[0] ?? ''))
+ok('调拨命令**不写 transactions**（写了就会被算成销售/出货 —— 这是那堆乱账的根源）', !/INSERT INTO transactions/.test(stockSrc))
+ok('调拨命令不碰 inventory_batches 的 updated_at/guid（中心库没这两列，写了就在中心库报错）',
+  !/INSERT INTO inventory_batches[\s\S]{0,300}?(updated_at|guid)/.test(stockSrc) && !/UPDATE inventory_batches[\s\S]{0,120}?(updated_at|guid)/.test(stockSrc))
 ok('手机看店二维码优先用 http 地址（微信绕不过自签证书）', /httpUrl \|\| s\?\.url|httpUrl \|\| s\.url/.test(read('src/pages/SettingsPage.tsx')))
 ok('unknown channel 有人话翻译（否则用户只看到一句英文）', /friendlyChannelError/.test(apiTs) && /unknown channel/i.test(apiTs))
 

@@ -48,6 +48,9 @@ const CHANNELS = new Set([
   'stocktake:complete',
   'stocktake:submit',
   'import:batch',
+  // 库位调拨（2026-09-15）：备货出库/换库位专用，不写 transactions
+  'stock:transfer',
+  'stock:byLocation',
   'customer:create',
   'customer:update',
   'customer:delete',

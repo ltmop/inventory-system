@@ -22,6 +22,8 @@ import { backupNow, restoreBackup, backupStatus, saveBackupExtraDir, loadBackupC
 import { SEED_PRODUCTS, SEED_BATCHES, SEED_TRANSACTIONS } from '../electron/seedData.js'
 import { localFuzzyMatch } from '../electron/localSearch.js'
 import { logAudit } from '../electron/commands/helpers.js'
+// analytics 不在 commands.js 桶文件里（server.js 也是直接 import 这个模块）→ 这里照样直接引
+import { analyticsOverview, analyticsTrend } from '../electron/commands/analytics.js'
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fi-test-'))
 const dbPath = path.join(tmp, 'data.db')
@@ -2789,6 +2791,60 @@ ok('preload 白名单含 expense 三通道',
   ok('简报：盘点"已盘 0 项"必须说成"还没盘"，不能说成"差异 0 项 ✓"',
     brief3.stock.take.counted === 0 && brief3.stock.take.notCounted === 1 && brief3.stock.take.diffCount === 0)
   bdb.close()
+}
+
+// 48. 库位调拨（stock:transfer）—— 它敢碰真实库存，就先把"不破坏口径"的保证锁死
+//     背景：优选仓备货过去用「出库」记 → 货从账上消失 + 那 31 笔 out 被当出货（详见 docs/待办-优选仓24个商品）
+{
+  const sdb = openDatabase(path.join(tmp, 'transfer.db'))
+  cmd.createProduct(sdb, { sku_code: 'TR-1', category: '鱼线', brand: '调拨牌', model: 'A', cost_price: 300, suggest_price: 600, status: '在售' })
+  const pid = sdb.prepare("SELECT id FROM products WHERE sku_code='TR-1'").get().id
+  cmd.createInbound(sdb, { productId: pid, quantity: 20, costPrice: 300, location: 'A墙', operator: '测试' })
+
+  const before = {
+    stock: sdb.prepare('SELECT COALESCE(SUM(quantity),0) q, COALESCE(SUM(quantity*cost_price),0) v FROM inventory_batches WHERE product_id=?').get(pid),
+    tx: sdb.prepare('SELECT COUNT(*) n FROM transactions').get().n,
+    overview: analyticsOverview(sdb),
+    trend: analyticsTrend(sdb, 7).reduce((s, r) => s + r.revenue + r.profit, 0),
+    audit: sdb.prepare('SELECT COUNT(*) n FROM audit_log').get().n,
+  }
+
+  const r1 = cmd.transferStock(sdb, { productId: pid, quantity: 8, fromLocation: 'A墙', toLocation: '优选仓', operator: '测试' })
+  ok('调拨：返回调拨数量与目标批次', r1.moved === 8 && r1.toBatches.length === 1 && r1.toBatches[0].quantity === 8)
+  ok('调拨：成本随货走（不填 unitCost 时沿用源批次成本）', r1.toBatches[0].costPrice === 300, JSON.stringify(r1.unitCosts))
+
+  const after = {
+    stock: sdb.prepare('SELECT COALESCE(SUM(quantity),0) q, COALESCE(SUM(quantity*cost_price),0) v FROM inventory_batches WHERE product_id=?').get(pid),
+    tx: sdb.prepare('SELECT COUNT(*) n FROM transactions').get().n,
+    overview: analyticsOverview(sdb),
+    trend: analyticsTrend(sdb, 7).reduce((s, r) => s + r.revenue + r.profit, 0),
+    audit: sdb.prepare('SELECT COUNT(*) n FROM audit_log').get().n,
+  }
+  ok('调拨：**库存总量不变**', before.stock.q === after.stock.q, before.stock.q + ' → ' + after.stock.q)
+  ok('调拨：**库存金额不变**', before.stock.v === after.stock.v, before.stock.v + ' → ' + after.stock.v)
+  ok('调拨：**一笔 transactions 都不写**（不然会被算成销售/出货）', before.tx === after.tx, before.tx + ' → ' + after.tx)
+  ok('调拨：营业额/毛利/库存金额 概览完全不变', JSON.stringify(before.overview) === JSON.stringify(after.overview))
+  ok('调拨：销售趋势（额+毛利）不变', before.trend === after.trend)
+  ok('调拨：留了一条审计', after.audit === before.audit + 1)
+
+  const locs = cmd.stockByLocation(sdb, pid)
+  const a = locs.find((l) => l.location === 'A墙'), to = locs.find((l) => l.location === '优选仓')
+  ok('调拨：库位分布真的变了（A墙 20→12，优选仓 0→8）', a.qty === 12 && to.qty === 8, JSON.stringify(locs))
+
+  // 失败路径：必须报错且**回滚**（数量不能被改坏）
+  const beforeFailQty = sdb.prepare('SELECT COALESCE(SUM(quantity),0) q FROM inventory_batches WHERE product_id=?').get(pid).q
+  let e1 = null; try { cmd.transferStock(sdb, { productId: pid, quantity: 999, fromLocation: 'A墙', toLocation: '优选仓' }) } catch (e) { e1 = e.message }
+  ok('调拨：库存不足时报错（不是静默扣成负数）', /库存不足/.test(e1 ?? ''), String(e1))
+  let e2 = null; try { cmd.transferStock(sdb, { productId: pid, quantity: 1, fromLocation: 'A墙', toLocation: 'A墙' }) } catch (e) { e2 = e.message }
+  ok('调拨：源=目标时报错', /相同/.test(e2 ?? ''), String(e2))
+  ok('调拨：失败后数量没被改坏', sdb.prepare('SELECT COALESCE(SUM(quantity),0) q FROM inventory_batches WHERE product_id=?').get(pid).q === beforeFailQty)
+
+  // 跨库兼容：中心库那份 inventory_batches **没有 updated_at / guid 列** → 命令里绝不许写它们
+  const stockSrc = fs.readFileSync(path.resolve('electron/commands/stock.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  ok('调拨命令不在 inventory_batches 上写 updated_at/guid（否则在中心库直接报错）',
+    !/INSERT INTO inventory_batches[\s\S]{0,300}?(updated_at|guid)/.test(stockSrc) && !/UPDATE inventory_batches[\s\S]{0,120}?(updated_at|guid)/.test(stockSrc))
+  sdb.close()
 }
 
 fs.rmSync(tmp, { recursive: true, force: true })

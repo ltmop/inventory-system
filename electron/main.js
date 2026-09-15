@@ -209,6 +209,10 @@ function registerIpc() {
   handle('stocktake:complete', (d, p) => commands.completeStockTake(d, p.takeId))
   handle('stocktake:submit', (d, p) => commands.submitStockTake(d, p))
   handle('import:batch', (d, p) => { const r = commands.importBatch(d, p); voiceOrderService.refreshVoiceOrderCache(); return r })
+  // 库位调拨（2026-09-15）：备货出库/换库位**不该记成"销售出库"** —— 见 commands/stock.js 头部说明。
+  // 它只改批次库位（拆批次保成本），不写 transactions → 库存金额与营业额外/毛利完全不受影响。
+  handle('stock:transfer', (d, p) => commands.transferStock(d, p))
+  handle('stock:byLocation', (d, p) => commands.stockByLocation(d, p?.productId))
   // 赊账包：客户档案 / 还款 / 对账单
   handle('customer:create', (d, p) => commands.createCustomer(d, p))
   handle('customer:update', (d, p) => commands.updateCustomer(d, p))

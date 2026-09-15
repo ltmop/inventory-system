@@ -852,6 +852,8 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     'inbound:create','outbound:confirm','outbound:checkout','outbound:return','outbound:exchange',
     'supplier:create','supplier:update','supplier:delete','supplier:pay',
     'stocktake:create','stocktake:updateItem','stocktake:complete','stocktake:submit','import:batch',
+    // 库位调拨是写操作（改批次库位）—— 漏在这里等于只读令牌也能调拨
+    'stock:transfer',
     'customer:create','customer:update','customer:delete','payment:record',
     'expense:create','expense:update','expense:delete','waste:create',
     // 注：receipt:reconcile 是纯查询（commands/receipt.js 里只有 SELECT），原来误放在写通道，
@@ -1097,6 +1099,10 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     'stocktake:complete': (d, p) => cmds.completeStockTake(d, p.takeId),
     'stocktake:submit': (d, p) => cmds.submitStockTake(d, p),
     'import:batch': (d, p) => cmds.importBatch(d, p),
+    // 库位调拨（2026-09-15）：备货出库/换库位专用 —— 只改批次库位，**不写 transactions**，
+    // 所以营业额/毛利/库存金额都不受影响（详见 commands/stock.js 头部）。中心库模式下必须能用。
+    'stock:transfer': (d, p) => cmds.transferStock(d, p),
+    'stock:byLocation': (d, p) => cmds.stockByLocation(d, p?.productId),
     'customer:create': (d, p) => cmds.createCustomer(d, p),
     'customer:update': (d, p) => cmds.updateCustomer(d, p),
     'customer:delete': (d, p) => cmds.deleteCustomer(d, p),
