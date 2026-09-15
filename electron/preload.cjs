@@ -16,6 +16,39 @@ try {
   }
 } catch { /* 读不到就按老行为：localStorage 原样 */ }
 
+// ---- B 通道（P1 前端热更）的**渲染自检** ----
+// 为什么必须放在 preload：它属于**壳**（A 通道），任何 dist 版本里都有这段代码 ——
+// 所以哪怕热更包本身写坏了、页面根本没渲染出来，这段探针照样会跑并如实报告失败。
+// 主进程据此决定"转正（以后不再回退）"还是"下次启动自动退回上一版"。
+// 判据刻意选得笨：#root 有没有子节点 —— 它只证明"JS 跑起来了、React 挂上了"，
+// 不掺业务语义，也就不会因为后端出错而误判成"前端坏了"。
+try {
+  let settled = false
+  const report = () => {
+    if (settled) return
+    try {
+      const root = document.getElementById('root')
+      if (root && root.childElementCount > 0) {
+        settled = true
+        ipcRenderer.send('web:healthy')
+        return true
+      }
+    } catch { /* 探针自己出错就当没确认，主进程还有第二路 DOM 检查 */ }
+    return false
+  }
+  if (!report()) {
+    const t0 = Date.now()
+    const timer = setInterval(() => {
+      if (report()) { clearInterval(timer); return }
+      if (Date.now() - t0 > 10_000) {
+        clearInterval(timer)
+        settled = true
+        ipcRenderer.send('web:broken', { reason: '首页 10 秒内未挂载（#root 无子节点）' })
+      }
+    }, 250)
+  }
+} catch { /* 忽略 */ }
+
 const CHANNELS = new Set([
   'data:loadAll',
   'product:create',
@@ -160,6 +193,10 @@ const CHANNELS = new Set([
   'server:regenerateToken',
   'update:check',
   'update:downloadAndInstall',
+  // B 通道（P1 前端热更）：状态 / 手动检查 / 重启生效（都是"问本机"的问题）
+  'webupdate:status',
+  'webupdate:check',
+  'webupdate:restart',
   'license:status',
   'license:activate',
   'license:quota',
@@ -230,5 +267,17 @@ contextBridge.exposeInMainWorld('fi', {
     const listener = (_e, data) => callback(data)
     ipcRenderer.on('update:progress', listener)
     return () => ipcRenderer.removeListener('update:progress', listener)
+  },
+  // B 通道（P1 前端热更）：护栏④"用户可见"靠这两个订阅 ——
+  // 主进程把"新前端已就绪"推给界面，界面显示「点这里立即生效」，**绝不静默替换**。
+  onWebUpdateReady(callback) {
+    const listener = (_e, data) => callback(data)
+    ipcRenderer.on('webupdate:ready', listener)
+    return () => ipcRenderer.removeListener('webupdate:ready', listener)
+  },
+  onWebUpdateProgress(callback) {
+    const listener = (_e, data) => callback(data)
+    ipcRenderer.on('webupdate:progress', listener)
+    return () => ipcRenderer.removeListener('webupdate:progress', listener)
   },
 })

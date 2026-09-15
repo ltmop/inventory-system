@@ -27,6 +27,8 @@ import { initAutoUpdater, checkForUpdates, downloadAndInstall } from './updater.
 import * as site from './site.js'
 // 中心库连接配置的主进程单一事实源（P0）：文件 dataDir/central.json，preload 启动时用它补齐 localStorage
 import { initCentralConfig, getCentralConfigLocal, setCentralConfigLocal, isCentralConfigured } from './centralConfig.js'
+// B 通道（P1）：业务层 dist 的局部热更 + 四道护栏。目录由它决定，**同时**喂 loadFile 与 server 的 webRoot
+import { resolveWebRoot, markHealthy, markUnhealthy, checkAndStage, webUpdateStatus, readSupportedChannels, readWebState, writeWebState, DEFAULT_MANIFEST_URL } from './webUpdate.js'
 import { loadLicense, activateLicense, verifyLicenseCode, machineFingerprint, saveLevelToDb, quotaStatus, planFor } from './license.js'
 import { initCloud, pairWithCloud, syncSnapshot, uploadBackup, listCloudBackups, restoreFromCloud, regenViewLink, getCloudState, stopScheduler as stopCloudScheduler, exitSnapshot as exitCloudSnapshot, registerAccount as cloudRegisterAccount, loginAccount as cloudLoginAccount, logoutAccount as cloudLogoutAccount, resolveConflict, dismissRestoreHold, listSyncConflicts, resolveSyncConflict, syncBusinessData, fetchCentralConfig as cloudFetchCentralConfig, setCentralMode } from './cloud.js'
 
@@ -135,6 +137,10 @@ let inventoryServer = null
 // 恢复备份后为 true：旧 db 连接的视图已与被覆盖的库文件脱节，
 // 退出收尾必须跳过备份/checkpoint，否则会把旧内存视图写回刚恢复的文件
 let restoring = false
+// B 通道：本次启动实际使用的前端目录与它的来源（hot=热更包 / builtin=安装包内置）。
+// ⚠️ 它必须**同时**喂给 `mainWindow.loadFile` 与 `createInventoryServer({ webRoot })` ——
+// 只改一处 = 桌面看新版、手机看旧版（这正是前几轮一直在治的"两个版本并存"）。
+let resolvedWeb = null
 
 // 备份失败统一上报：写 backup-error.log 留痕（与退出备份同一模式）+ 弹错误框
 function reportBackupError(label, e) {
@@ -499,6 +505,24 @@ function registerIpc() {
   ipcMain.handle('update:downloadAndInstall', async () => {
     try { await downloadAndInstall() } catch (e) { throw new Error(e?.message ?? '下载失败') }
   })
+  // B 通道（前端热更）：状态查询 / 立即检查 / 重启生效
+  ipcMain.handle('webupdate:status', () => webUpdateStatus(dataDir, resolvedWeb))
+  ipcMain.handle('webupdate:check', async () => {
+    try {
+      return await runWebCheck({ manual: true })
+    } catch (e) {
+      return { ok: false, reason: (e && e.message) ? e.message : String(e) }
+    }
+  })
+  // 「立即生效」：重启进程即可（不是重装）。前端热更不需要退应用，2 秒的事。
+  ipcMain.handle('webupdate:restart', () => {
+    setTimeout(() => { try { app.relaunch(); app.exit(0) } catch { /* 用户可手动重启 */ } }, 100)
+    return { ok: true }
+  })
+  // 护栏②：渲染自检（preload 探针发现首页已挂载）→ 转正，下次启动不再回退
+  ipcMain.on('web:healthy', () => { try { markHealthy(dataDir, 'preload') } catch { /* 转正失败只会多回退一次，不阻断 */ } })
+  // 自检没过：只记一笔，**本次会话照常跑**（真正回退发生在下次启动，避免营业中被换掉）
+  ipcMain.on('web:broken', (_e, p) => { try { markUnhealthy(dataDir, p?.reason) } catch { /* 忽略 */ } })
   // 授权通道：状态查询 / 激活码验证 / 配额状态
   ipcMain.handle('license:status', () => {
     try {
@@ -624,6 +648,45 @@ ipcMain.handle('commands:invoke', async (_e, p) => {
   })
 }
 
+/**
+ * B 通道（P1）：跑一次前端热更检查 —— 只**下载 + 校验 + 准备好**，不切换页面。
+ * 生效在下次启动，所以收银机在营业中不会被换掉前端（护栏④：更新就绪时只提示，不静默替换）。
+ * 两条路径共用这个函数：① 启动后静默检查（每 6 小时最多一次）② 设置页手动检查。
+ * 🔴 任何失败都只返回结果、不抛异常：挂掉 = 没有热更，不是打不开。
+ */
+async function runWebCheck({ manual = false } = {}) {
+  if (process.env.VITE_DEV_SERVER_URL) return { ok: false, reason: '开发模式不检查前端热更' }
+  if (!manual) {
+    const last = Date.parse(readWebState(dataDir).lastCheckAt || 0)
+    if (Number.isFinite(last) && Date.now() - last < 6 * 3600 * 1000) {
+      return { ok: false, reason: '距上次检查不到 6 小时' }
+    }
+  }
+  writeWebState(dataDir, { ...readWebState(dataDir), lastCheckAt: new Date().toISOString() })
+  const r = await checkAndStage({
+    dataDir,
+    manifestUrl: process.env.FI_WEB_UPDATE_URL || DEFAULT_MANIFEST_URL,
+    shellVersion: app.getVersion(),
+    builtinDir: path.join(__dirname, '../dist'),
+    // 护栏③：热更包引用的通道必须 ⊆ 当前壳真正支持的通道
+    // = preload 白名单（本机 IPC）∪ server.js 路由（中心库模式下走 HTTP 的那批，不过 preload）
+    supportedChannels: readSupportedChannels(path.join(__dirname, 'preload.cjs'), path.join(__dirname, 'server.js')),
+    onProgress: (p) => {
+      for (const w of BrowserWindow.getAllWindows()) w.webContents.send('webupdate:progress', p)
+    },
+  })
+  if (r.staged) {
+    for (const w of BrowserWindow.getAllWindows()) {
+      w.webContents.send('webupdate:ready', { webVersion: r.webVersion, reason: r.reason })
+    }
+  } else {
+    // 只记一行原因，**不弹任何东西**：没热更不是故障。
+    // 但必须留痕 —— 第一版这里什么都不打，结果"为什么没收到更新"完全查不出来（真机验证时踩到）。
+    console.log('[webupdate] 未更新：' + r.reason)
+  }
+  return r
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -674,11 +737,27 @@ function createWindow() {
     } catch { /* 忽略 */ }
   })
 
+  // 护栏②的**第二路**独立确认：preload 那个探针可能被任何原因挡住（比如注入时机），
+  // 主进程再自己看一次 DOM。两路都失败才认为"这版没渲染出来"，
+  // 目的是避免把好版本误判成坏版本、平白回退一次。
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (resolvedWeb?.source !== 'hot') return
+    setTimeout(async () => {
+      try {
+        const mounted = await mainWindow?.webContents?.executeJavaScript(
+          'Boolean(document.getElementById("root") && document.getElementById("root").childElementCount > 0)',
+        )
+        if (mounted) markHealthy(dataDir, 'main')
+      } catch { /* 拿不到就当没确认，回退规则会处理 */ }
+    }, 12_000)
+  })
+
   const devUrl = process.env.VITE_DEV_SERVER_URL
   if (devUrl) {
     mainWindow.loadURL(devUrl)
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
+    // B 通道：加载的是 resolveWebRoot 决定的那份（热更包或安装包内置），不是写死的 ../dist
+    mainWindow.loadFile(path.join(resolvedWeb.root, 'index.html'))
   }
 }
 
@@ -736,9 +815,19 @@ app.whenReady().then(() => {
   voiceOrderService.initVoiceOrder(db) // P1-3：语音开单热词表/商品候选缓存
   // 1.0：orchestrator 统一 AI 出口（本地兜底优先）——初始化 db 引用
   orchestrator.initOrchestrator(db, dataDir)
+  // B 通道（P1）：定下本次启动用哪份前端。必须在窗口与服务端**之前**算好，
+  // 因为它要同时喂 `loadFile` 与下面 createInventoryServer 的 webRoot（只改一处 = 两个版本并存）。
+  resolvedWeb = resolveWebRoot({
+    dataDir,
+    builtinDir: path.join(__dirname, '../dist'),
+    shellVersion: app.getVersion(),
+  })
+  if (resolvedWeb.rolledBack) {
+    console.warn(`[webupdate] 已自动回退：v${resolvedWeb.rolledBack.webVersion} ${resolvedWeb.rolledBack.reason}`)
+  }
   registerIpc()
   // 手机看店服务：db 就绪后随备份调度一起启动；失败只告警不阻断桌面端
-  inventoryServer = createInventoryServer({ db, dataDir, webRoot: path.join(__dirname, '../dist'), ai, voice, doubao, voiceOrder: voiceOrderService })
+  inventoryServer = createInventoryServer({ db, dataDir, webRoot: resolvedWeb.root, ai, voice, doubao, voiceOrder: voiceOrderService })
   inventoryServer.start().catch((e) => console.error('[server] 启动失败:', e))
   const stopScheduler = scheduleDailyBackup(db, dbPath, backupDir, (e) =>
     reportBackupError('自动备份失败', e),
@@ -746,6 +835,9 @@ app.whenReady().then(() => {
   createWindow()
   // 自动更新：COS generic provider，try/catch 包裹——挂掉静默降级
   try { initAutoUpdater() } catch { /* 挂了是手动更新，不是打不开 */ }
+  // B 通道（P1）：启动 20 秒后静默查一次前端热更（避开启动高峰，每 6 小时最多一次）。
+  // 只下载 + 校验，**不切换** —— 生效在下次启动，营业中的收银机不会被换掉页面。
+  setTimeout(() => { runWebCheck().catch(() => { /* 静默：挂掉就是没有热更 */ }) }, 20_000)
   // 云备份：try/catch 包裹——挂了是本地单机版，不是打不开
   try {
     initCloud(db, dbPath, dataDir, backupDir, () => true)

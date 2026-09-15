@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { UpdateBanner } from '@/components/UpdateBanner'
+import { WebUpdateBanner } from '@/components/WebUpdateBanner'
 import { ToastProvider } from '@/components/ui/toast'
 import { SplashScreen } from '@/components/SplashScreen'
 import { Layout } from '@/components/layout/Layout'
@@ -140,6 +141,8 @@ function App() {
           现在唯一的账号入口是「账号」页，且**不强制登录**（未登录仍可用本机）。 */}
       {/* 自动更新提示条：检测到新版本时底部弹出（preload 暴露 onUpdateAvailable 后生效） */}
       <UpdateBanner />
+      {/* B 通道（P1 前端热更）：新前端下好即提示、由人点"立即生效"（护栏④，绝不静默替换） */}
+      <WebUpdateBanner />
       {!splashDone && <SplashScreen onFinish={() => setSplashDone(true)} />}
       {splashDone && (
       <HashRouter>

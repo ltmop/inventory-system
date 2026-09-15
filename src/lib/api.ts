@@ -285,6 +285,11 @@ export const LOCAL_ONLY_CHANNELS = [
   // 命令台：命令在本机执行
   'commands:list',
   'commands:invoke',
+  // B 通道（P1 前端热更）：换的是**这台电脑**上的前端目录，与中心库无关（中心库那份是给手机的）
+  // ⚠️ 不能靠 `update:` 前缀兜住 —— `webupdate:check`.indexOf('update:') 是 3，不是 0。
+  'webupdate:status',
+  'webupdate:check',
+  'webupdate:restart',
 ] as const
 
 export function isLocalOnlyChannel(channel: string): boolean {
