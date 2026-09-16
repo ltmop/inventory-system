@@ -41,13 +41,20 @@ ok('令牌只认 32 位十六进制', /\^\[0-9a-f\]\{32\}\$/.test(code))
 ok('支持 --url / --token / --out 与 INV_URL / INV_TOKEN', /--url/.test(src) && /--out/.test(src) && /INV_URL/.test(code) && /INV_TOKEN/.test(code))
 ok('没有写死的真实令牌', !/[0-9a-f]{32}/.test(code))
 
-console.log('\n=== ② 安全：run 必须显式 --yes，且确认在任何网络请求之前 ===')
+console.log('\n=== ② 安全：写命令必须显式 --yes，且确认在任何**写**请求之前 ===')
 const runBody = code.slice(code.indexOf('async function cmdRun'), code.indexOf('const sub = argv[0]'))
 ok('cmdRun 里有 --yes 门', /if \(!FLAG\('yes'\)\)/.test(runBody))
 ok('拒绝文案给出可复制的完整命令', /确认要执行就加 --yes/.test(runBody))
 ok('--yes 检查排在 await call( 之前（第一版栽在这：die 是 process.exit，.catch 兜不住）',
   runBody.indexOf("if (!FLAG('yes'))") !== -1 &&
   runBody.indexOf("if (!FLAG('yes'))") < runBody.indexOf('await call('))
+ok('只读探测用 tryCall（非致命）：老服务端没有该端点时不会把命令打断',
+  /await tryCall\('\/api\/commands\?name='/.test(runBody) && /async function tryCall/.test(code))
+ok('拿不到标记 / 命令不在表里 → 一律按写处理（fail-safe）',
+  /c\.write !== false/.test(runBody) && /注册表里没有这条命令/.test(runBody) && /问不到它的读写标记/.test(runBody))
+ok('list 的读写标记是 fail-safe 的（不知道显示 [写?]，不显示 [读]）',
+  /\[写\?\]/.test(code) && /c\.write === false \? '\[读\]'/.test(code))
+ok('list --readonly 只认明确 write===false', /ONLY_READ\) cmds = cmds\.filter\(\(c\) => c\.write === false\)/.test(code))
 
 console.log('\n=== ③ 真跑一遍：桩服务器按真实契约应答 ===')
 const seen = []
@@ -66,16 +73,22 @@ const srv = http.createServer((req, res) => {
       const nm = u.searchParams.get('name')
       res.writeHead(200, { 'content-type': 'application/json' })
       if (nm) {
+        // 三种情况都要能造出来：写命令(true) / 只读命令(false) / 老版本没有这个字段(undefined)
+        const MARK = { 'data:loadAll': true, 'product:list': false, 'legacy:cmd': undefined }
         res.end(JSON.stringify({
           ok: true,
-          command: { name: nm, group: 'data', desc: '取全量数据' },
+          command: { name: nm, group: 'data', desc: '取全量数据', write: MARK[nm] },
           channels: ['IPC（桌面渲染进程）', 'HTTP（POST /api/command）'],
           examples: { http: 'POST /api/command {"name":"' + nm + '","params":{}}' },
         }))
       } else {
         res.end(JSON.stringify({
-          ok: true, total: 2, groups: { data: 1, product: 1 }, filtered: 2,
-          commands: [{ name: 'data:loadAll', group: 'data', desc: '取全量数据' }, { name: 'product:list', group: 'product', desc: '商品列表' }],
+          ok: true, total: 3, groups: { data: 1, product: 1, legacy: 1 }, filtered: 3,
+          commands: [
+            { name: 'data:loadAll', group: 'data', desc: '取全量数据', write: true },
+            { name: 'product:list', group: 'product', desc: '商品列表', write: false },
+            { name: 'legacy:cmd', group: 'legacy', desc: '老版本没标记' },
+          ],
           restRoutes: [{ path: '/api/analytics/overview' }],
         }))
       }
@@ -116,7 +129,7 @@ const U = ['--url', base, '--token', TOK]
 try {
   const l = await run(['list', ...U])
   ok('list 退出码 0', l.status === 0, 'exit=' + l.status + ' ' + l.text.slice(0, 120))
-  ok('list 打出命令名与总数', /data:loadAll/.test(l.text) && /共 2 个命令/.test(l.text))
+  ok('list 打出命令名与总数', /data:loadAll/.test(l.text) && /共 3 个命令/.test(l.text))
   ok('list 打出只读 REST 提示', /\/api\/analytics\/overview/.test(l.text))
 
   const g = await run(['groups', ...U])
@@ -127,9 +140,34 @@ try {
 
   const before = seen.length
   const r1 = await run(['run', 'data:loadAll', ...U])
-  ok('run 不带 --yes 被拒（退出码非 0）', r1.status !== 0)
+  ok('写命令 run 不带 --yes 被拒（退出码非 0）', r1.status !== 0)
   ok('拒绝文案让人知道加 --yes', /--yes/.test(r1.text))
-  ok('拒绝时一个请求都没发（--yes 检查在网络之前）', seen.length === before, '多发 ' + (seen.length - before) + ' 个')
+  // 2026-09-16 起：拒绝之前允许发**一个只读探测**（问这条命令是不是写命令），
+  // 但绝不允许发出**写请求**。旧断言是"一个请求都不发"，那条规则的本意是
+  // "别在确认之前动数据" —— 现在按本意精确钉住：POST /api/command 次数必须为 0。
+  const during = seen.slice(before)
+  ok('拒绝时**没有发出写请求**（POST /api/command 次数为 0）',
+    during.filter((s) => s.path === '/api/command').length === 0,
+    '发了 ' + during.filter((s) => s.path === '/api/command').length + ' 个写请求')
+  ok('拒绝时最多只发 1 个只读探测（GET /api/commands?name=）',
+    during.length <= 1 && during.every((s) => s.method === 'GET' && s.path === '/api/commands'),
+    JSON.stringify(during.map((s) => s.method + ' ' + s.path)))
+
+  // 只读命令（write:false）**不带 --yes 也能直接跑** —— 这是这一版新增的能力
+  const ro = await run(['run', 'product:list', ...U])
+  ok('只读命令不带 --yes 能直接跑（退出码 0）', ro.status === 0, ro.text.slice(0, 160))
+  ok('只读命令真的发出了调用', seen.filter((s) => s.path === '/api/command').length > 0)
+
+  // 老版本服务端没有 write 字段 → 必须按「写」处理（fail-safe）
+  const legacy = await run(['run', 'legacy:cmd', ...U])
+  ok('拿不到 write 标记时按写处理（老服务端也拦得住）', legacy.status !== 0 && /没有读写标记|按「写」处理/.test(legacy.text), legacy.text.slice(0, 160))
+
+  const roList = await run(['list', '--readonly', ...U])
+  ok('list --readonly 只列只读命令', roList.status === 0 && /product:list/.test(roList.text) && !/data:loadAll/.test(roList.text))
+  ok('list 每行带读写标记', /\[读\]/.test(roList.text) && /\[写\]/.test((await run(['list', ...U])).text))
+
+  const gd = await run(['guide', ...U])
+  ok('guide 退出码 0 且讲了三条路', gd.status === 0 && /\/api\/commands/.test(gd.text) && /\/api\/invoke/.test(gd.text) && /inv-cli\.mjs run/.test(gd.text))
 
   const r2 = await run(['run', 'data:loadAll', '--params', '{"a":1}', '--yes', ...U])
   ok('run 加 --yes 后退出码 0', r2.status === 0, r2.text.slice(0, 160))

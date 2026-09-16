@@ -1,6 +1,6 @@
 {
  "schemaVersion": 2,
- "generatedAt": "2026-09-16T00:18:53.980Z",
+ "generatedAt": "2026-09-16T00:26:06.609Z",
  "source": "main.js(IPC) + server.js(HTTP/WRITE_CHANNELS) + preload.cjs(白名单) + api.ts(本机专属) + commands/*.js(JSDoc)",
  "total": 191,
  "restRoutes": [
@@ -121,15 +121,15 @@
   "webupdate:restart"
  ],
  "health": {
-  "withDesc": 86,
-  "withImpl": 99,
+  "withDesc": 191,
+  "withImpl": 95,
   "descShareMismatch": 0
  },
  "commands": [
   {
    "name": "ai:analyzePhoto",
    "group": "ai",
-   "desc": "",
+   "desc": "图片 → 商品行（本地兜底优先，AI 只做增强）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -141,7 +141,7 @@
   {
    "name": "ai:bindLicense",
    "group": "ai",
-   "desc": "",
+   "desc": "把本机授权与 AI 网关绑定",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -153,8 +153,8 @@
   {
    "name": "ai:chat",
    "group": "ai",
-   "desc": "检查某功能是否还有今日额度。 返回 { allow, message }；allow=false 时 message 是大白话提示（超额要升级）。",
-   "impl": "checkAiQuota",
+   "desc": "AI 对话（问答 / 改写文案），走统一 AI 出口",
+   "impl": null,
    "ipc": true,
    "http": true,
    "preload": true,
@@ -165,7 +165,7 @@
   {
    "name": "ai:clearKey",
    "group": "ai",
-   "desc": "",
+   "desc": "清空本机保存的 API Key",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -177,7 +177,7 @@
   {
    "name": "ai:correctTerm",
    "group": "ai",
-   "desc": "",
+   "desc": "纠正识别出来的商品名/规格写法（语音与图片开单用）",
    "impl": null,
    "ipc": false,
    "http": true,
@@ -189,7 +189,7 @@
   {
    "name": "ai:dailySummary",
    "group": "ai",
-   "desc": "",
+   "desc": "一句话经营日报（营业额/毛利/件数 + 异常提示）",
    "impl": null,
    "ipc": true,
    "http": true,
@@ -201,7 +201,7 @@
   {
    "name": "ai:gatewayQuota",
    "group": "ai",
-   "desc": "",
+   "desc": "云网关额度查询，返回 { allow, message }",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -213,7 +213,7 @@
   {
    "name": "ai:gatewayUsage",
    "group": "ai",
-   "desc": "",
+   "desc": "云网关最近用量明细（默认最近 20 条）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -225,7 +225,7 @@
   {
    "name": "ai:history",
    "group": "ai",
-   "desc": "",
+   "desc": "本机 AI 调用历史",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -237,7 +237,7 @@
   {
    "name": "ai:insights",
    "group": "ai",
-   "desc": "",
+   "desc": "AI 洞察列表（默认最近 50 条）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -249,7 +249,7 @@
   {
    "name": "ai:localUsageStats",
    "group": "ai",
-   "desc": "",
+   "desc": "本机 AI 用量统计",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -261,7 +261,7 @@
   {
    "name": "ai:orchestratorStatus",
    "group": "ai",
-   "desc": "",
+   "desc": "统一 AI 出口的状态（有哪些 provider 可用、本地兜底是否就绪）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -273,8 +273,8 @@
   {
    "name": "ai:parseInboundNote",
    "group": "ai",
-   "desc": "检查某功能是否还有今日额度。 返回 { allow, message }；allow=false 时 message 是大白话提示（超额要升级）。",
-   "impl": "checkAiQuota",
+   "desc": "一段文字/备注 → 入库草稿（解析成商品行）",
+   "impl": null,
    "ipc": true,
    "http": false,
    "preload": true,
@@ -285,8 +285,8 @@
   {
    "name": "ai:photoDraft",
    "group": "ai",
-   "desc": "检查某功能是否还有今日额度。 返回 { allow, message }；allow=false 时 message 是大白话提示（超额要升级）。",
-   "impl": "checkAiQuota",
+   "desc": "图片 → 入库草稿（拍一张进货单，识别成商品行）",
+   "impl": null,
    "ipc": false,
    "http": true,
    "preload": false,
@@ -297,7 +297,7 @@
   {
    "name": "ai:providers",
    "group": "ai",
-   "desc": "",
+   "desc": "可用的大模型 provider 列表",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -321,7 +321,7 @@
   {
    "name": "ai:setKey",
    "group": "ai",
-   "desc": "",
+   "desc": "保存某个 provider 的 API Key（本机加密存储）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -333,7 +333,7 @@
   {
    "name": "ai:setProvider",
    "group": "ai",
-   "desc": "",
+   "desc": "选择当前用哪个 provider",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -345,8 +345,8 @@
   {
    "name": "ai:smartSearch",
    "group": "ai",
-   "desc": "本地兜底搜索。 @returns {{ decisive: boolean, result: object }} decisive=true  → 本地已经够准（精确/子串命中），调用方**不必**再问 AI result         → 可直接回给前端的结果（形状与旧实现完全一致，避免调用方改动）",
-   "impl": "localSearchHit",
+   "desc": "一句话找商品（本地模糊匹配优先，AI 增强），与账本同源",
+   "impl": null,
    "ipc": true,
    "http": true,
    "preload": true,
@@ -357,7 +357,7 @@
   {
    "name": "ai:status",
    "group": "ai",
-   "desc": "",
+   "desc": "AI 是否可用（有没有 Key、有没有额度、能不能联网）",
    "impl": null,
    "ipc": true,
    "http": true,
@@ -369,7 +369,7 @@
   {
    "name": "ai:test",
    "group": "ai",
-   "desc": "",
+   "desc": "试跑一次 AI 调用，验证 Key 是否有效",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -381,7 +381,7 @@
   {
    "name": "ai:transcribe",
    "group": "ai",
-   "desc": "",
+   "desc": "语音转文字（本机模型）",
    "impl": null,
    "ipc": true,
    "http": true,
@@ -453,7 +453,7 @@
   {
    "name": "app:info",
    "group": "app",
-   "desc": "",
+   "desc": "本机信息（数据库路径、备份目录、版本、上次备份时间）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -465,7 +465,7 @@
   {
    "name": "app:openExternal",
    "group": "app",
-   "desc": "",
+   "desc": "用系统浏览器打开一个 https 链接",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -489,7 +489,7 @@
   {
    "name": "backup:clearExtraDir",
    "group": "backup",
-   "desc": "",
+   "desc": "清掉\"额外备份目录\"设置",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -501,7 +501,7 @@
   {
    "name": "backup:list",
    "group": "backup",
-   "desc": "",
+   "desc": "列出中心库服务端的每日备份（只有服务端有）",
    "impl": null,
    "ipc": false,
    "http": true,
@@ -513,7 +513,7 @@
   {
    "name": "backup:now",
    "group": "backup",
-   "desc": "",
+   "desc": "立刻在本机做一次备份",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -525,7 +525,7 @@
   {
    "name": "backup:restore",
    "group": "backup",
-   "desc": "",
+   "desc": "用本机备份恢复库（会覆盖当前数据）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -537,7 +537,7 @@
   {
    "name": "backup:setExtraDir",
    "group": "backup",
-   "desc": "",
+   "desc": "设置额外备份目录（同时写一份到 U 盘/共享盘）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -549,7 +549,7 @@
   {
    "name": "backup:status",
    "group": "backup",
-   "desc": "",
+   "desc": "备份状态（上次时间 / 目录 / 大小 / 是否失败）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -645,7 +645,7 @@
   {
    "name": "clearance:get",
    "group": "clearance",
-   "desc": "",
+   "desc": "清仓建议（滞销/临期怎么处理，只读）",
    "impl": "buildClearance",
    "ipc": true,
    "http": true,
@@ -657,7 +657,7 @@
   {
    "name": "cloud:backupNow",
    "group": "cloud",
-   "desc": "",
+   "desc": "立刻上传一份整库备份到云端",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -669,7 +669,7 @@
   {
    "name": "cloud:centralConfig",
    "group": "cloud",
-   "desc": "",
+   "desc": "取中心库下发的连接配置（地址 / 令牌）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -681,7 +681,7 @@
   {
    "name": "cloud:dismissRestore",
    "group": "cloud",
-   "desc": "",
+   "desc": "忽略\"云端有更新备份，是否恢复\"的提示",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -693,7 +693,7 @@
   {
    "name": "cloud:listBackups",
    "group": "cloud",
-   "desc": "",
+   "desc": "列出云端备份（中心库模式下列的是服务端每日备份）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -705,7 +705,7 @@
   {
    "name": "cloud:loginAccount",
    "group": "cloud",
-   "desc": "",
+   "desc": "用已注册的云账号登录",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -717,7 +717,7 @@
   {
    "name": "cloud:logout",
    "group": "cloud",
-   "desc": "",
+   "desc": "退出云账号",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -729,7 +729,7 @@
   {
    "name": "cloud:pair",
    "group": "cloud",
-   "desc": "",
+   "desc": "用配对码把本机与云端账号绑定",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -741,7 +741,7 @@
   {
    "name": "cloud:regenViewLink",
    "group": "cloud",
-   "desc": "",
+   "desc": "重新生成\"手机看店\"的只读链接",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -753,7 +753,7 @@
   {
    "name": "cloud:registerAccount",
    "group": "cloud",
-   "desc": "",
+   "desc": "注册云账号（手机号 + 验证码）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -765,7 +765,7 @@
   {
    "name": "cloud:resolveConflict",
    "group": "cloud",
-   "desc": "",
+   "desc": "解决一条同步冲突",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -777,7 +777,7 @@
   {
    "name": "cloud:resolveSyncConflict",
    "group": "cloud",
-   "desc": "",
+   "desc": "解决一条多端同步冲突（按记录）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -789,7 +789,7 @@
   {
    "name": "cloud:restore",
    "group": "cloud",
-   "desc": "",
+   "desc": "用云端备份恢复本机库（会覆盖当前数据，需二次确认）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -801,7 +801,7 @@
   {
    "name": "cloud:setCentralMode",
    "group": "cloud",
-   "desc": "",
+   "desc": "告诉主进程本机当前是不是中心库模式（决定整库上传闸门）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -813,7 +813,7 @@
   {
    "name": "cloud:status",
    "group": "cloud",
-   "desc": "",
+   "desc": "云账号/同步状态（登录与否、最后同步时间、待同步条数）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -825,7 +825,7 @@
   {
    "name": "cloud:syncBusinessNow",
    "group": "cloud",
-   "desc": "",
+   "desc": "立刻做一次业务数据（按记录）增量同步",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -837,7 +837,7 @@
   {
    "name": "cloud:syncConflicts",
    "group": "cloud",
-   "desc": "",
+   "desc": "列出多端同步冲突",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -849,7 +849,7 @@
   {
    "name": "cloud:syncNow",
    "group": "cloud",
-   "desc": "",
+   "desc": "立刻做一次快照同步",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -861,7 +861,7 @@
   {
    "name": "commands:describe",
    "group": "commands",
-   "desc": "",
+   "desc": "查一条命令的说明与示例",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -873,7 +873,7 @@
   {
    "name": "commands:invoke",
    "group": "commands",
-   "desc": "",
+   "desc": "按名字执行任意命令 —— Agent 的通用入口",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -885,7 +885,7 @@
   {
    "name": "commands:list",
    "group": "commands",
-   "desc": "",
+   "desc": "列出全部命令（可按组或关键词过滤）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -897,7 +897,7 @@
   {
    "name": "customer:create",
    "group": "customer",
-   "desc": "",
+   "desc": "新增客户",
    "impl": "createCustomer",
    "ipc": true,
    "http": true,
@@ -957,7 +957,7 @@
   {
    "name": "data:loadAll",
    "group": "data",
-   "desc": "",
+   "desc": "一次性加载全量基础数据（商品/分类/单位等，桌面首屏用）",
    "impl": "loadAll",
    "ipc": true,
    "http": true,
@@ -969,7 +969,7 @@
   {
    "name": "doubao:analyzeImage",
    "group": "doubao",
-   "desc": "",
+   "desc": "豆包视觉：图片 → 商品行",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -981,7 +981,7 @@
   {
    "name": "doubao:chat",
    "group": "doubao",
-   "desc": "",
+   "desc": "豆包对话（问答/改写）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -993,7 +993,7 @@
   {
    "name": "doubao:clearKey",
    "group": "doubao",
-   "desc": "",
+   "desc": "清空豆包 API Key",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -1005,7 +1005,7 @@
   {
    "name": "doubao:setKey",
    "group": "doubao",
-   "desc": "",
+   "desc": "保存豆包 API Key",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -1017,7 +1017,7 @@
   {
    "name": "doubao:status",
    "group": "doubao",
-   "desc": "",
+   "desc": "豆包是否可用",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -1029,7 +1029,7 @@
   {
    "name": "doubao:transcribe",
    "group": "doubao",
-   "desc": "",
+   "desc": "豆包语音转文字",
    "impl": null,
    "ipc": false,
    "http": true,
@@ -1077,7 +1077,7 @@
   {
    "name": "feedback:send",
    "group": "feedback",
-   "desc": "",
+   "desc": "把意见反馈发到官方（自动附本机日志末尾几行）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -1089,7 +1089,7 @@
   {
    "name": "flags:refresh",
    "group": "flags",
-   "desc": "",
+   "desc": "立刻去取服务端下发的开关（这一台）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -1101,7 +1101,7 @@
   {
    "name": "flags:set",
    "group": "flags",
-   "desc": "",
+   "desc": "改本机功能开关（true / false / null=恢复上级）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -1113,7 +1113,7 @@
   {
    "name": "flags:status",
    "group": "flags",
-   "desc": "",
+   "desc": "每个功能开关的有效值与来源（服务端关 / 本机 / 服务端开 / 出厂默认）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -1137,7 +1137,7 @@
   {
    "name": "inbound:create",
    "group": "inbound",
-   "desc": "",
+   "desc": "新建入库单",
    "impl": "createInbound",
    "ipc": true,
    "http": true,
@@ -1197,7 +1197,7 @@
   {
    "name": "knowledge:delete",
    "group": "knowledge",
-   "desc": "",
+   "desc": "删除一条知识库记录",
    "impl": null,
    "ipc": true,
    "http": true,
@@ -1209,7 +1209,7 @@
   {
    "name": "knowledge:list",
    "group": "knowledge",
-   "desc": "",
+   "desc": "知识库列表/搜索",
    "impl": null,
    "ipc": true,
    "http": true,
@@ -1221,7 +1221,7 @@
   {
    "name": "knowledge:save",
    "group": "knowledge",
-   "desc": "",
+   "desc": "新增一条知识库记录",
    "impl": null,
    "ipc": true,
    "http": true,
@@ -1233,7 +1233,7 @@
   {
    "name": "knowledge:update",
    "group": "knowledge",
-   "desc": "",
+   "desc": "修改一条知识库记录",
    "impl": null,
    "ipc": true,
    "http": true,
@@ -1245,7 +1245,7 @@
   {
    "name": "kws:download",
    "group": "kws",
-   "desc": "",
+   "desc": "下载/更新唤醒词模型",
    "impl": null,
    "ipc": false,
    "http": false,
@@ -1257,7 +1257,7 @@
   {
    "name": "kws:push",
    "group": "kws",
-   "desc": "",
+   "desc": "送一段音频给唤醒词检测",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -1269,7 +1269,7 @@
   {
    "name": "kws:reset",
    "group": "kws",
-   "desc": "",
+   "desc": "重置唤醒词检测状态",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -1281,7 +1281,7 @@
   {
    "name": "kws:status",
    "group": "kws",
-   "desc": "",
+   "desc": "唤醒词功能是否就绪",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -1293,7 +1293,7 @@
   {
    "name": "license:activate",
    "group": "license",
-   "desc": "",
+   "desc": "用激活码激活本机授权",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -1305,7 +1305,7 @@
   {
    "name": "license:quota",
    "group": "license",
-   "desc": "",
+   "desc": "各版本额度（每日 AI 次数等）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -1317,7 +1317,7 @@
   {
    "name": "license:status",
    "group": "license",
-   "desc": "",
+   "desc": "本机授权状态（版本 / 到期 / 机器码）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -1461,7 +1461,7 @@
   {
    "name": "payment:deleteQr",
    "group": "payment",
-   "desc": "",
+   "desc": "删除本机保存的收款码图片",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -1473,7 +1473,7 @@
   {
    "name": "payment:getQr",
    "group": "payment",
-   "desc": "",
+   "desc": "取本机收款码图片",
    "impl": null,
    "ipc": true,
    "http": true,
@@ -1497,7 +1497,7 @@
   {
    "name": "payment:saveQr",
    "group": "payment",
-   "desc": "",
+   "desc": "保存收款码图片到本机",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -1521,7 +1521,7 @@
   {
    "name": "photo:save",
    "group": "photo",
-   "desc": "",
+   "desc": "保存商品图片到本机（返回相对文件名）",
    "impl": null,
    "ipc": true,
    "http": true,
@@ -1593,7 +1593,7 @@
   {
    "name": "priceTier:delete",
    "group": "priceTier",
-   "desc": "",
+   "desc": "删除一个价格档",
    "impl": "deletePriceTier",
    "ipc": true,
    "http": true,
@@ -1605,7 +1605,7 @@
   {
    "name": "priceTier:list",
    "group": "priceTier",
-   "desc": "",
+   "desc": "价格档列表",
    "impl": "getPriceTiers",
    "ipc": true,
    "http": true,
@@ -1617,7 +1617,7 @@
   {
    "name": "priceTier:set",
    "group": "priceTier",
-   "desc": "",
+   "desc": "新增/修改一个价格档（按客户等级定价）",
    "impl": "setPriceTier",
    "ipc": true,
    "http": true,
@@ -1629,7 +1629,7 @@
   {
    "name": "pricing:get",
    "group": "pricing",
-   "desc": "",
+   "desc": "定价建议（只读，给价格区间，不自动改价）",
    "impl": "buildPricing",
    "ipc": true,
    "http": true,
@@ -1653,7 +1653,7 @@
   {
    "name": "product:create",
    "group": "product",
-   "desc": "",
+   "desc": "新增商品（会校验 SKU 额度）",
    "impl": "createProduct",
    "ipc": true,
    "http": true,
@@ -1689,7 +1689,7 @@
   {
    "name": "product:list",
    "group": "product",
-   "desc": "",
+   "desc": "商品列表（按关键词过滤，默认最多 300 条）",
    "impl": null,
    "ipc": false,
    "http": true,
@@ -1701,7 +1701,7 @@
   {
    "name": "product:mark",
    "group": "product",
-   "desc": "手动标记商品：热销（is_hot）/ 处理货（is_clearance）。手机端老板自己标。 @param {{ id:number, is_hot?:0|1, is_clearance?:0|1, operator?:string }} input",
+   "desc": "手动标记商品：热销（is_hot）/ 处理货（is_clearance）。手机端老板自己标。",
    "impl": "markProduct",
    "ipc": true,
    "http": true,
@@ -1713,7 +1713,7 @@
   {
    "name": "product:search",
    "group": "product",
-   "desc": "",
+   "desc": "按关键词搜商品（轻量，给下拉与语音用）",
    "impl": null,
    "ipc": false,
    "http": true,
@@ -1773,7 +1773,7 @@
   {
    "name": "report:hotSellers",
    "group": "report",
-   "desc": "",
+   "desc": "热销榜（近 N 天，默认 30，最多 90）",
    "impl": null,
    "ipc": false,
    "http": true,
@@ -1809,7 +1809,7 @@
   {
    "name": "server:regenerateToken",
    "group": "server",
-   "desc": "",
+   "desc": "重新生成\"手机看店\"访问令牌（旧链接立即失效）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -1821,7 +1821,7 @@
   {
    "name": "server:status",
    "group": "server",
-   "desc": "",
+   "desc": "本机局域网/看店服务的运行状态（端口、地址、开关）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -1833,7 +1833,7 @@
   {
    "name": "server:toggle",
    "group": "server",
-   "desc": "",
+   "desc": "开/关本机局域网看店服务",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -1845,7 +1845,7 @@
   {
    "name": "site:contact",
    "group": "site",
-   "desc": "",
+   "desc": "取官网/联系方式（出厂默认 + 本机覆盖）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -1857,7 +1857,7 @@
   {
    "name": "site:setContact",
    "group": "site",
-   "desc": "",
+   "desc": "改本机官网/联系方式（换客服微信不必发版）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -1881,7 +1881,7 @@
   {
    "name": "stock:transfer",
    "group": "stock",
-   "desc": "把 `quantity` 件货从 `fromLocation` 调到 `toLocation`。 @param {object} p @param {number} p.productId @param {number} p.quantity @param {string} [p.fromLocation]  不填 = 从任意库位按先进先出取 @param {string} p.toLocatio",
+   "desc": "把 `quantity` 件货从 `fromLocation` 调到 `toLocation`。",
    "impl": "transferStock",
    "ipc": true,
    "http": true,
@@ -1917,7 +1917,7 @@
   {
    "name": "stocktake:submit",
    "group": "stocktake",
-   "desc": "盘点一次性原子提交：把前端暂存的实盘数写入明细 + 完成盘点，同一事务。 替代\"前端逐条 updateStockTakeItem + 最后 complete\"的两段式流程—— 那种流程中途崩溃会留下改了明细没落实库存的半成品状态。 @param {{ takeId: number, items: Array<{ itemId: number, actualQty: number, reason: ",
+   "desc": "盘点一次性原子提交：把前端暂存的实盘数写入明细 + 完成盘点，同一事务。 替代\"前端逐条 updateStockTakeItem + 最后 complete\"的两段式流程—— 那种流程中途崩溃会留下改了明细没落实库存的半成品状态。",
    "impl": "submitStockTake",
    "ipc": true,
    "http": true,
@@ -1929,7 +1929,7 @@
   {
    "name": "stocktake:updateItem",
    "group": "stocktake",
-   "desc": "",
+   "desc": "更新盘点单里的一项（实盘数）",
    "impl": "updateStockTakeItem",
    "ipc": true,
    "http": true,
@@ -1941,7 +1941,7 @@
   {
    "name": "supplier:create",
    "group": "supplier",
-   "desc": "",
+   "desc": "新增供应商",
    "impl": "createSupplier",
    "ipc": true,
    "http": true,
@@ -1953,7 +1953,7 @@
   {
    "name": "supplier:delete",
    "group": "supplier",
-   "desc": "",
+   "desc": "删除供应商（有采购/付款记录的会拒绝）",
    "impl": "deleteSupplier",
    "ipc": true,
    "http": true,
@@ -1965,7 +1965,7 @@
   {
    "name": "supplier:list",
    "group": "supplier",
-   "desc": "",
+   "desc": "供应商列表（含欠款）",
    "impl": null,
    "ipc": false,
    "http": true,
@@ -2013,7 +2013,7 @@
   {
    "name": "supplier:update",
    "group": "supplier",
-   "desc": "",
+   "desc": "修改供应商资料",
    "impl": "updateSupplier",
    "ipc": true,
    "http": true,
@@ -2049,7 +2049,7 @@
   {
    "name": "tts:download",
    "group": "tts",
-   "desc": "",
+   "desc": "下载/更新语音合成模型",
    "impl": null,
    "ipc": false,
    "http": false,
@@ -2061,7 +2061,7 @@
   {
    "name": "tts:speak",
    "group": "tts",
-   "desc": "",
+   "desc": "朗读一段文字（播报营业额等）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -2073,7 +2073,7 @@
   {
    "name": "tts:status",
    "group": "tts",
-   "desc": "",
+   "desc": "语音合成是否就绪",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -2157,7 +2157,7 @@
   {
    "name": "update:check",
    "group": "update",
-   "desc": "",
+   "desc": "检查有没有新的安装包（走 electron-updater）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -2169,7 +2169,7 @@
   {
    "name": "update:downloadAndInstall",
    "group": "update",
-   "desc": "",
+   "desc": "下载并安装新版安装包",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -2289,7 +2289,7 @@
   {
    "name": "voice:download",
    "group": "voice",
-   "desc": "",
+   "desc": "下载/更新本机语音识别模型",
    "impl": null,
    "ipc": false,
    "http": false,
@@ -2301,7 +2301,7 @@
   {
    "name": "voice:parseOrder",
    "group": "voice",
-   "desc": "",
+   "desc": "一句话文本 → 开单草稿",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -2313,7 +2313,7 @@
   {
    "name": "voice:parseOrderAudio",
    "group": "voice",
-   "desc": "",
+   "desc": "语音 → 开单草稿（识别 + 解析一步完成）",
    "impl": null,
    "ipc": true,
    "http": true,
@@ -2325,7 +2325,7 @@
   {
    "name": "voice:status",
    "group": "voice",
-   "desc": "",
+   "desc": "语音识别是否就绪（模型在不在、设备可用否）",
    "impl": null,
    "ipc": true,
    "http": true,
@@ -2337,7 +2337,7 @@
   {
    "name": "voice:transcribe",
    "group": "voice",
-   "desc": "",
+   "desc": "语音转文字（本机模型）",
    "impl": null,
    "ipc": true,
    "http": true,
@@ -2385,7 +2385,7 @@
   {
    "name": "webupdate:check",
    "group": "webupdate",
-   "desc": "",
+   "desc": "立刻检查有没有新的前端/口径层热更",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -2397,7 +2397,7 @@
   {
    "name": "webupdate:restart",
    "group": "webupdate",
-   "desc": "",
+   "desc": "重启进程让已就绪的热更生效（约 2 秒）",
    "impl": null,
    "ipc": true,
    "http": false,
@@ -2409,7 +2409,7 @@
   {
    "name": "webupdate:status",
    "group": "webupdate",
-   "desc": "",
+   "desc": "热更状态（现在跑的是哪版、有没有已就绪的）",
    "impl": null,
    "ipc": true,
    "http": false,
