@@ -109,11 +109,23 @@ try {
   ok('指南里提到的 /api 路径都是真实存在的接口', ghostApis.length === 0, '不存在: ' + ghostApis.join(' '))
 
   // ---------- 注册表与代码一致 ----------
-  const before = fs.readFileSync(path.resolve('electron/commandRegistry.json'), 'utf8')
-  execFileSync(process.execPath, ['scripts/command-surface.mjs', '--emit-registry'], { stdio: 'pipe' })
-  const after = fs.readFileSync(path.resolve('electron/commandRegistry.json'), 'utf8')
-  const norm = (s) => s.replace(/"generatedAt"\s*:\s*"[^"]+"/, '')
-  ok('提交的注册表与代码一致（重新抽取后除时间戳外相同）', norm(before) === norm(after), '需要重新 --emit-registry')
+  // ⚠️ 这一段会真的重新生成注册表来比对 —— 而生成物里带 generatedAt（时间戳），
+  //    所以**跑完必须把原文件写回去**，否则每次跑闸门都会弄脏工作树，
+  //    而"构建前工作树必须干净"是发版风控第 2 条（实测踩到过）。
+  const registryPath = path.resolve('electron/commandRegistry.json')
+  const before = fs.readFileSync(registryPath, 'utf8')
+  try {
+    execFileSync(process.execPath, ['scripts/command-surface.mjs', '--emit-registry'], { stdio: 'pipe' })
+    const after = fs.readFileSync(registryPath, 'utf8')
+    // ⚠️ 归一里必须**去掉换行符差异**：工作树那份是 CRLF（git autocrlf），而重新生成为 LF，
+    //    只比字符串会永远判"不一致"（这是个长期假红，2026-09-16 才定位到）。
+    const norm = (s) => s.replace(/\r\n/g, '\n').replace(/"generatedAt"\s*:\s*"[^"]+"/, '')
+    ok('提交的注册表与代码一致（重新抽取后除时间戳外相同）', norm(before) === norm(after), '需要重新 --emit-registry')
+  } finally {
+    // 无论比对结果如何都还原（不改动工作树）
+    if (fs.readFileSync(registryPath, 'utf8') !== before) fs.writeFileSync(registryPath, before, 'utf8')
+  }
+  ok('跑完闸门没有弄脏工作树（注册表已还原）', fs.readFileSync(registryPath, 'utf8') === before)
 } catch (e) {
   fail++; failures.push('异常: ' + e.message)
   console.error(NL + '异常: ' + e.message)
