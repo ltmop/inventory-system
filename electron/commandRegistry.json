@@ -1,8 +1,8 @@
 {
- "schemaVersion": 1,
- "generatedAt": "2026-09-14T05:33:13.196Z",
- "source": "main.js(IPC) + server.js(HTTP) + preload.cjs(白名单) + commands/*.js(JSDoc)",
- "total": 180,
+ "schemaVersion": 2,
+ "generatedAt": "2026-09-16T00:18:53.980Z",
+ "source": "main.js(IPC) + server.js(HTTP/WRITE_CHANNELS) + preload.cjs(白名单) + api.ts(本机专属) + commands/*.js(JSDoc)",
+ "total": 191,
  "restRoutes": [
   "/api/analytics/category",
   "/api/analytics/overview",
@@ -19,6 +19,112 @@
   "/api/supplier-statement",
   "/api/today"
  ],
+ "writes": [
+  "ai:bindLicense",
+  "ai:clearKey",
+  "ai:setKey",
+  "ai:setProvider",
+  "backup:clearExtraDir",
+  "backup:now",
+  "backup:restore",
+  "backup:setExtraDir",
+  "category:create",
+  "category:delete",
+  "category:move",
+  "category:rename",
+  "category:setParent",
+  "cloud:backupNow",
+  "cloud:dismissRestore",
+  "cloud:loginAccount",
+  "cloud:logout",
+  "cloud:pair",
+  "cloud:regenViewLink",
+  "cloud:registerAccount",
+  "cloud:resolveSyncConflict",
+  "cloud:restore",
+  "cloud:setCentralMode",
+  "cloud:syncBusinessNow",
+  "cloud:syncNow",
+  "customer:create",
+  "customer:delete",
+  "customer:update",
+  "doubao:clearKey",
+  "doubao:setKey",
+  "expense:create",
+  "expense:delete",
+  "expense:update",
+  "feedback:send",
+  "flags:refresh",
+  "flags:set",
+  "import:batch",
+  "inbound:create",
+  "kit:delete",
+  "kit:save",
+  "knowledge:delete",
+  "knowledge:save",
+  "knowledge:update",
+  "kws:download",
+  "kws:push",
+  "kws:reset",
+  "license:activate",
+  "onboarding:finish",
+  "onboarding:reset",
+  "outbound:checkout",
+  "outbound:confirm",
+  "outbound:exchange",
+  "outbound:return",
+  "part:set",
+  "part:setMany",
+  "payment:deleteQr",
+  "payment:record",
+  "payment:saveQr",
+  "photo:delete",
+  "photo:save",
+  "po:cancel",
+  "po:create",
+  "po:receive",
+  "priceTier:delete",
+  "priceTier:set",
+  "product:batchUpdate",
+  "product:create",
+  "product:delete",
+  "product:mark",
+  "product:update",
+  "receipt:register",
+  "server:regenerateToken",
+  "server:toggle",
+  "site:setContact",
+  "stock:transfer",
+  "stocktake:complete",
+  "stocktake:create",
+  "stocktake:submit",
+  "stocktake:updateItem",
+  "supplier:create",
+  "supplier:delete",
+  "supplier:pay",
+  "supplier:update",
+  "template:apply",
+  "tts:download",
+  "unit:create",
+  "unit:delete",
+  "unit:move",
+  "unit:update",
+  "update:downloadAndInstall",
+  "user:create",
+  "user:delete",
+  "user:login",
+  "user:logout",
+  "user:setStaffLogin",
+  "user:update",
+  "voice:download",
+  "waste:create",
+  "webupdate:restart"
+ ],
+ "health": {
+  "withDesc": 86,
+  "withImpl": 99,
+  "descShareMismatch": 0
+ },
  "commands": [
   {
    "name": "ai:analyzePhoto",
@@ -28,7 +134,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "ai:bindLicense",
@@ -38,7 +146,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "ai:chat",
@@ -48,7 +158,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "ai:clearKey",
@@ -58,7 +170,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "ai:correctTerm",
@@ -68,7 +182,9 @@
    "ipc": false,
    "http": true,
    "preload": false,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "ai:dailySummary",
@@ -78,7 +194,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "ai:gatewayQuota",
@@ -88,7 +206,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "ai:gatewayUsage",
@@ -98,7 +218,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "ai:history",
@@ -108,7 +230,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "ai:insights",
@@ -118,7 +242,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "ai:localUsageStats",
@@ -128,7 +254,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "ai:orchestratorStatus",
@@ -138,7 +266,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "ai:parseInboundNote",
@@ -148,7 +278,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "ai:photoDraft",
@@ -158,7 +290,9 @@
    "ipc": false,
    "http": true,
    "preload": false,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "ai:providers",
@@ -168,17 +302,21 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "ai:quota",
    "group": "ai",
-   "desc": "各版本每日额度（次/天）；Infinity=不限 */ export const AI_QUOTAS = { vision: { free: 20, pro: 100, max: Infinity }, chat: { free: 5, pro: 100, max: Infinity }, } /** 功能中文名（超额",
+   "desc": "某功能当前版本今日额度（剩余次数）；大师版返回 Infinity",
    "impl": "aiQuotaStatus",
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "ai:setKey",
@@ -188,7 +326,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "ai:setProvider",
@@ -198,17 +338,21 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "ai:smartSearch",
    "group": "ai",
-   "desc": "",
-   "impl": null,
+   "desc": "本地兜底搜索。 @returns {{ decisive: boolean, result: object }} decisive=true  → 本地已经够准（精确/子串命中），调用方**不必**再问 AI result         → 可直接回给前端的结果（形状与旧实现完全一致，避免调用方改动）",
+   "impl": "localSearchHit",
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "ai:status",
@@ -218,7 +362,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "ai:test",
@@ -228,7 +374,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "ai:transcribe",
@@ -238,57 +386,69 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "analytics:category",
    "group": "analytics",
-   "desc": "",
-   "impl": null,
+   "desc": "品类销售额/毛利/件数（全部销售）",
+   "impl": "analyticsCategory",
    "ipc": false,
    "http": true,
    "preload": false,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "analytics:overview",
    "group": "analytics",
-   "desc": "",
-   "impl": null,
+   "desc": "经营概览：今日 / 本月 营业额毛利 + 库存总额 + SKU 数 + 低库存数",
+   "impl": "analyticsOverview",
    "ipc": false,
    "http": true,
    "preload": false,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "analytics:stockValue",
    "group": "analytics",
-   "desc": "",
-   "impl": null,
+   "desc": "库存金额按品类（当前批次货值）",
+   "impl": "analyticsStockValue",
    "ipc": false,
    "http": true,
    "preload": false,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "analytics:top",
    "group": "analytics",
-   "desc": "",
-   "impl": null,
+   "desc": "畅销 Top N（按营业额，附毛利/件数）",
+   "impl": "analyticsTop",
    "ipc": false,
    "http": true,
    "preload": false,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "analytics:trend",
    "group": "analytics",
-   "desc": "",
-   "impl": null,
+   "desc": "近 N 天（含今天）销售额/毛利/件数趋势",
+   "impl": "analyticsTrend",
    "ipc": false,
    "http": true,
    "preload": false,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "app:info",
@@ -298,7 +458,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "app:openExternal",
@@ -308,7 +470,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "audit:list",
@@ -318,7 +482,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "backup:clearExtraDir",
@@ -328,7 +494,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "backup:list",
@@ -338,7 +506,9 @@
    "ipc": false,
    "http": true,
    "preload": false,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "backup:now",
@@ -348,7 +518,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "backup:restore",
@@ -358,7 +530,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "backup:setExtraDir",
@@ -368,7 +542,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "backup:status",
@@ -378,7 +554,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "category:create",
@@ -388,7 +566,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "category:delete",
@@ -398,7 +578,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "category:list",
@@ -408,7 +590,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "category:listWithCount",
@@ -416,9 +600,11 @@
    "desc": "分类列表（含每类商品数）",
    "impl": "listCategoriesWithCount",
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "category:move",
@@ -428,7 +614,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "category:rename",
@@ -438,7 +626,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "category:setParent",
@@ -448,7 +638,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "clearance:get",
@@ -456,9 +648,11 @@
    "desc": "",
    "impl": "buildClearance",
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "cloud:backupNow",
@@ -468,7 +662,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "cloud:centralConfig",
@@ -478,7 +674,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "cloud:dismissRestore",
@@ -488,7 +686,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "cloud:listBackups",
@@ -498,7 +698,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "cloud:loginAccount",
@@ -508,7 +710,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "cloud:logout",
@@ -518,7 +722,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "cloud:pair",
@@ -528,7 +734,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "cloud:regenViewLink",
@@ -538,7 +746,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "cloud:registerAccount",
@@ -548,7 +758,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "cloud:resolveConflict",
@@ -558,7 +770,9 @@
    "ipc": true,
    "http": false,
    "preload": false,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "cloud:resolveSyncConflict",
@@ -568,7 +782,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "cloud:restore",
@@ -578,7 +794,21 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
+  },
+  {
+   "name": "cloud:setCentralMode",
+   "group": "cloud",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "cloud:status",
@@ -588,7 +818,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "cloud:syncBusinessNow",
@@ -598,7 +830,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "cloud:syncConflicts",
@@ -608,7 +842,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "cloud:syncNow",
@@ -618,7 +854,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "commands:describe",
@@ -628,7 +866,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "commands:invoke",
@@ -638,7 +878,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "commands:list",
@@ -648,7 +890,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "customer:create",
@@ -658,7 +902,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "customer:delete",
@@ -668,7 +914,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "customer:list",
@@ -678,17 +926,21 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "customer:statement",
    "group": "customer",
-   "desc": "客户对账单： - sales：该客户全部带售价的 out/return 流水明细（时间/商品/数量/应付/已付/欠）， out 行 欠=应付-实收（全额付清的为 0），return 行 欠=-退款额（冲减），按时间倒序 - payments：还款记录（时间/金额/方式/备注），按时间倒序 - 汇总字段与 listCus",
+   "desc": "客户对账单： - sales：该客户全部带售价的 out/return 流水明细（时间/商品/数量/应付/已付/欠）， out 行 欠=应付-实收（全额付清的为 0），return 行 欠=-退款额（冲减），按时间倒序 - payments：还款记录（时间/金额/方式/备注），按时间倒序 - 汇总字段与 listCustomers 同口径",
    "impl": "customerStatement",
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "customer:update",
@@ -698,7 +950,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "data:loadAll",
@@ -708,7 +962,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "doubao:analyzeImage",
@@ -718,7 +974,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "doubao:chat",
@@ -728,7 +986,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "doubao:clearKey",
@@ -738,7 +998,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "doubao:setKey",
@@ -748,7 +1010,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "doubao:status",
@@ -758,7 +1022,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "doubao:transcribe",
@@ -768,17 +1034,21 @@
    "ipc": false,
    "http": true,
    "preload": false,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "expense:create",
    "group": "expense",
-   "desc": "支出字段公共校验：分类/金额/方式/日期/供应商，返回归一后的字段 */ function normalizeExpense(db, { category, amount, method, supplierId, expenseDate, note }) { if (!EXPENSE_CATEGORIES.includ",
+   "desc": "记一笔支出：金额单位分；返回完整行（含关联供应商名）",
    "impl": "createExpense",
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "expense:delete",
@@ -788,7 +1058,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "expense:update",
@@ -798,7 +1070,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "feedback:send",
@@ -808,17 +1082,57 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
+  },
+  {
+   "name": "flags:refresh",
+   "group": "flags",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false,
+   "write": true,
+   "local": true
+  },
+  {
+   "name": "flags:set",
+   "group": "flags",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false,
+   "write": true,
+   "local": true
+  },
+  {
+   "name": "flags:status",
+   "group": "flags",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "import:batch",
    "group": "import",
-   "desc": "批量导入商品 + 批次，每条商品自动生成批次入库记录。 逐行校验：坏行（数量非法、缺成本价、品类不在 20 大类内）记入 errors 并跳过该行， 不再让一行坏数据导致整批回滚。 SKU 规则与手动新建一致：显式 SKU 原样用 > 有条码用条码 > 无条码自动编纯数字号（1001 起）。 合法行仍在同一事务里整体提",
+   "desc": "批量导入商品 + 批次，每条商品自动生成批次入库记录。 逐行校验：坏行（数量非法、缺成本价、品类不在 20 大类内）记入 errors 并跳过该行， 不再让一行坏数据导致整批回滚。 SKU 规则与手动新建一致：显式 SKU 原样用 > 有条码用条码 > 无条码自动编纯数字号（1001 起）。 合法行仍在同一事务里整体提交，批次号与手动入库同规则。 mode： - 'skip'（默认，向后兼容）：已",
    "impl": "importBatch",
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "inbound:create",
@@ -828,7 +1142,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "kit:delete",
@@ -838,7 +1154,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "kit:get",
@@ -848,17 +1166,21 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "kit:list",
    "group": "kit",
-   "desc": "归一套装打包价：null/undefined/空串 → null（不设）；否则必须是非负整数（分） */ function kitPriceOrNull(v) { if (v == null || v === '') return null const n = Number(v) if (!Number.isInteg",
+   "desc": "套装列表（带明细条数），按创建时间倒序",
    "impl": "listKits",
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "kit:save",
@@ -868,7 +1190,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "knowledge:delete",
@@ -876,9 +1200,11 @@
    "desc": "",
    "impl": null,
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "knowledge:list",
@@ -886,9 +1212,11 @@
    "desc": "",
    "impl": null,
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "knowledge:save",
@@ -896,9 +1224,11 @@
    "desc": "",
    "impl": null,
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "knowledge:update",
@@ -906,9 +1236,11 @@
    "desc": "",
    "impl": null,
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "kws:download",
@@ -918,7 +1250,9 @@
    "ipc": false,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "kws:push",
@@ -928,7 +1262,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "kws:reset",
@@ -938,7 +1274,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "kws:status",
@@ -948,7 +1286,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "license:activate",
@@ -958,7 +1298,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "license:quota",
@@ -968,7 +1310,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "license:status",
@@ -978,7 +1322,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "onboarding:finish",
@@ -988,7 +1334,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "onboarding:reset",
@@ -998,7 +1346,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "onboarding:status",
@@ -1008,47 +1358,57 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "outbound:checkout",
    "group": "outbound",
-   "desc": "一单多商品收银台：一次开单出多种商品，所有行在同一事务里—— 任一行库存不足或校验失败，整单回滚不留半截（与盘点提交同原则）。 行项目：{ productId, quantity, sellingPrice }，每行售价必填且 >0（收银台营业额/毛利全靠它）。 收款口径与 confirmOutbound 一致：pai",
+   "desc": "一单多商品收银台：一次开单出多种商品，所有行在同一事务里—— 任一行库存不足或校验失败，整单回滚不留半截（与盘点提交同原则）。 行项目：{ productId, quantity, sellingPrice }，每行售价必填且 >0（收银台营业额/毛利全靠它）。 收款口径与 confirmOutbound 一致：paidAmount 省略=全额付清（流水 paid_amount 记 NULL）； ",
    "impl": "confirmCheckout",
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "outbound:confirm",
    "group": "outbound",
-   "desc": "按入库日期升序扣减批次；跨批次拆成多条 transactions unit_price 记批次成本价，selling_price 记实际售价（利润 = selling_price - unit_price） 赊账扩展（客户余额模型）： - customerId 可选；散客（不传）必须全额付清，部分付款/纯赊账会报\"赊账",
+   "desc": "按入库日期升序扣减批次；跨批次拆成多条 transactions unit_price 记批次成本价，selling_price 记实际售价（利润 = selling_price - unit_price） 赊账扩展（客户余额模型）： - customerId 可选；散客（不传）必须全额付清，部分付款/纯赊账会报\"赊账必须选客户\" - paidAmount=实收金额（分）。省略或等于应付总额 → ",
    "impl": "confirmOutbound",
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "outbound:exchange",
    "group": "outbound",
-   "desc": "换货登记：先退旧货再出新货，同一事务，任一环节失败整体回滚。 记账口径（重要）：退旧腿记 type='return'（notes='换货退旧'），出新腿记 type='out' （notes='换货出新'，unit_price=批次成本，selling_price=新货售价）—— 与退货/正常出库同类型，全站的今日记录",
+   "desc": "换货登记：先退旧货再出新货，同一事务，任一环节失败整体回滚。 记账口径（重要）：退旧腿记 type='return'（notes='换货退旧'），出新腿记 type='out' （notes='换货出新'，unit_price=批次成本，selling_price=新货售价）—— 与退货/正常出库同类型，全站的今日记录、营业额、毛利、趋势统计自动涵盖换货， 不需要每个报表单独识别 exchange",
    "impl": "createExchange",
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "outbound:return",
    "group": "outbound",
-   "desc": "退货登记：顾客退回来的货重新入架。 库存加回最近一次入库的批次（成本口径一致，FIFO 队列不被退货打乱）； 该商品没有任何批次时新建一条\"退货回补\"批次，成本取商品最近进价。 流水 type='return'：unit_price=批次成本，selling_price=退款金额（分）， 退款记 selling_pri",
+   "desc": "退货登记：顾客退回来的货重新入架。 库存加回最近一次入库的批次（成本口径一致，FIFO 队列不被退货打乱）； 该商品没有任何批次时新建一条\"退货回补\"批次，成本取商品最近进价。 流水 type='return'：unit_price=批次成本，selling_price=退款金额（分）， 退款记 selling_price 让\"今日经营小结\"能把退货从营业额里体现出来。 赊账口径（重要）：如果当初",
    "impl": "createReturn",
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "part:all",
@@ -1058,7 +1418,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "part:list",
@@ -1068,7 +1430,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "part:set",
@@ -1078,7 +1442,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "part:setMany",
@@ -1088,7 +1454,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "payment:deleteQr",
@@ -1098,7 +1466,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "payment:getQr",
@@ -1108,7 +1478,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "payment:record",
@@ -1118,7 +1490,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "payment:saveQr",
@@ -1128,7 +1502,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "photo:delete",
@@ -1138,7 +1514,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "photo:save",
@@ -1148,7 +1526,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "po:cancel",
@@ -1158,7 +1538,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "po:create",
@@ -1168,7 +1550,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "po:detail",
@@ -1178,7 +1562,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "po:list",
@@ -1188,17 +1574,21 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "po:receive",
    "group": "po",
-   "desc": "采购收货入库（核心）：每条明细本次收货数量 > 0 且 ≤ 剩余待收，超订报错； 每条收货建独立批次（成本=订单进价、供应商=订单供应商）+ type='in' 流水（notes 标注采购单号）， 并同步商品最近进价（与手动入库同口径）；收齐 → complete，部分 → partial。 整个操作同一事务：任一明细",
+   "desc": "采购收货入库（核心）：每条明细本次收货数量 > 0 且 ≤ 剩余待收，超订报错； 每条收货建独立批次（成本=订单进价、供应商=订单供应商）+ type='in' 流水（notes 标注采购单号）， 并同步商品最近进价（与手动入库同口径）；收齐 → complete，部分 → partial。 整个操作同一事务：任一明细失败整单不记（批次/流水零写入）。",
    "impl": "receivePurchaseOrder",
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "priceTier:delete",
@@ -1208,7 +1598,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "priceTier:list",
@@ -1218,7 +1610,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "priceTier:set",
@@ -1228,7 +1622,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "pricing:get",
@@ -1236,19 +1632,23 @@
    "desc": "",
    "impl": "buildPricing",
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "product:batchUpdate",
    "group": "product",
-   "desc": "批量修改商品：一次事务改一批商品的价格/状态，两者至少传一个。 priceMode（可省，二选一）： { kind: 'ratio', ratio } 统一打折：建议售价与\"已设\"的各档价格 ×ratio， 分单位四舍五入（最低 1 分，防止打成 0）；没设建议售价/没设档次的保持原样（不补建档次）。 { kind: ",
+   "desc": "批量修改商品：一次事务改一批商品的价格/状态，两者至少传一个。 priceMode（可省，二选一）： { kind: 'ratio', ratio } 统一打折：建议售价与\"已设\"的各档价格 ×ratio， 分单位四舍五入（最低 1 分，防止打成 0）；没设建议售价/没设档次的保持原样（不补建档次）。 { kind: 'fixed', priceFen } 统一改价：建议售价与已设的各档价格都改成",
    "impl": "batchUpdateProducts",
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "product:create",
@@ -1258,7 +1658,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "product:delete",
@@ -1268,17 +1670,21 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "product:expiring",
    "group": "product",
-   "desc": "临期/过期预警（按批次算）：同一商品多个批次各自有到期日，分别预警。 只统计批次级 expiry_date（入/收货时记录），且该批次剩余库存 > 0，按过期日升序。 返回：名称/SKU/批次号/过期日/剩余天数（负=已过期）/该批次库存量/expired 标记 兼容：保留商品级 id 字段，前端可按商品聚合也可按批次",
+   "desc": "临期/过期预警（按批次算）：同一商品多个批次各自有到期日，分别预警。 只统计批次级 expiry_date（入/收货时记录），且该批次剩余库存 > 0，按过期日升序。 返回：名称/SKU/批次号/过期日/剩余天数（负=已过期）/该批次库存量/expired 标记 兼容：保留商品级 id 字段，前端可按商品聚合也可按批次看明细。",
    "impl": "expiringProducts",
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "product:list",
@@ -1288,7 +1694,9 @@
    "ipc": false,
    "http": true,
    "preload": false,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "product:mark",
@@ -1298,7 +1706,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "product:search",
@@ -1308,7 +1718,9 @@
    "ipc": false,
    "http": true,
    "preload": false,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "product:update",
@@ -1318,7 +1730,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "receipt:list",
@@ -1328,7 +1742,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "receipt:reconcile",
@@ -1338,7 +1754,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "receipt:register",
@@ -1348,7 +1766,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "report:hotSellers",
@@ -1358,7 +1778,9 @@
    "ipc": false,
    "http": true,
    "preload": false,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "report:lowStock",
@@ -1368,7 +1790,9 @@
    "ipc": false,
    "http": true,
    "preload": false,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "report:today",
@@ -1378,7 +1802,9 @@
    "ipc": false,
    "http": true,
    "preload": false,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "server:regenerateToken",
@@ -1388,7 +1814,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "server:status",
@@ -1398,7 +1826,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "server:toggle",
@@ -1408,7 +1838,57 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
+  },
+  {
+   "name": "site:contact",
+   "group": "site",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false,
+   "write": false,
+   "local": true
+  },
+  {
+   "name": "site:setContact",
+   "group": "site",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false,
+   "write": true,
+   "local": true
+  },
+  {
+   "name": "stock:byLocation",
+   "group": "stock",
+   "desc": "某商品在各库位的结存（调拨前后自查用；也是\"账上货到底在哪\"的单一答案）。 只读。",
+   "impl": "stockByLocation",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false,
+   "write": false,
+   "local": false
+  },
+  {
+   "name": "stock:transfer",
+   "group": "stock",
+   "desc": "把 `quantity` 件货从 `fromLocation` 调到 `toLocation`。 @param {object} p @param {number} p.productId @param {number} p.quantity @param {string} [p.fromLocation]  不填 = 从任意库位按先进先出取 @param {string} p.toLocatio",
+   "impl": "transferStock",
+   "ipc": true,
+   "http": true,
+   "preload": true,
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "stocktake:complete",
@@ -1418,27 +1898,33 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "stocktake:create",
    "group": "stocktake",
-   "desc": "创建盘点单：可按货位（locationFilter，前缀匹配）、品类（category，精确匹配）、 供应商（supplierId，按批次的进货供应商匹配）筛选，三个条件取交集，都不传=全店盘点。 筛选条件随盘点单落库（category_filter / supplier_filter / location_filte",
+   "desc": "创建盘点单：可按货位（locationFilter，前缀匹配）、品类（category，精确匹配）、 供应商（supplierId，按批次的进货供应商匹配）筛选，三个条件取交集，都不传=全店盘点。 筛选条件随盘点单落库（category_filter / supplier_filter / location_filter），方便事后回看盘点范围。 mode（盘点模式，v2.1）： - 'batch",
    "impl": "createStockTake",
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "stocktake:submit",
    "group": "stocktake",
-   "desc": "盘点一次性原子提交：把前端暂存的实盘数写入明细 + 完成盘点，同一事务。 替代\"前端逐条 updateStockTakeItem + 最后 complete\"的两段式流程—— 那种流程中途崩溃会留下改了明细没落实库存的半成品状态。 @param {{ takeId: number, items: Array<{ ite",
+   "desc": "盘点一次性原子提交：把前端暂存的实盘数写入明细 + 完成盘点，同一事务。 替代\"前端逐条 updateStockTakeItem + 最后 complete\"的两段式流程—— 那种流程中途崩溃会留下改了明细没落实库存的半成品状态。 @param {{ takeId: number, items: Array<{ itemId: number, actualQty: number, reason: ",
    "impl": "submitStockTake",
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "stocktake:updateItem",
@@ -1448,7 +1934,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "supplier:create",
@@ -1458,7 +1946,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "supplier:delete",
@@ -1468,7 +1958,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "supplier:list",
@@ -1478,7 +1970,9 @@
    "ipc": false,
    "http": true,
    "preload": false,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "supplier:pay",
@@ -1488,7 +1982,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "supplier:payments",
@@ -1498,17 +1994,21 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "supplier:statement",
    "group": "supplier",
-   "desc": "供应商对账单： - lines：该供应商的进货批次明细（时间/商品/进货数量/成本价/金额/批次号/关联采购单号）。 进货数量取 type='in' 的入库流水（批次原始数量），批次当前剩余另附 remaining； 采购收货的流水 notes 形如\"采购收货 PO20260728-001\"，从中提取关联采购单号。 -",
+   "desc": "供应商对账单： - lines：该供应商的进货批次明细（时间/商品/进货数量/成本价/金额/批次号/关联采购单号）。 进货数量取 type='in' 的入库流水（批次原始数量），批次当前剩余另附 remaining； 采购收货的流水 notes 形如\"采购收货 PO20260728-001\"，从中提取关联采购单号。 - 汇总：总进货金额/总件数/最近一次进货时间/待收采购单金额 （待收=状态 se",
    "impl": "supplierStatement",
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "supplier:update",
@@ -1518,7 +2018,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "template:apply",
@@ -1526,9 +2028,11 @@
    "desc": "套用行业模板：清空分类/单位并按模板重建（不动商品/库存/流水）",
    "impl": "applyIndustryTemplate",
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "template:list",
@@ -1536,9 +2040,11 @@
    "desc": "行业模板列表",
    "impl": "listTemplates",
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "tts:download",
@@ -1548,7 +2054,9 @@
    "ipc": false,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "tts:speak",
@@ -1558,7 +2066,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "tts:status",
@@ -1568,7 +2078,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "unit:allowsDecimal",
@@ -1578,7 +2090,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "unit:create",
@@ -1586,9 +2100,11 @@
    "desc": "新建单位",
    "impl": "createUnit",
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "unit:delete",
@@ -1596,9 +2112,11 @@
    "desc": "删除单位：被商品使用的单位不允许删",
    "impl": "deleteUnit",
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "unit:list",
@@ -1608,7 +2126,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "unit:move",
@@ -1616,9 +2136,11 @@
    "desc": "移动单位排序",
    "impl": "moveUnit",
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "unit:update",
@@ -1626,9 +2148,11 @@
    "desc": "改单位（名字/是否小数）",
    "impl": "updateUnit",
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "update:check",
@@ -1638,7 +2162,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "update:downloadAndInstall",
@@ -1648,7 +2174,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": true
   },
   {
    "name": "user:create",
@@ -1656,9 +2184,11 @@
    "desc": "建员工（或第一个老板）：按版本配额拦截人数；role 只能是 owner/manager/staff",
    "impl": "createUser",
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "user:current",
@@ -1666,9 +2196,11 @@
    "desc": "当前登录用户（settings 键 current_user 存用户名；没登录/关闭开关时返回 null）",
    "impl": "currentUser",
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "user:delete",
@@ -1676,9 +2208,11 @@
    "desc": "删员工：不能删老板；删掉后该账号登录立刻失效",
    "impl": "deleteUser",
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "user:list",
@@ -1686,9 +2220,11 @@
    "desc": "员工列表（不含密码哈希，前端展示用）",
    "impl": "listUsers",
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "user:login",
@@ -1696,9 +2232,11 @@
    "desc": "登录：校验账号密码，成功后把 current_user 写入 settings",
    "impl": "login",
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "user:logout",
@@ -1706,9 +2244,11 @@
    "desc": "登出：清掉 current_user",
    "impl": "logout",
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "user:setStaffLogin",
@@ -1716,9 +2256,11 @@
    "desc": "开/关员工登录（开关由老板在设置页操作）",
    "impl": "setStaffLogin",
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "user:staffLoginEnabled",
@@ -1726,9 +2268,11 @@
    "desc": "员工登录开关（settings 键 staff_login='on' 才启用登录门）",
    "impl": "staffLoginEnabled",
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "user:update",
@@ -1736,9 +2280,11 @@
    "desc": "改员工：改名/改密码（不传密码则不改）/角色/停启用",
    "impl": "updateUser",
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "voice:download",
@@ -1748,7 +2294,9 @@
    "ipc": false,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "voice:parseOrder",
@@ -1758,7 +2306,9 @@
    "ipc": true,
    "http": false,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": true
   },
   {
    "name": "voice:parseOrderAudio",
@@ -1768,7 +2318,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "voice:status",
@@ -1778,7 +2330,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "voice:transcribe",
@@ -1788,7 +2342,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "waste:create",
@@ -1798,7 +2354,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": true,
+   "local": false
   },
   {
    "name": "waste:list",
@@ -1808,7 +2366,9 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
   },
   {
    "name": "waste:summary",
@@ -1818,7 +2378,45 @@
    "ipc": true,
    "http": true,
    "preload": true,
-   "rest": false
+   "rest": false,
+   "write": false,
+   "local": false
+  },
+  {
+   "name": "webupdate:check",
+   "group": "webupdate",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false,
+   "write": false,
+   "local": true
+  },
+  {
+   "name": "webupdate:restart",
+   "group": "webupdate",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false,
+   "write": true,
+   "local": true
+  },
+  {
+   "name": "webupdate:status",
+   "group": "webupdate",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false,
+   "write": false,
+   "local": true
   }
  ]
 }
