@@ -36,6 +36,7 @@ function median(nums) {
   return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2
 }
 
+/** 定价建议：给出建议售价区间（只读，不自动改价）。 */
 export function buildPricing(db) {
   const t = localDay(new Date().toISOString())
   const thresholds = {

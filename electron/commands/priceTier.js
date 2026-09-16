@@ -9,6 +9,7 @@ import {
   productLabel,
 } from './helpers.js'
 
+/** 新增或修改一个价格档（按客户等级定价用）。 */
 export function setPriceTier(db, { productId, tier, price, operator }) {
   if (!PRICE_TIERS.includes(tier)) throw new Error(`价格档次必须是：${PRICE_TIERS.join(' / ')}，收到：${tier}`)
   assertPositiveInt(price, '档次价格')
@@ -24,12 +25,14 @@ export function setPriceTier(db, { productId, tier, price, operator }) {
   })
 }
 
+/** 删除一个价格档（按客户等级定价用）。 */
 export function deletePriceTier(db, { productId, tier }) {
   if (!PRICE_TIERS.includes(tier)) throw new Error(`价格档次必须是：${PRICE_TIERS.join(' / ')}，收到：${tier}`)
   const info = db.prepare('DELETE FROM price_tiers WHERE product_id = ? AND tier = ?').run(productId, tier)
   return { ok: info.changes > 0 }
 }
 
+/** 价格档列表（按客户等级定价用）。 */
 export function getPriceTiers(db, { productId }) {
   return db.prepare('SELECT * FROM price_tiers WHERE product_id = ? ORDER BY id').all(productId)
 }

@@ -63,6 +63,16 @@ node scripts/inv-cli.mjs run stock:transfer --params '{"productId":1,"quantity":
 
 ## 二、三条通道（同一套命令，选一条顺手的）
 
+### 通道 0：**先问它自己**（最省事，推荐第一步）
+
+```
+GET /api/agent
+```
+
+一次拿全：这是什么系统、**怎么鉴权**、有哪几条路能走（含可复制的示例）、
+**只读清单 / 写命令清单 / 本机专属清单**、以及文档在哪。
+返回里的 `counts` 与三份清单都是**从注册表现算**的，所以不会像手写文档那样过期。
+
 ### 通道 A：自省（只读，先看有什么）
 
 | 请求 | 用途 |
@@ -88,6 +98,7 @@ Header: x-token: <令牌>   Content-Type: application/json
 ### 通道 C：只读 REST（适合看板 / 定时巡检，不用记命令名）
 
 ```
+GET /api/agent                自描述入口（通道 0，推荐第一步）
 GET /api/summary              今日概览（SKU / 件数 / 库存值 / 低库存数）
 GET /api/low-stock            低库存清单
 GET /api/inventory?q=         库存查询（可按关键字）

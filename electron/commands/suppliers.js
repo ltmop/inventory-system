@@ -2,6 +2,7 @@
 import { inTransaction, logAudit, today } from './helpers.js'
 import { assertOwnerAction } from './users.js'
 
+/** 新增供应商。 */
 export function createSupplier(db, s) {
   const info = db
     .prepare('INSERT INTO suppliers (name, contact, phone, address, notes) VALUES (?, ?, ?, ?, ?)')
@@ -9,12 +10,14 @@ export function createSupplier(db, s) {
   return db.prepare('SELECT * FROM suppliers WHERE id = ?').get(info.lastInsertRowid)
 }
 
+/** 修改供应商资料：只传要改的字段。 */
 export function updateSupplier(db, id, s) {
   db.prepare('UPDATE suppliers SET name = ?, contact = ?, phone = ?, address = ?, notes = ? WHERE id = ?').run(
     s.name ?? '', s.contact ?? '', s.phone ?? '', s.address ?? '', s.notes ?? '', id,
   )
 }
 
+/** 删除供应商：有采购或付款记录的会被拒绝（删了往来账就对不上）。 */
 export function deleteSupplier(db, id) {
   assertOwnerAction(db, '删除供应商')
   return inTransaction(db, () => {

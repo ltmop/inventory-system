@@ -1,23 +1,24 @@
 {
  "schemaVersion": 2,
- "generatedAt": "2026-09-16T00:26:06.609Z",
- "source": "main.js(IPC) + server.js(HTTP/WRITE_CHANNELS) + preload.cjs(白名单) + api.ts(本机专属) + commands/*.js(JSDoc)",
+ "generatedAt": "2026-09-16T00:37:24.814Z",
+ "source": "main.js(IPC) + server.js(HTTP/WRITE_CHANNELS/ROUTES) + preload.cjs(白名单) + api.ts(本机专属) + commands/*.js(JSDoc)",
  "total": 191,
  "restRoutes": [
-  "/api/analytics/category",
-  "/api/analytics/overview",
-  "/api/analytics/stockValue",
-  "/api/analytics/top",
-  "/api/analytics/trend",
+  "/api/summary",
+  "/api/low-stock",
+  "/api/inventory",
+  "/api/today",
+  "/api/customers",
   "/api/audit",
+  "/api/supplier-statement",
+  "/api/analytics/trend",
+  "/api/analytics/category",
+  "/api/analytics/top",
+  "/api/analytics/stockValue",
+  "/api/analytics/overview",
   "/api/backup/list",
   "/api/commands",
-  "/api/customers",
-  "/api/inventory",
-  "/api/low-stock",
-  "/api/summary",
-  "/api/supplier-statement",
-  "/api/today"
+  "/api/agent"
  ],
  "writes": [
   "ai:bindLicense",
@@ -136,7 +137,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "ai:bindLicense",
@@ -148,7 +150,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "ai:chat",
@@ -160,7 +163,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "ai:clearKey",
@@ -172,7 +176,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "ai:correctTerm",
@@ -184,7 +189,8 @@
    "preload": false,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "ai:dailySummary",
@@ -196,7 +202,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "ai:gatewayQuota",
@@ -208,7 +215,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "ai:gatewayUsage",
@@ -220,7 +228,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "ai:history",
@@ -232,7 +241,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "ai:insights",
@@ -244,7 +254,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "ai:localUsageStats",
@@ -256,7 +267,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "ai:orchestratorStatus",
@@ -268,7 +280,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "ai:parseInboundNote",
@@ -280,7 +293,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "ai:photoDraft",
@@ -292,7 +306,8 @@
    "preload": false,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "ai:providers",
@@ -304,7 +319,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "ai:quota",
@@ -316,7 +332,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "jsdoc"
   },
   {
    "name": "ai:setKey",
@@ -328,7 +345,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "ai:setProvider",
@@ -340,7 +358,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "ai:smartSearch",
@@ -352,7 +371,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "ai:status",
@@ -364,7 +384,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "ai:test",
@@ -376,7 +397,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "ai:transcribe",
@@ -388,7 +410,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "analytics:category",
@@ -400,7 +423,8 @@
    "preload": false,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "analytics:overview",
@@ -412,7 +436,8 @@
    "preload": false,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "analytics:stockValue",
@@ -424,7 +449,8 @@
    "preload": false,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "analytics:top",
@@ -436,7 +462,8 @@
    "preload": false,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "analytics:trend",
@@ -448,7 +475,8 @@
    "preload": false,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "app:info",
@@ -460,7 +488,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "app:openExternal",
@@ -472,7 +501,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "audit:list",
@@ -484,7 +514,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "backup:clearExtraDir",
@@ -496,7 +527,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "backup:list",
@@ -508,7 +540,8 @@
    "preload": false,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "backup:now",
@@ -520,7 +553,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "backup:restore",
@@ -532,7 +566,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "backup:setExtraDir",
@@ -544,7 +579,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "backup:status",
@@ -556,7 +592,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "category:create",
@@ -568,7 +605,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "category:delete",
@@ -580,7 +618,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "category:list",
@@ -592,7 +631,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "category:listWithCount",
@@ -604,7 +644,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "category:move",
@@ -616,7 +657,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "category:rename",
@@ -628,7 +670,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "category:setParent",
@@ -640,19 +683,21 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "clearance:get",
    "group": "clearance",
-   "desc": "清仓建议（滞销/临期怎么处理，只读）",
+   "desc": "清仓建议：把滞销 / 临期 / 长期无动销的货怎么处理算成一张单子（只读，不改价、不自动打折）。",
    "impl": "buildClearance",
    "ipc": true,
    "http": true,
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "cloud:backupNow",
@@ -664,7 +709,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "cloud:centralConfig",
@@ -676,7 +722,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "cloud:dismissRestore",
@@ -688,7 +735,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "cloud:listBackups",
@@ -700,7 +748,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "cloud:loginAccount",
@@ -712,7 +761,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "cloud:logout",
@@ -724,7 +774,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "cloud:pair",
@@ -736,7 +787,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "cloud:regenViewLink",
@@ -748,7 +800,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "cloud:registerAccount",
@@ -760,7 +813,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "cloud:resolveConflict",
@@ -772,7 +826,8 @@
    "preload": false,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "cloud:resolveSyncConflict",
@@ -784,7 +839,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "cloud:restore",
@@ -796,7 +852,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "cloud:setCentralMode",
@@ -808,7 +865,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "cloud:status",
@@ -820,7 +878,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "cloud:syncBusinessNow",
@@ -832,7 +891,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "cloud:syncConflicts",
@@ -844,7 +904,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "cloud:syncNow",
@@ -856,7 +917,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "commands:describe",
@@ -868,7 +930,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "commands:invoke",
@@ -880,7 +943,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "commands:list",
@@ -892,19 +956,21 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "customer:create",
    "group": "customer",
-   "desc": "新增客户",
+   "desc": "新增客户（价格档决定他走哪一档售价）。",
    "impl": "createCustomer",
    "ipc": true,
    "http": true,
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "customer:delete",
@@ -916,7 +982,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "customer:list",
@@ -928,7 +995,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "customer:statement",
@@ -940,7 +1008,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "customer:update",
@@ -952,19 +1021,21 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "data:loadAll",
    "group": "data",
-   "desc": "一次性加载全量基础数据（商品/分类/单位等，桌面首屏用）",
+   "desc": "一次性加载桌面首屏需要的全量基础数据（商品 / 分类 / 单位 / 价格档等），只读。",
    "impl": "loadAll",
    "ipc": true,
    "http": true,
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "doubao:analyzeImage",
@@ -976,7 +1047,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "doubao:chat",
@@ -988,7 +1060,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "doubao:clearKey",
@@ -1000,7 +1073,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "doubao:setKey",
@@ -1012,7 +1086,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "doubao:status",
@@ -1024,7 +1099,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "doubao:transcribe",
@@ -1036,7 +1112,8 @@
    "preload": false,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "expense:create",
@@ -1048,7 +1125,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "expense:delete",
@@ -1060,7 +1138,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "expense:update",
@@ -1072,7 +1151,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "feedback:send",
@@ -1084,7 +1164,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "flags:refresh",
@@ -1096,7 +1177,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "flags:set",
@@ -1108,7 +1190,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "flags:status",
@@ -1120,7 +1203,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "import:batch",
@@ -1132,19 +1216,21 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "inbound:create",
    "group": "inbound",
-   "desc": "新建入库单",
+   "desc": "新建入库单（进货入库）。",
    "impl": "createInbound",
    "ipc": true,
    "http": true,
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "kit:delete",
@@ -1156,7 +1242,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "kit:get",
@@ -1168,7 +1255,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "kit:list",
@@ -1180,7 +1268,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "kit:save",
@@ -1192,7 +1281,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "knowledge:delete",
@@ -1204,7 +1294,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "knowledge:list",
@@ -1216,7 +1307,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "knowledge:save",
@@ -1228,7 +1320,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "knowledge:update",
@@ -1240,7 +1333,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "kws:download",
@@ -1252,7 +1346,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "kws:push",
@@ -1264,7 +1359,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "kws:reset",
@@ -1276,7 +1372,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "kws:status",
@@ -1288,7 +1385,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "license:activate",
@@ -1300,7 +1398,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "license:quota",
@@ -1312,7 +1411,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "license:status",
@@ -1324,7 +1424,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "onboarding:finish",
@@ -1336,7 +1437,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "jsdoc"
   },
   {
    "name": "onboarding:reset",
@@ -1348,7 +1450,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "jsdoc"
   },
   {
    "name": "onboarding:status",
@@ -1360,7 +1463,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "jsdoc"
   },
   {
    "name": "outbound:checkout",
@@ -1372,7 +1476,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "outbound:confirm",
@@ -1384,7 +1489,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "outbound:exchange",
@@ -1396,7 +1502,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "outbound:return",
@@ -1408,7 +1515,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "part:all",
@@ -1420,7 +1528,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "part:list",
@@ -1432,7 +1541,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "part:set",
@@ -1444,7 +1554,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "part:setMany",
@@ -1456,7 +1567,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "payment:deleteQr",
@@ -1468,7 +1580,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "payment:getQr",
@@ -1480,7 +1593,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "payment:record",
@@ -1492,7 +1606,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "payment:saveQr",
@@ -1504,19 +1619,21 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "photo:delete",
    "group": "photo",
-   "desc": "修改商品基本信息；SKU 一经创建不可修改（避免历史流水对不上）",
+   "desc": "删除商品图片（清掉商品的 photo_path，图片文件一并删）",
    "impl": "updateProduct",
    "ipc": true,
    "http": true,
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "photo:save",
@@ -1528,7 +1645,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "po:cancel",
@@ -1540,7 +1658,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "po:create",
@@ -1552,7 +1671,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "po:detail",
@@ -1564,7 +1684,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "po:list",
@@ -1576,7 +1697,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "po:receive",
@@ -1588,55 +1710,60 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "priceTier:delete",
    "group": "priceTier",
-   "desc": "删除一个价格档",
+   "desc": "删除一个价格档（按客户等级定价用）。",
    "impl": "deletePriceTier",
    "ipc": true,
    "http": true,
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "priceTier:list",
    "group": "priceTier",
-   "desc": "价格档列表",
+   "desc": "价格档列表（按客户等级定价用）。",
    "impl": "getPriceTiers",
    "ipc": true,
    "http": true,
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "priceTier:set",
    "group": "priceTier",
-   "desc": "新增/修改一个价格档（按客户等级定价）",
+   "desc": "新增或修改一个价格档（按客户等级定价用）。",
    "impl": "setPriceTier",
    "ipc": true,
    "http": true,
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "pricing:get",
    "group": "pricing",
-   "desc": "定价建议（只读，给价格区间，不自动改价）",
+   "desc": "定价建议：给出建议售价区间（只读，不自动改价）。",
    "impl": "buildPricing",
    "ipc": true,
    "http": true,
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "product:batchUpdate",
@@ -1648,19 +1775,21 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "product:create",
    "group": "product",
-   "desc": "新增商品（会校验 SKU 额度）",
+   "desc": "新增商品（会校验 SKU 额度；单位/分类不存在时会自动建档）。",
    "impl": "createProduct",
    "ipc": true,
    "http": true,
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "product:delete",
@@ -1672,7 +1801,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "product:expiring",
@@ -1684,7 +1814,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "product:list",
@@ -1696,7 +1827,8 @@
    "preload": false,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "product:mark",
@@ -1708,7 +1840,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "product:search",
@@ -1720,7 +1853,8 @@
    "preload": false,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "product:update",
@@ -1732,7 +1866,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "receipt:list",
@@ -1744,7 +1879,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "receipt:reconcile",
@@ -1756,7 +1892,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "receipt:register",
@@ -1768,7 +1905,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "report:hotSellers",
@@ -1780,7 +1918,8 @@
    "preload": false,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "report:lowStock",
@@ -1792,7 +1931,8 @@
    "preload": false,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "report:today",
@@ -1804,7 +1944,8 @@
    "preload": false,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "server:regenerateToken",
@@ -1816,7 +1957,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "server:status",
@@ -1828,7 +1970,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "server:toggle",
@@ -1840,7 +1983,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "site:contact",
@@ -1852,7 +1996,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "site:setContact",
@@ -1864,7 +2009,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "stock:byLocation",
@@ -1876,7 +2022,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "stock:transfer",
@@ -1888,7 +2035,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "stocktake:complete",
@@ -1900,7 +2048,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "stocktake:create",
@@ -1912,7 +2061,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "stocktake:submit",
@@ -1924,43 +2074,47 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "stocktake:updateItem",
    "group": "stocktake",
-   "desc": "更新盘点单里的一项（实盘数）",
+   "desc": "更新盘点单里的一项：记实盘数并算出差异（完成盘点时才正式落账）。",
    "impl": "updateStockTakeItem",
    "ipc": true,
    "http": true,
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "supplier:create",
    "group": "supplier",
-   "desc": "新增供应商",
+   "desc": "新增供应商。",
    "impl": "createSupplier",
    "ipc": true,
    "http": true,
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "supplier:delete",
    "group": "supplier",
-   "desc": "删除供应商（有采购/付款记录的会拒绝）",
+   "desc": "删除供应商：有采购或付款记录的会被拒绝（删了往来账就对不上）。",
    "impl": "deleteSupplier",
    "ipc": true,
    "http": true,
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "supplier:list",
@@ -1972,7 +2126,8 @@
    "preload": false,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "supplier:pay",
@@ -1984,7 +2139,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "supplier:payments",
@@ -1996,7 +2152,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "supplier:statement",
@@ -2008,19 +2165,21 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "supplier:update",
    "group": "supplier",
-   "desc": "修改供应商资料",
+   "desc": "修改供应商资料：只传要改的字段。",
    "impl": "updateSupplier",
    "ipc": true,
    "http": true,
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "template:apply",
@@ -2032,7 +2191,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "template:list",
@@ -2044,7 +2204,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "tts:download",
@@ -2056,7 +2217,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "tts:speak",
@@ -2068,7 +2230,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "tts:status",
@@ -2080,7 +2243,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "unit:allowsDecimal",
@@ -2092,7 +2256,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": true,
+   "descFrom": "jsdoc"
   },
   {
    "name": "unit:create",
@@ -2104,7 +2269,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "unit:delete",
@@ -2116,7 +2282,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "unit:list",
@@ -2128,7 +2295,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "unit:move",
@@ -2140,7 +2308,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "unit:update",
@@ -2152,7 +2321,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "update:check",
@@ -2164,7 +2334,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "update:downloadAndInstall",
@@ -2176,7 +2347,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "user:create",
@@ -2188,7 +2360,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "user:current",
@@ -2200,7 +2373,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "user:delete",
@@ -2212,7 +2386,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "user:list",
@@ -2224,7 +2399,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "user:login",
@@ -2236,7 +2412,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "user:logout",
@@ -2248,7 +2425,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "user:setStaffLogin",
@@ -2260,7 +2438,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "user:staffLoginEnabled",
@@ -2272,7 +2451,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "user:update",
@@ -2284,7 +2464,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "voice:download",
@@ -2296,7 +2477,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "voice:parseOrder",
@@ -2308,7 +2490,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "voice:parseOrderAudio",
@@ -2320,7 +2503,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "voice:status",
@@ -2332,7 +2516,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "voice:transcribe",
@@ -2344,7 +2529,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "table"
   },
   {
    "name": "waste:create",
@@ -2356,7 +2542,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "waste:list",
@@ -2368,7 +2555,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "waste:summary",
@@ -2380,7 +2568,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": false
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "webupdate:check",
@@ -2392,7 +2581,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "webupdate:restart",
@@ -2404,7 +2594,8 @@
    "preload": true,
    "rest": false,
    "write": true,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   },
   {
    "name": "webupdate:status",
@@ -2416,7 +2607,8 @@
    "preload": true,
    "rest": false,
    "write": false,
-   "local": true
+   "local": true,
+   "descFrom": "table"
   }
  ]
 }

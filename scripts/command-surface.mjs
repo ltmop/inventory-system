@@ -165,6 +165,7 @@ const CHANNEL_DOCS = {
   'supplier:delete': '删除供应商（有采购/付款记录的会拒绝）',
   'stocktake:updateItem': '更新盘点单里的一项（实盘数）',
   'photo:save': '保存商品图片到本机（返回相对文件名）',
+  'photo:delete': '删除商品图片（清掉商品的 photo_path，图片文件一并删）',
   // ---- 报表 / 决策（只读）----
   'report:hotSellers': '热销榜（近 N 天，默认 30，最多 90）',
   'clearance:get': '清仓建议（滞销/临期怎么处理，只读）',
@@ -217,6 +218,42 @@ function inferImpl(seg, knownFns) {
   return names.size === 1 ? [...names][0] : null
 }
 
+/**
+ * 桌面专属通道（2026-09-16 逐条核对过）：
+ *   main.js 注册了、**server.js 没有**、**也不在 `src/lib/api.ts` 的 LOCAL_ONLY_CHANNELS 里**、
+ *   而且**渲染层从不调用**（grep 过 src/）。
+ * 结论：它们是**只有桌面机可达**的通道（多数是历史遗留，已被统一 AI 出口取代）。
+ * 为什么要登记：不登记的话它们会被报成"只有 IPC 没有 HTTP（中心库模式下打不到）"这种告警，
+ * 而那是**误报**（渲染层根本不调）。
+ * ⚠️ 将来若有界面要用其中任何一条，**必须同时**把它加进 `src/lib/api.ts` 的 LOCAL_ONLY_CHANNELS，
+ *    否则中心库模式下会静默 404（就是 2026-09-14 那 62 个通道的病）。
+ */
+const DESKTOP_ONLY_CHANNELS = [
+  'ai:gatewayUsage', 'ai:insights', 'ai:orchestratorStatus', 'commands:describe',
+  'doubao:analyzeImage', 'doubao:chat', 'doubao:clearKey', 'doubao:setKey', 'doubao:status',
+  'kws:reset', 'license:quota', 'unit:allowsDecimal',
+]
+
+/**
+ * 实现是**循环注册**的通道：main.js 里写成 `channel: 'voice:download'` 再统一挂载，
+ * 静态抽取看不到 `handle('voice:download', …)` 字面量 —— 所以别把它报成"preload 放行但没实现"。
+ * 这是抽取器的已知盲区，不是缺口。
+ */
+const DYN_REGISTERED_CHANNELS = ['voice:download', 'tts:download', 'kws:download']
+
+/**
+ * 有实现但 **preload 未放行、渲染层也没调用** → 渲染层实际拿不到它。疑似遗留。
+ * 不删（怕误伤别处引用），登记备查。
+ */
+const KNOWN_UNREACHABLE_CHANNELS = ['cloud:resolveConflict']
+
+/**
+ * 说明**以人写的表为准**的通道：它的 impl 是"共用的帮手"（一个 JSDoc 描述不了两条通道），
+ * 比如 photo:delete 的实现是 updateProduct（删图片=改 photo_path），
+ * 拿 updateProduct 的 JSDoc 当它的说明就是张冠李戴。实测只有这一处。
+ */
+const DESC_OVERRIDES = new Set(['photo:delete'])
+
 /** 1) main.js：按段切分每个 handle(...) —— 从它自己的下标切到下一个 handle( 的下标 */
 function fromMain(knownFns) {
   const s = R('electron/main.js')
@@ -241,26 +278,63 @@ function fromPreload() {
   return new Set([...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]))
 }
 
-/** 3) server.js：INVOKE_CHANNELS（HTTP 面）+ WRITE_CHANNELS（权威的读/写划分）
+/**
+ * 从一个 `{` 开始，按**配平括号**切出整块（跳过字符串与注释）。
+ *
+ * 为什么不能用懒匹配 `/\{([\s\S]*?)\n\}/`：它会在**第一个**「换行 + 右花括号」处停下 ——
+ * 而那个位置到底是不是本块的结尾，取决于别人怎么写代码。
+ * 2026-09-16 实测就栽在这上面：`restRoutes` 那 14 条 REST 路由**根本不是被解析出来的**，
+ * 而是 INVOKE_CHANNELS 的懒匹配**越界吞进去**的副产品；我在 server.js 里加了一个函数
+ * （它的 `}` 恰好落在更前面），副产品就消失了 → restRoutes 变成 0 条，指南断言立刻红。
+ * 这类"取决于别人怎么写代码"的解析必须换掉。
+ */
+function sliceBalanced(s, openIdx) {
+  let depth = 0
+  for (let i = openIdx; i < s.length; i++) {
+    const ch = s[i]
+    if (ch === '{') { depth++; continue }
+    if (ch === '}') { depth--; if (depth === 0) return s.slice(openIdx + 1, i); continue }
+    if (ch === "'" || ch === '"' || ch === '`') {
+      i++
+      while (i < s.length && s[i] !== ch) { if (s[i] === '\\') i++; i++ }
+      continue
+    }
+    if (ch === '/' && s[i + 1] === '/') { while (i < s.length && s[i] !== '\n') i++; continue }
+    if (ch === '/' && s[i + 1] === '*') { i += 2; while (i < s.length && !(s[i] === '*' && s[i + 1] === '/')) i++; i++; continue }
+  }
+  return ''
+}
+
+/** 取出 `const NAME = { ... }` 的块内容（按配平括号，不赌花括号位置） */
+function objectBlock(s, name) {
+  const at = s.indexOf(name)
+  if (at < 0) return ''
+  const open = s.indexOf('{', at)
+  return open < 0 ? '' : sliceBalanced(s, open)
+}
+
+/** 3) server.js：INVOKE_CHANNELS（HTTP 面）+ WRITE_CHANNELS（权威的读/写划分）+ ROUTES（只读 REST）
  *  knownFns：命令层导出过的函数名集合 —— 用来认**裸调用**。
  *  server.js 里 analytics/search 是从命名空间解构出来直接用的（`analyticsOverview(d)`），
  *  只认 `cmds.` 前缀会把这些通道的 impl 全判成空（实测 analytics:* 5 条就是这么漏的）。
  */
 function fromServer(knownFns) {
   const s = R('electron/server.js')
-  const block = /INVOKE_CHANNELS\s*=\s*\{([\s\S]*?)\n\}/.exec(s)
+  const block = objectBlock(s, 'INVOKE_CHANNELS')
   const out = new Map()
   if (block) {
     const re = /'([^']+)'\s*:\s*(?:async\s+)?\(([^)]*)\)\s*=>\s*/g
-    const marks = [...block[1].matchAll(re)]
+    const marks = [...block.matchAll(re)]
     marks.forEach((m, i) => {
-      const seg = block[1].slice(m.index, i + 1 < marks.length ? marks[i + 1].index : block[1].length)
+      const seg = block.slice(m.index, i + 1 < marks.length ? marks[i + 1].index : block.length)
       out.set(m[1], { impl: inferImpl(seg, knownFns), usesP: /\(\s*d\s*,\s*p/.test('(' + m[2] + ')') })
     })
   }
   const wm = /WRITE_CHANNELS\s*=\s*new Set\(\[([\s\S]*?)\]\)/.exec(s)
   const writes = new Set(wm ? [...wm[1].matchAll(/'([^']+)'/g)].map((x) => x[1]) : [])
-  return { invokes: out, writes }
+  // 只读 REST 路由：正经从 ROUTES 表里取（原来靠越界吞，见 sliceBalanced 的注释）
+  const restRoutes = [...objectBlock(s, 'const ROUTES').matchAll(/'(\/api\/[A-Za-z0-9_/-]+)'\s*:/g)].map((m) => m[1])
+  return { invokes: out, writes, restRoutes }
 }
 
 /**
@@ -327,7 +401,7 @@ const main = fromMain(knownFns)
 const pre = fromPreload()
 const srv = fromServer(knownFns)
 const localOnly = fromLocalOnly()
-const allNames = [...new Set([...main.keys(), ...pre, ...srv.invokes.keys()])].sort()
+const allNames = [...new Set([...main.keys(), ...pre, ...srv.invokes.keys(), ...srv.restRoutes])].sort()
 const writes = new Set([...srv.writes, ...LOCAL_WRITE_CHANNELS])
 
 const rows = allNames.map((name) => {
@@ -335,6 +409,12 @@ const rows = allNames.map((name) => {
   const b = srv.invokes.get(name)
   const impl = (a && a.impl) || (b && b.impl) || null
   const jsdoc = impl ? docs.get(impl) : null
+  const jsdocDesc = (jsdoc && jsdoc.desc) || ''
+  // 说明优先级：**少数张冠李戴的以表为准** → 否则源码 JSDoc 优先 → 再兜底表
+  const desc = DESC_OVERRIDES.has(name)
+    ? (CHANNEL_DOCS[name] || jsdocDesc)
+    : (jsdocDesc || CHANNEL_DOCS[name] || '')
+  const fromTable = DESC_OVERRIDES.has(name) ? !!CHANNEL_DOCS[name] : (!jsdocDesc && !!CHANNEL_DOCS[name])
   return {
     name,
     isRest: name.startsWith('/api/'),
@@ -342,11 +422,11 @@ const rows = allNames.map((name) => {
     ipc: !!a,
     http: !!b,
     preloadOk: pre.has(name),
-    local: localOnly.isLocal(name),
+    local: localOnly.isLocal(name) || DESKTOP_ONLY_CHANNELS.includes(name),
+    desktopOnly: DESKTOP_ONLY_CHANNELS.includes(name),
     impl,
-    // 说明的优先级：**源码 JSDoc 优先**（贴着代码，改了会跟着变），CHANNEL_DOCS 兜底
-    desc: (jsdoc && jsdoc.desc) || CHANNEL_DOCS[name] || '',
-    descFrom: (jsdoc && jsdoc.desc) ? 'jsdoc' : (CHANNEL_DOCS[name] ? 'table' : ''),
+    desc,
+    descFrom: fromTable ? 'table' : (desc ? 'jsdoc' : ''),
     srcFile: (jsdoc && jsdoc.file) || '',
     write: writes.has(name),
   }
@@ -354,14 +434,19 @@ const rows = allNames.map((name) => {
 
 // ---------- 一致性判定 ----------
 const cmdRows = rows.filter((r) => !r.isRest)
-// ⚠️ "只有 IPC、没有 HTTP" 里要**排除本机专属通道**：它们故意没有服务端实现。
+// ⚠️ "只有 IPC、没有 HTTP" 要**排除本机专属**（含桌面专属）：它们故意没有服务端实现。
 const onlyIpc = cmdRows.filter((r) => r.ipc && !r.http && !r.local).map((r) => r.name)
+/**
+ * "只有 HTTP、没有 IPC" **不是缺陷**：桌面端与手机/中心库对同一份数据用的是不同通道名
+ * （比如 analytics:* 只给服务端/手机用）。所以它只作参考，不进 --check 的失败项。
+ */
 const onlyHttp = cmdRows.filter((r) => !r.ipc && r.http).map((r) => r.name)
-const ipcNotInPreload = cmdRows.filter((r) => r.ipc && !r.preloadOk).map((r) => r.name)
-const preloadNotImpl = [...pre].filter((n) => !main.has(n)).sort()
+const ipcNotInPreload = cmdRows.filter((r) => r.ipc && !r.preloadOk && !KNOWN_UNREACHABLE_CHANNELS.includes(r.name)).map((r) => r.name)
+const preloadNotImpl = [...pre].filter((n) => !main.has(n) && !DYN_REGISTERED_CHANNELS.includes(n)).sort()
 const noImpl = cmdRows.filter((r) => !r.impl).map((r) => r.name)
 const noDesc = cmdRows.filter((r) => !r.desc).map((r) => r.name)
 const writeCount = cmdRows.filter((r) => r.write).length
+const desktopOnlyCount = cmdRows.filter((r) => r.desktopOnly).length
 
 /**
  * 说明串台的判据：**两条命令共用一个 desc，但 impl 不同** = 抽取或映射错了。
@@ -388,13 +473,19 @@ function healthReport() {
   console.log('  有说明(desc)    : ' + (cmdRows.length - noDesc.length) + ' / ' + cmdRows.length)
   console.log('  能定位实现(impl): ' + (cmdRows.length - noImpl.length) + ' / ' + cmdRows.length)
   console.log('  写命令(write)   : ' + writeCount)
+  console.log('  桌面专属        : ' + desktopOnlyCount + '（服务端没有、渲染层也不调 → 只能在桌面机上用）')
   console.log('')
   const show = (t, arr) => console.log('  ' + t.padEnd(30) + (arr.length ? arr.length + ' 条: ' + arr.slice(0, 8).join(', ') + (arr.length > 8 ? ' …' : '') : '无'))
-  console.log('!! 三份拷贝的不一致（"幽灵问题"的来源）')
-  show('只有 IPC、没有 HTTP', onlyIpc)
-  show('只有 HTTP、没有 IPC', onlyHttp)
+  console.log('!! 真正的问题（进 --check 的失败项）')
+  show('只有 IPC、没有 HTTP 且非本机', onlyIpc)
   show('有 IPC 实现但 preload 没放行', ipcNotInPreload)
   show('preload 放行但没有实现', preloadNotImpl)
+  console.log('')
+  console.log('!! 参考信息（不算失败）')
+  show('只有 HTTP、没有 IPC（手机/中心库专用，正常）', onlyHttp)
+  show('桌面专属（已登记，见 DESKTOP_ONLY_CHANNELS）', DESKTOP_ONLY_CHANNELS.filter((n) => cmdRows.some((r) => r.name === n)))
+  show('有实现但 preload 未放行、渲染层也不调（遗留备查）', KNOWN_UNREACHABLE_CHANNELS)
+  show('循环注册（抽取器盲区，非缺口）', DYN_REGISTERED_CHANNELS)
   console.log('')
   console.log('!! 说明质量')
   show('说明串台（同一说明、不同实现）', descShareMismatch.map((d) => d.impls.join('+')))
@@ -408,9 +499,9 @@ if (process.argv.includes('--emit-registry')) {
     // 一致性由 scripts/verify-command-api.mjs 与 scripts/gen-command-doc.mjs --check 守护
     schemaVersion: 2,
     generatedAt: new Date().toISOString(),
-    source: 'main.js(IPC) + server.js(HTTP/WRITE_CHANNELS) + preload.cjs(白名单) + api.ts(本机专属) + commands/*.js(JSDoc)',
+    source: 'main.js(IPC) + server.js(HTTP/WRITE_CHANNELS/ROUTES) + preload.cjs(白名单) + api.ts(本机专属) + commands/*.js(JSDoc)',
     total: cmdRows.length,
-    restRoutes: rows.filter((r) => r.isRest).map((r) => r.name),
+    restRoutes: srv.restRoutes,
     writes: cmdRows.filter((r) => r.write).map((r) => r.name).sort(),
     health: {
       withDesc: cmdRows.length - noDesc.length,
@@ -430,6 +521,9 @@ if (process.argv.includes('--emit-registry')) {
       write: r.write,
       // local=true：**问的是本机**（故意没有服务端实现），只能在桌面机上调
       local: r.local,
+      // 说明是哪来的：'jsdoc'（源码注释，改了会跟着变）/ 'table'（人写的兜底表）。
+      // 导出它是为了能审计"哪些命令的说明还只是兜底"（本轮就是这么找出补 JSDoc 的清单的）。
+      descFrom: r.descFrom,
     })),
   }
   fs.writeFileSync(out, JSON.stringify(payload, null, 1))

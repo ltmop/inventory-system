@@ -108,6 +108,43 @@ try {
   const ghostApis = citedApis.filter((p) => !knownApis.has(p))
   ok('指南里提到的 /api 路径都是真实存在的接口', ghostApis.length === 0, '不存在: ' + ghostApis.join(' '))
 
+  // ---------- GET /api/agent（给 Agent 的自描述入口，2026-09-16）----------
+  r = await fetch(base + '/api/agent', { headers: { 'x-token': T } })
+  j = await J(r)
+  ok('GET /api/agent 返回 200', r.status === 200, 'status=' + r.status)
+  ok('自描述里讲了鉴权方式', j.auth && /x-token/.test(j.auth.header || ''), JSON.stringify(j.auth || {}))
+  ok('自描述里列了三条入口（自省 / 通用调用 / REST / CLI）',
+    !!j.entries?.introspect && !!j.entries?.invoke && Array.isArray(j.entries?.rest) && !!j.entries?.cli?.path,
+    JSON.stringify(Object.keys(j.entries || {})))
+  {
+    // 关键：**从注册表现算**的数字必须自洽（否则这个端点会变成另一份会说假话的文档）
+    const reg2 = JSON.parse(fs.readFileSync(path.resolve('electron/commandRegistry.json'), 'utf8'))
+    const realRead = reg2.commands.filter((c) => c.write === false).length
+    const realLocal = reg2.commands.filter((c) => c.local).length
+    ok('自描述的 counts.total = 注册表真实值', Number(j.counts?.total) === reg2.total, 'agent=' + j.counts?.total + ' 注册表=' + reg2.total)
+    ok('自描述的"只读条数" = 注册表真实值', Number(j.counts?.readOnly) === realRead, 'agent=' + j.counts?.readOnly + ' 注册表=' + realRead)
+    ok('自描述的"本机专属条数" = 注册表真实值', Number(j.counts?.localOnly) === realLocal, 'agent=' + j.counts?.localOnly + ' 注册表=' + realLocal)
+    ok('三条清单加起来覆盖全部命令（不漏不重）',
+      (j.readOnly || []).length + (j.writes || []).length === reg2.total, `${(j.readOnly || []).length}+${(j.writes || []).length} vs ${reg2.total}`)
+  }
+  r = await fetch(base + '/api/agent')
+  ok('自描述入口也要 token（少了 401）', r.status === 401, 'status=' + r.status)
+
+  // ---------- 命令面自检（2026-09-16 接进门禁）----------
+  // scripts/command-surface.mjs --check 会红在"真问题"上（只有 IPC 没 HTTP / preload 不一致 / 说明串台…）。
+  // 参考信息（手机专用通道、桌面专属、循环注册盲区）已显式登记，不算失败。
+  {
+    let checkOut = ''
+    let checkCode = 0
+    try {
+      checkOut = execFileSync(process.execPath, ['scripts/command-surface.mjs', '--check'], { encoding: 'utf8' })
+    } catch (e) {
+      checkCode = e.status || 1
+      checkOut = String(e.stdout || '') + String(e.stderr || '')
+    }
+    ok('命令面自检通过（三份拷贝一致、说明无串台）', checkCode === 0, checkOut.split('\n').filter((l) => l.includes('- ')).join(' | ').slice(0, 200))
+  }
+
   // ---------- 注册表与代码一致 ----------
   // ⚠️ 这一段会真的重新生成注册表来比对 —— 而生成物里带 generatedAt（时间戳），
   //    所以**跑完必须把原文件写回去**，否则每次跑闸门都会弄脏工作树，

@@ -10,6 +10,7 @@ import {
   logAudit,
 } from './helpers.js'
 
+/** 新建入库单（进货入库）。 */
 export function createInbound(db, { productId, quantity, costPrice, location, supplierId, operator, expiryDate }) {
   // 计量单位（通用版）：允许小数单位（斤/米）入库小数
   const prod = db.prepare('SELECT * FROM products WHERE id = ?').get(productId)

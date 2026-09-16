@@ -12,6 +12,7 @@ const round2 = (x) => Math.round(x * 100) / 100
 const localDay = (iso) => String(iso || '').slice(0, 10)
 const dayDiff = (from, to) => { const a = new Date(String(from).slice(0, 10) + 'T00:00:00'); const b = new Date(String(to).slice(0, 10) + 'T00:00:00'); return Math.round((b - a) / 86400000) }
 
+/** 清仓建议：把滞销 / 临期 / 长期无动销的货怎么处理算成一张单子（只读，不改价、不自动打折）。 */
 export function buildClearance(db) {
   const t = localDay(new Date().toISOString())
   const anySale = db.prepare("SELECT COUNT(*) AS n FROM transactions WHERE type='out'").get().n

@@ -16,6 +16,7 @@ import { assertOwnerAction } from './users.js'
 import { ensureUnit } from './units.js'
 import { ensureCategory } from './categories.js'
 
+/** 新增商品（会校验 SKU 额度；单位/分类不存在时会自动建档）。 */
 export function createProduct(db, input) {
   const ts = now()
   const minStock = minStockOrNull(input.min_stock)

@@ -1,5 +1,6 @@
 // 全量数据查询（启动/数据加载用）
 
+/** 一次性加载桌面首屏需要的全量基础数据（商品 / 分类 / 单位 / 价格档等），只读。 */
 export function loadAll(db) {
   const q = (sql) => db.prepare(sql).all()
   // 通用版：单位小数标记（units.allow_decimal）映射到商品行，前端据此判断数量步进

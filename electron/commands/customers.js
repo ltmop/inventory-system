@@ -30,6 +30,7 @@ export function nextMemberNo(db) {
   return 'M' + d + String(r + 1).padStart(3, '0')
 }
 
+/** 新增客户（价格档决定他走哪一档售价）。 */
 export function createCustomer(db, { name, phone, notes, price_level, preferences, member_no, level, is_member }) {
   const n = name?.trim()
   if (!n) throw new Error('客户姓名不能为空')

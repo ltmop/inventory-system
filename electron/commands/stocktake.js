@@ -76,6 +76,7 @@ export function createStockTake(db, { locationFilter, category, supplierId, oper
   })
 }
 
+/** 更新盘点单里的一项：记实盘数并算出差异（完成盘点时才正式落账）。 */
 export function updateStockTakeItem(db, { itemId, actualQty, reason }) {
   // 与 submitStockTake 同一套校验：实盘数必须是非负数（米商品允许小数），
   // 负数/非法小数/非数字一律拒绝，不允许落库

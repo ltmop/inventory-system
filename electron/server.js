@@ -1466,7 +1466,84 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     res.end(data)
   }
 
-  async function handle(req, res) {
+  /**
+ * 给 Agent 的**自描述入口**（GET /api/agent）—— 一次请求说清"怎么接"。
+ *
+ * 为什么要有它：命令 API 早就有了（`/api/commands` + `/api/invoke`），但接入方得读三份文档
+ * 才知道"怎么鉴权、有哪几条路、哪些命令不能随便调"。这个端点把这些**从代码里现算**：
+ * 命令总数、只读/写/本机清单都取自同一份注册表 —— 所以它不会像手写文档那样过期。
+ */
+function agentManifest() {
+  let commands = []
+  let restRoutes = []
+  try {
+    const r = listCommands({})
+    commands = r.commands || []
+    restRoutes = r.restRoutes || []
+  } catch { /* 注册表读不到也回一个最小说明，绝不 500 —— 这个端点本身就是给人指路的 */ }
+  const readOnly = commands.filter((c) => c.write === false).map((c) => c.name)
+  const writes = commands.filter((c) => c.write !== false).map((c) => c.name)
+  const localOnly = commands.filter((c) => c.local).map((c) => c.name)
+  let version = ''
+  try {
+    version = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).version || ''
+  } catch { /* 打包与裸跑都可能读不到，不影响接入 */ }
+  return {
+    ok: true,
+    service: 'AI 智能进销存系统',
+    version,
+    purpose: '门店进销存的业务接口。所有数字都来自命令层（electron/commands），与界面同源 —— 不存在第二套口径。',
+    auth: {
+      header: 'x-token: <令牌>',
+      alt: '?token=<令牌> 也可以',
+      missing: 'HTTP 401',
+      where: '桌面机：%APPDATA%\\fishing-inventory\\server-token.txt（界面「设置 → 手机看店」也能看到）；中心库模式用中心库那台的令牌',
+    },
+    entries: {
+      introspect: {
+        list: 'GET /api/commands',
+        one: 'GET /api/commands?name=<命令名>',
+        filter: 'GET /api/commands?group=<前缀>&q=<关键词>',
+      },
+      invoke: {
+        'POST /api/invoke': '{"channel":"<命令名>","payload":{...}}',
+        'POST /api/command': '{"name":"<命令名>","params":{...}}',
+        idempotency: 'body 里带 idempotencyKey：同一 key 重发第二次返回 idempotent:true（不会重复改账）',
+        errors: { 业务失败: 'HTTP 400 + {ok:false,error}', 未知命令: 'HTTP 404' },
+      },
+      rest: restRoutes,
+      cli: {
+        path: 'scripts/inv-cli.mjs',
+        examples: [
+          'node scripts/inv-cli.mjs guide',
+          'node scripts/inv-cli.mjs list --readonly',
+          'node scripts/inv-cli.mjs doc <命令名>',
+          'node scripts/inv-cli.mjs run product:list --params-file p.json',
+          'node scripts/inv-cli.mjs run <写命令> --params-file p.json --yes',
+        ],
+      },
+    },
+    rules: {
+      readOnly: 'write=false 的命令只查不改，可以直接调',
+      write: 'write=true 的命令会改账/改库/改本机文件 —— 建议先向人汇报动作与参数，拿到同意再执行',
+      localOnly: 'local=true 的命令只能在桌面机上调（中心库/手机打不到）',
+      failSafe: '拿不到 write 标记时一律按写处理（CLI 就是这么做的）',
+    },
+    counts: {
+      total: commands.length,
+      readOnly: readOnly.length,
+      write: writes.length,
+      localOnly: localOnly.length,
+      restRoutes: restRoutes.length,
+    },
+    readOnly,
+    writes,
+    localOnly,
+    docs: ['docs/进销存系统Agent接入指南.md', 'docs/命令接口-接口文档.md'],
+  }
+}
+
+async function handle(req, res) {
     // 跨域放行：只有显式配置 FI_CORS_ALLOW_ORIGINS 才生效（默认不输出任何 CORS 头）。
     // 用 setHeader：Node 里 writeHead 只覆盖它自己显式给出的头，setHeader 设过的会保留，
     // 所以这里设一次就够，不用动 sendJson 或任何既有函数签名。
@@ -1599,6 +1676,10 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
         if (nm) return describeCommand(nm)
         return listCommands({ group: url.searchParams.get('group') || '', q: url.searchParams.get('q') || '' })
       },
+      // **给 Agent 的自描述入口**（2026-09-16）：一个请求就知道
+      // "这是什么、怎么鉴权、有哪几条路能走、哪些命令随便跑、哪些要人点头、文档在哪"。
+      // 目的是让接入方不必先读三份文档才能发第一条命令。
+      '/api/agent': () => agentManifest(),
     }
     const route = ROUTES[url.pathname]
     if (!route) {
