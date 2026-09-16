@@ -86,6 +86,28 @@ try {
   const r2 = await J(await fetch(base + '/api/command', { method: 'POST', headers: h, body }))
   ok('复用 /api/invoke 的幂等层（第二次 idempotent:true）', r2.idempotent === true, JSON.stringify({ first: r1.ok, second: r2.idempotent }))
 
+  // ---------- 接入指南防腐（2026-09-16 新增）----------
+  // 上一版指南（v1）烂掉的原因很朴素：它提的入口是旧的、还提了一个不存在的脚本，
+  // 而**没有任何断言盯着它** —— 于是文档慢慢变成传说。这里给它加上牙齿。
+  const guide = fs.readFileSync(path.resolve('docs/进销存系统Agent接入指南.md'), 'utf8')
+  const cited = [...new Set([...guide.matchAll(/(?:scripts|docs)\/[A-Za-z0-9_\u4e00-\u9fa5.-]+\.(?:mjs|md)/g)].map((m) => m[0]))]
+  const gone = cited.filter((p) => !fs.existsSync(path.resolve(p)))
+  ok('指南里提到的脚本/文档路径都真实存在（写了不存在的路径就红）', gone.length === 0, '找不到: ' + gone.join(' '))
+  ok('指南提到了三条真实入口（自省 / 通用调用 / CLI）',
+    guide.includes('/api/commands') && guide.includes('/api/invoke') && guide.includes('inv-cli.mjs'))
+  ok('指南讲清了读写规则（写命令要 --yes）', /--yes/.test(guide) && /write: true/.test(guide))
+  const reg = JSON.parse(fs.readFileSync(path.resolve('electron/commandRegistry.json'), 'utf8'))
+  const declared = (guide.match(/当前\s*\*\*(\d+)\*\*\s*条命令/) || [])[1]
+  ok('指南声明的命令总数 = 注册表真实值', Number(declared) === reg.total, '指南=' + declared + ' 注册表=' + reg.total)
+  const declaredRead = (guide.match(/其中\s*\*\*(\d+)\*\*\s*条只读/) || [])[1]
+  const realRead = reg.commands.filter((c) => c.write === false).length
+  ok('指南声明的"只读条数" = 注册表真实值', Number(declaredRead) === realRead, '指南=' + declaredRead + ' 注册表=' + realRead)
+  // 指南里那张 REST 清单同样会烂：凡提到的 /api 路径都必须真的存在
+  const citedApis = [...new Set([...guide.matchAll(/\/api\/[a-zA-Z/_-]+/g)].map((m) => m[0]))]
+  const knownApis = new Set([...reg.restRoutes, '/api/invoke', '/api/command', '/api/commands'])
+  const ghostApis = citedApis.filter((p) => !knownApis.has(p))
+  ok('指南里提到的 /api 路径都是真实存在的接口', ghostApis.length === 0, '不存在: ' + ghostApis.join(' '))
+
   // ---------- 注册表与代码一致 ----------
   const before = fs.readFileSync(path.resolve('electron/commandRegistry.json'), 'utf8')
   execFileSync(process.execPath, ['scripts/command-surface.mjs', '--emit-registry'], { stdio: 'pipe' })
