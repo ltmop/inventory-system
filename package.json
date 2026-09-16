@@ -25,7 +25,7 @@
     "check:update": "node scripts/verify-update-check.mjs",
     "check:webupdate": "node scripts/verify-web-update.mjs",
     "build:web": "node scripts/build-web-bundle.mjs",
-    "check:web": "node scripts/verify-download-page.mjs",
+    "check:web": "node scripts/verify-download-page.mjs && node scripts/verify-site-version.mjs",
     "release": "node scripts/release.mjs",
     "electron": "electron .",
     "dev-electron": "node scripts/dev-electron.cjs",

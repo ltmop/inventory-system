@@ -33,6 +33,15 @@ import {
   pointMainButtonAtLocal,
   assertPageCurrent,
 } from './lib/download-page.mjs'
+// 官网「其余页面」（产品页 / docs / 首页数据区）与下载页「版本信息」三处的同步 ——
+// 这几处以前 release.mjs 从来不管，靠人记得手工改，已经漏过三次（含一次产品页下载按钮 404）。
+import {
+  replaceSiteDesktopVersion,
+  assertSiteCurrent,
+  rewriteVersionFacts,
+  readVersionFacts,
+  hasChangelogEntry,
+} from './lib/site-version.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
@@ -152,7 +161,7 @@ function prepare({ srcExe }) {
   ].join('\n'), 'utf8')
   console.log('  ' + ASCII_EXE, '(' + size + ' B) sha512 ' + sha.slice(0, 20) + '…')
   console.log('  latest.yml path=' + ASCII_EXE + '（与文件一致 OK）')
-  return { workDir, exe, bm, ymlPath, sha }
+  return { workDir, exe, bm, ymlPath, sha, size }
 }
 
 /** 部署自动更新源（updates/ + latest.yml） */
@@ -179,7 +188,10 @@ function deployWeb(a) {
   scpTo(a.exe, '/tmp/' + DOWNLOAD_EXE)
   const dl = ssh(
     'sudo mv /tmp/' + DOWNLOAD_EXE + ' ' + DOWNLOAD_DIR + '/ && ' +
-    'cd ' + DOWNLOAD_DIR + ' && for f in general-inventory-setup-*.exe; do case "$f" in *' + version + '*) ;; *) sudo mv "$f" archive/ 2>/dev/null; esac; done && ls ' + DOWNLOAD_DIR
+    // ⚠️ 2026-09-16 修正：这里以前是 `sudo mv "$f" archive/ 2>/dev/null`，而 archive/ **根本不存在**，
+    //    于是 mv 一直静默失败（stderr 被吞）—— 旧安装包既没归档也没删除，只是继续堆在 download/ 里，
+    //    而用户早就要求"旧的去除"。现在先 mkdir -p，再去掉 2>/dev/null 让失败能真的中止发布。
+    'cd ' + DOWNLOAD_DIR + ' && sudo mkdir -p archive && for f in general-inventory-setup-*.exe; do case "$f" in *' + version + '*) ;; *) sudo mv "$f" archive/ || exit 1; esac; done && ls ' + DOWNLOAD_DIR
   )
   if (dl.status !== 0) throw new Error('部署 download/ 失败: ' + (dl.stderr || dl.stdout))
   console.log('  download/ 根目录:', dl.stdout.trim().split('\n').join(' '), 'OK')
@@ -198,7 +210,21 @@ function deployWeb(a) {
   const oldV = res.oldV
   if (res.desktopBefore.length) console.log('  桌面版本号文案：' + res.desktopBefore.join(' / ') + ' → ' + version)
   // 主按钮指向官网本地文件；备用线路保持指更新源
-  const page = pointMainButtonAtLocal(res.html, version)
+  // ⑤ 下载页「版本信息」三处（发布日期 / 安装包大小 / 校验指纹）—— 2026-09-16 之前**从不更新**，
+  //    已漏过两次；其中校验指纹写错会让客户以为文件被篡改，对 B 端下载是硬伤。
+  //    发布日期取本次产物 latest.yml 的 releaseDate，而不是「今天」：
+  //    --web-only 是「updates 早发好了、只补官网」，用「今天」会把发布日期改成补页面那天。
+  const releaseDate = (fs.readFileSync(a.ymlPath, 'utf8').match(/releaseDate:\s*'?(\d{4}-\d{2}-\d{2})/) || [])[1]
+    || new Date().toISOString().slice(0, 10)
+  const facts = rewriteVersionFacts(pointMainButtonAtLocal(res.html, version), {
+    date: releaseDate,
+    size: a.size,
+    sha16: a.sha.slice(0, 16),
+  })
+  const page = facts.html
+  console.log('  版本信息：' + (facts.touched.length
+    ? facts.touched.join(' / ') + ' 已更新 → ' + releaseDate + ' / ' + a.size + ' B / ' + a.sha.slice(0, 16)
+    : '三处已是当前值') + ' OK')
   ssh('sudo cp -p ' + pagePath + ' ' + pagePath + '.bak-$(date +%Y%m%d%H%M%S)')
   const tmpPage = path.join(os.tmpdir(), 'fi-web-download-index.html')
   fs.writeFileSync(tmpPage, page, 'utf8')
@@ -207,18 +233,39 @@ function deployWeb(a) {
   if (up.status !== 0) throw new Error('上传下载页失败')
   console.log('  下载页：' + (oldV === version ? '已是 ' + version + '（版本号未改动）' : oldV + ' → ' + version) + ' OK')
 
-  // ③ 主站首页还有「桌面 vX.Y.Z / 桌面版 vX.Y.Z」文案，一并跟上（没有就跳过，不当失败）
-  const mainPage = '/var/www/junchengzn/index.html'
-  const rm = ssh('cat ' + mainPage)
-  if (rm.status === 0 && desktopMentions(rm.stdout).length) {
-    const mh = replaceDesktopMentions(rm.stdout, version)
-    const tmpMain = path.join(os.tmpdir(), 'fi-web-main-index.html')
-    fs.writeFileSync(tmpMain, mh, 'utf8')
-    scpTo(tmpMain, '/tmp/web-main-index.html')
-    ssh('sudo mv /tmp/web-main-index.html ' + mainPage)
-    console.log('  主站首页「桌面 v」文案已更新 OK')
-  } else {
-    console.log('  主站首页无「桌面 v」文案或读不到，跳过')
+  // ③ 其余页面一并跟上：主站首页（含数据区）/ 三个产品页 / docs 首页。
+  // ⚠️ 这些页面 release.mjs 以前**从来没管过**，于是：
+  //    · 产品页主按钮 href 指着已被归档的 general-inventory-setup-1.0.9.exe → 公网实测 404；
+  //    · 产品页 / docs / 首页数据区的版本号长期停在旧值（1.1.8 发布后仍写 1.0.9 / 1.0.10）。
+  //    改写逻辑在 lib/site-version.mjs：与 oldV 无关、幂等、手机版文件名受保护，可单测。
+  const crossPages = [
+    ['/var/www/junchengzn/index.html', '主站首页'],
+    ['/var/www/junchengzn/products/inventory.html', '产品页-进销存'],
+    ['/var/www/junchengzn/products/cockpit.html', '产品页-驾驶舱'],
+    ['/var/www/junchengzn/products/minidb.html', '产品页-数据台'],
+    ['/var/www/junchengzn/docs/index.html', 'docs 首页'],
+  ]
+  let crossSeq = 0
+  for (const [remote, label] of crossPages) {
+    const r = ssh('cat ' + remote)
+    if (r.status !== 0) { console.log('  ' + label + ' 读不到（可能没这个页面），跳过'); continue }
+    const rr = replaceSiteDesktopVersion(r.stdout, version)
+    assertSiteCurrent(rr.html, version, label)
+    if (!rr.touched.length) { console.log('  ' + label + ' 已是 ' + version + ' OK'); continue }
+    const tmp = path.join(os.tmpdir(), 'fi-cross-' + (crossSeq++) + '.html')
+    fs.writeFileSync(tmp, rr.html, 'utf8')
+    ssh('sudo cp -p ' + remote + ' ' + remote + '.bak-$(date +%Y%m%d%H%M%S)')
+    scpTo(tmp, '/tmp/fi-cross.html')
+    const mv = ssh('sudo mv /tmp/fi-cross.html ' + remote)
+    if (mv.status !== 0) throw new Error(label + ' 上传失败')
+    console.log('  ' + label + '：' + rr.touched.join(' / ') + ' → ' + version + ' OK')
+  }
+
+  // ③b 更新日志有没有为本版本写条目 —— 没写只**告警**：文案得人写，脚本不代编。
+  const invPage = ssh('cat /var/www/junchengzn/products/inventory.html')
+  if (invPage.status === 0) {
+    if (hasChangelogEntry(invPage.stdout, version)) console.log('  更新日志已含 v' + version + ' 条目 OK')
+    else console.log('  ⚠️ 更新日志里还没有 v' + version + ' 的条目 —— 请人工补上（脚本不代写文案）')
   }
 
   // ④ 复核
@@ -262,6 +309,23 @@ function verifyWeb() {
   const chk = assertPageCurrent(page, version)
   console.log('  官网主按钮文案含 ' + version + ' OK（' + chk.button.text + '）')
   console.log('  页面所有桌面版本号文案都是 ' + version + ' OK')
+  // ⚠️ 新增：下载页「版本信息」三处必须与更新源里的**实际产物**一致。
+  //    校验指纹写错等于告诉客户「这个文件被篡改过」，对 B 端下载是硬伤
+  //    （2026-09-16 查出页面上写的是上一个版本的指纹与大小）。
+  const yml = sh('curl -s ' + PUB_URL + 'latest.yml').stdout
+  const ymlSize = (yml.match(/size:\s*(\d+)/) || [])[1]
+  const ymlSha = (yml.match(/sha512:\s*([A-Za-z0-9+/=]+)/) || [])[1]
+  const facts = readVersionFacts(page)
+  if (!facts.date || !facts.size || !facts.sha16) {
+    throw new Error('官网下载页「版本信息」三处读不全（页面结构可能变了）：' + JSON.stringify(facts))
+  }
+  if (ymlSize && facts.size.replace(/,/g, '') !== ymlSize) {
+    throw new Error('官网写的安装包大小 ' + facts.size + ' 与实际产物 ' + ymlSize + ' 不一致')
+  }
+  if (ymlSha && facts.sha16 !== ymlSha.slice(0, 16)) {
+    throw new Error('官网校验指纹 ' + facts.sha16 + ' 与实际产物 ' + ymlSha.slice(0, 16) + ' 不一致')
+  }
+  console.log('  版本信息三处：' + facts.date + ' / ' + facts.size + ' 字节 / ' + facts.sha16 + ' OK')
   const url = 'https://junchengzn.com/download/' + DOWNLOAD_EXE
   const code = sh('curl -sL -o NUL -w %{http_code} ' + url).stdout.trim()
   if (code !== '200') throw new Error('官网下载包 GET 失败：HTTP ' + code + ' → ' + url)
