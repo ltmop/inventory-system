@@ -5,6 +5,7 @@ import {
   ShoppingCart,
   PackageSearch,
   User,
+  Terminal,
   Settings,
   PanelLeftClose,
   PanelLeftOpen,
@@ -32,6 +33,9 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/sales-hub', label: '销售', icon: ShoppingCart, perm: PERMS.operate },
   { to: '/stock-hub', label: '库存', icon: PackageSearch, perm: PERMS.operate },
   { to: '/mine-hub', label: '我的', icon: User },
+  // API 接口（2026-09-16 owner 要求）：原先是右下角悬浮的「命令台」，现搬到左侧功能栏做正式页。
+  // 老板专属 —— 这一页能执行全部近 200 条命令（含写命令），不该出现在店员的菜单里。
+  { to: '/api', label: 'API接口', icon: Terminal, end: true, perm: PERMS.settingsManage },
 ]
 
 // 底部固定区：账号（左下角）+ 设置在账号下方；账号=云/员工管理、设置=系统设置，仅老板可见

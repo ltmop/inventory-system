@@ -30,6 +30,7 @@ import { HelpPage } from '@/pages/HelpPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import AiHubPage from '@/pages/AiHubPage'
 import AccountPage from '@/pages/AccountPage'
+import ApiPage from '@/pages/ApiPage'
 import { ImportPage } from '@/pages/ImportPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import { ReportsPage } from '@/pages/ReportsPage'
@@ -174,6 +175,7 @@ function App() {
             <Route path="import" element={<ImportPage />} />
             <Route path="ai-hub" element={<AiHubPage />} />
             <Route path="account" element={<AccountPage />} />
+            <Route path="api" element={<ApiPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>

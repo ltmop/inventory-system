@@ -5,7 +5,6 @@ import { CloudUpload } from 'lucide-react'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { CommandPalette } from '@/components/CommandPalette'
-import { CommandConsole } from '@/components/CommandConsole'
 import { AiFloat } from '@/components/ai/AiFloat'
 import { FirstOrderCelebration } from '@/components/FirstOrderCelebration'
 import { LowStockAlert } from '@/components/LowStockAlert'
@@ -96,7 +95,7 @@ export function Layout() {
       <LowStockAlert />
       {/* Ctrl+K 全局命令面板 */}
       <CommandPalette />
-      <CommandConsole />
+      {/* 命令台已搬到左侧功能栏的「API接口」页（2026-09-16 owner 要求，不再悬浮在右下角） */}
       {/* 全局 AI 浮层（M2-2）：任何业务页右下角悬浮球 */}
       <AiFloat />
       {/* 首单庆祝彩带（M4）：开单成功首次触发 */}
