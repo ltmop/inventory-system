@@ -411,6 +411,17 @@ function runMigrations(db) {
   return failures
 }
 
+/** 这台库有没有"开过张"（店主点过「清空演示数据正式开张」或走完新手引导，都会写下 fi-onboarded=1）
+ *  用途：区分"全新库该播演示数据"与"店主主动清空后该保持空库" —— 这两种情况的商品表都是 0 行，
+ *  只看商品数根本分不出来。 */
+function isOnboarded(db) {
+  try {
+    return db.prepare("SELECT value FROM settings WHERE key = 'fi-onboarded'").get()?.value === '1'
+  } catch {
+    return false
+  }
+}
+
 export function openDatabase(dbPath) {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true })
   // 迁移安全网：老库做原地重建表前先把库文件拷贝留底（已存在不覆盖），
@@ -429,7 +440,20 @@ export function openDatabase(dbPath) {
     db.exec(SCHEMA_SQL)
     const failures = runMigrations(db)
     const row = db.prepare('SELECT COUNT(*) AS n FROM products').get()
-    if (row.n === 0) seedDatabase(db)
+    // 播种判据（2026-09-18 修，两道闸）：
+    //   事故现场：店主清空商品 → 库里 products=0 → 下次启动照样播种 → 演示商品用的是**超市分类**
+    //   （饮料/零食/食品/日用百货/文具办公/五金工具/生鲜），而**渔具产线**的 products.category 带 CHECK
+    //   只允许 20 个渔具分类 → 播种抛错 → 被下面的"迁移失败自动回退"接住 →
+    //   **把 data.db 整个覆盖成 .pre-migration.bak（几天前的旧备份）** → 清空白做，还静默丢数据。
+    //   闸①：已开过张（fi-onboarded=1）就不再播 —— 清空后必须保持空库。
+    //   闸②：播种自己失败只告警，绝不许它把 openAndMigrate 拖进那条销毁性的回退路径。
+    if (row.n === 0 && !isOnboarded(db)) {
+      try {
+        seedDatabase(db)
+      } catch (e) {
+        console.error('[db] 演示数据播种失败（已跳过，不阻断启动）:', e.message)
+      }
+    }
     return { db, failures }
   }
 

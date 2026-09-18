@@ -3051,5 +3051,71 @@ ok('preload 白名单含 expense 三通道',
     /DEFAULT_REMOTE_URL = 'https:\/\/sync\.junchengzn\.com\/updates\//.test(fs.readFileSync(path.resolve('electron/flags.js'), 'utf8')))
 }
 
+// ============ 库：清空商品后不许被"自动播种 + 自动回退"毁掉（2026-09-18 事故回归）============
+// 事故链（中心库真机实测，非推测）：
+//   命令层清空商品 → products=0 → 下次启动 openDatabase 自动播种 → 演示商品用的是**超市分类**
+//   （饮料/零食/食品/日用百货/文具办公/五金工具/生鲜）→ 撞上**渔具产线** products.category 的 CHECK
+//   （只允许 20 个渔具分类）→ 播种抛错 → 被 openDatabase 的"迁移失败自动回退"接住 →
+//   **把 data.db 整个覆盖成 .pre-migration.bak（几天前的旧备份）** → 清空白做，还静默丢数据。
+{
+  // ① 已开过张的清空库：重开不许再播种（fi-onboarded 闸）
+  const obPath = path.join(tmp, 'clear-onboarded.db')
+  const ob1 = openDatabase(obPath)
+  ok('清库回归：新库先播了演示数据', ob1.prepare('SELECT COUNT(*) n FROM products').get().n === 12)
+  // 分类/单位用**相对断言**：先记下清空前的数量，清空后必须一模一样。
+  // （不写死「20 个」—— 新库只自带 1 个分类「其他」，20 个渔具分类是实际业务里建出来的。）
+  const catsBefore = ob1.prepare('SELECT COUNT(*) n FROM categories').get().n
+  const unitsBefore = ob1.prepare('SELECT COUNT(*) n FROM units').get().n
+  const parentsBefore = ob1.prepare("SELECT COUNT(*) n FROM categories WHERE parent IS NOT NULL AND parent <> ''").get().n
+  cmd.resetDemoData(ob1)
+  ok('清库回归：走命令层清空后商品为 0', ob1.prepare('SELECT COUNT(*) n FROM products').get().n === 0)
+  ok('清库回归：清空后流水也清了', ob1.prepare('SELECT COUNT(*) n FROM transactions').get().n === 0)
+  ok('清库回归：分类一个没少（清空不动分类）',
+    ob1.prepare('SELECT COUNT(*) n FROM categories').get().n === catsBefore && catsBefore > 0)
+  ok('清库回归：大分类（parent）一个没少',
+    ob1.prepare("SELECT COUNT(*) n FROM categories WHERE parent IS NOT NULL AND parent <> ''").get().n === parentsBefore)
+  ok('清库回归：单位一个没少（清空不动单位）',
+    ob1.prepare('SELECT COUNT(*) n FROM units').get().n === unitsBefore && unitsBefore > 0)
+  ok('清库回归：清空会写下 fi-onboarded=1（"已开张"的凭据）',
+    ob1.prepare("SELECT value FROM settings WHERE key = 'fi-onboarded'").get()?.value === '1')
+  finalCheckpoint(ob1)
+  ob1.close()
+  const ob2 = openDatabase(obPath) // ← 事故的触发点：清空之后重开
+  ok('清库回归：清空并开过张后，重开不再自动播种（商品仍为 0）',
+    ob2.prepare('SELECT COUNT(*) n FROM products').get().n === 0)
+  ok('清库回归：重开后分类仍是清空前的数量（没被清掉也没被重播）',
+    ob2.prepare('SELECT COUNT(*) n FROM categories').get().n === catsBefore)
+  finalCheckpoint(ob2)
+  ob2.close()
+
+  // ② 播种真失败时，也绝不许把库拖进"回退旧备份"那条销毁路径
+  const bfPath = path.join(tmp, 'seed-fails.db')
+  const bf1 = openDatabase(bfPath)
+  // 用命令层清空（它按外键依赖顺序删，手写 DELETE 会撞 FOREIGN KEY）
+  cmd.resetDemoData(bf1)
+  // 但把"已开张"标记抹掉 → 模拟一台"商品为空且没开过张"的库，下次打开就会尝试播种
+  bf1.exec("DELETE FROM settings WHERE key = 'fi-onboarded'")
+  // 用触发器让播种的第一次产品 insert 必然失败。选触发器而不是改 CHECK：
+  // 它不会被 SCHEMA_SQL 的 CREATE TABLE IF NOT EXISTS 冲掉，复现稳定。
+  bf1.exec("CREATE TRIGGER test_block_seed BEFORE INSERT ON products BEGIN SELECT RAISE(ABORT, '测试：拦截播种'); END")
+  finalCheckpoint(bf1)
+  bf1.close()
+  const bf2 = openDatabase(bfPath) // 闸②：这一行必须不抛错（抛了就整条套件崩，本断言就红了）
+  ok('清库回归：播种失败时 openDatabase 照样能开（不阻断启动）', !!bf2)
+  ok('清库回归：播种失败时库保持空（没被旧备份顶掉）',
+    bf2.prepare('SELECT COUNT(*) n FROM products').get().n === 0)
+  ok('清库回归：播种失败时前面的供应商插入也被回滚干净',
+    bf2.prepare('SELECT COUNT(*) n FROM suppliers').get().n === 0)
+  finalCheckpoint(bf2)
+  bf2.close()
+
+  // ③ 源码形状：两道闸都不许被后来人顺手删掉
+  const dbSrc2 = fs.readFileSync(path.resolve('electron/db.js'), 'utf8')
+  ok('清库回归：播种前先查"是否已开张"',
+    /if \(row\.n === 0 && !isOnboarded\(db\)\)/.test(dbSrc2))
+  ok('清库回归：播种被 try/catch 包住（失败只告警，不触发回退）',
+    /try \{\s*\n\s*seedDatabase\(db\)\s*\n\s*\} catch/.test(dbSrc2))
+}
+
 fs.rmSync(tmp, { recursive: true, force: true })
 console.log(`\n全部 ${passed} 项断言通过`)
