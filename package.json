@@ -1,7 +1,7 @@
 {
   "name": "inventory-system",
   "private": true,
-  "version": "1.1.9",
+  "version": "1.1.10",
   "homepage": "https://junchengzn.com",
   "type": "module",
   "main": "electron/main.js",
