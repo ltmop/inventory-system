@@ -472,6 +472,7 @@ function renderPage(force) {
     a.classList.toggle('on', a.getAttribute('href') === '#' + page)
   })
   const app = document.getElementById('app')
+  app.classList.remove('absorb')   // 只有开单页要三区固定，别的页恢复正常滚动
   app.innerHTML = '<div class="text-center" style="padding:40px;color:var(--sub)">加载中...</div>'
   const fn = pages[page]
   if (fn) { try { fn(app) } catch (e) { app.innerHTML = '<div class="text-center" style="padding:40px"><div style="font-size:48px">⚠️</div><div class="text-red font-bold mt">' + page + ' 出错</div><div class="text-sm text-muted mt-sm">' + e.message + '</div></div>' } }
@@ -515,6 +516,22 @@ function fmt(cents, nullText) {
 function phColor(p) { return COLORS[(p.id || 0) % COLORS.length] }
 function phChar(p) { const name = (((p.brand || '') + ' ' + (p.model || '')).trim() || p.sku_code || ''); return name[0] || '?' }
 function prodName(p) { const n = ((p.brand || '') + ' ' + (p.model || '')).trim(); return (n || p.sku_code || '未知') }
+
+// ========== 界面字号（小 / 标准 / 大）==========
+// 手机屏小，一套尺寸放大就显得挤。整套界面尺寸都跟着 index.html 里的 --s 一个比例走，
+// 这里只负责记档位 + 给 body 挂 class —— 切完立刻生效，不用重开。
+const UI_SIZES = ['s', 'm', 'l']
+function savedUiSize() { try { const v = localStorage.getItem('fi-ui-size'); return UI_SIZES.indexOf(v) >= 0 ? v : 'm' } catch (e) { return 'm' } }
+function applyUiSize(v) {
+  const s = UI_SIZES.indexOf(v) >= 0 ? v : 'm'
+  try { localStorage.setItem('fi-ui-size', s) } catch (e) {}
+  try {
+    document.body.classList.remove('size-s', 'size-m', 'size-l')
+    document.body.classList.add('size-' + s)
+  } catch (e) {}
+  return s
+}
+applyUiSize(savedUiSize())
 
 // ========== 更新：分两层，各管各的 ==========
 // 第 1 层（主力）网页层热更新：这套 APP 的原生部分只有一层薄壳（WebView + 安装器），
@@ -830,6 +847,24 @@ page('more', (app) => {
   opCard.className = 'card'; opCard.style.cursor = 'pointer'; opCard.onclick = openOperatorPanel
   opCard.innerHTML = '<div class="font-bold">👤 当前操作员：' + escHtml(getOperator()) + '</div><div class="text-sm text-muted mt-sm">换人点这里 · 开单/入库/报损都记在这个名字上</div>'
   app.appendChild(opCard)
+  // 界面字号：店里手机屏大小不一样，觉得挤就调小、看不清就调大（整套等比缩放）
+  const sizeCard = document.createElement('div')
+  sizeCard.className = 'card'
+  sizeCard.innerHTML = '<div class="font-bold">🔠 界面字号</div>' +
+    '<div class="text-sm text-muted mt-sm">觉得字太大太挤就调「小」，看不清就调「大」；整个界面一起变</div>' +
+    '<div class="sizes"><button data-sz="s">小</button><button data-sz="m">标准</button><button data-sz="l">大</button></div>'
+  app.appendChild(sizeCard)
+  const curSize = savedUiSize()
+  sizeCard.querySelectorAll('[data-sz]').forEach(function (b) {
+    const v = b.getAttribute('data-sz')
+    if (v === curSize) b.classList.add('on')
+    b.onclick = function () {
+      applyUiSize(v)
+      sizeCard.querySelectorAll('[data-sz]').forEach(function (x) { x.classList.remove('on') })
+      b.classList.add('on')
+      toast('字号已切换')
+    }
+  })
   const items = [
     ['🤖 AI 助手', '问库存、要补货建议、经营问答', () => navigate('ai')],
     ['💰 今日盈利', '营业额/毛利/净利，今天赚了多少', () => navigate('today')],
