@@ -2132,6 +2132,59 @@ ok(
   mainSrc.includes('recentRendererCrashes') && mainSrc.includes('render-process-gone-storm'),
 )
 
+// 36f. 手机端客户详情 + 收款登记明细（2026-09-21 补，对应 owner 选项 4）
+const mobileCustLibSrc = fs.readFileSync(path.resolve('electron/mobile/lib/customer.js'), 'utf8')
+ok(
+  '收款面板抽成共享库（lib/customer.js 导出 FiCustomer.openPayPanel）',
+  mobileCustLibSrc.includes('window.FiCustomer') && mobileCustLibSrc.includes('function openPayPanel'),
+)
+ok(
+  '收款面板只有一份实现（客户列表页不再自带一份，免得以后只改一处）',
+  !fs.readFileSync(path.resolve('electron/mobile/pages/customers.js'), 'utf8').includes('pay-btn'),
+)
+const mobileCustSrc = fs.readFileSync(path.resolve('electron/mobile/pages/customer.js'), 'utf8')
+ok('客户详情页注册为 page(customer)', mobileCustSrc.includes("page('customer'"))
+ok('客户详情页显示欠款明细（走 customer:statement）', mobileCustSrc.includes("api('customer:statement'"))
+ok('客户详情页可收款（复用共享面板）', mobileCustSrc.includes('FiCustomer.openPayPanel'))
+ok('客户详情页可拨号（真 <a href="tel:"> 链接，手机点一下就能打电话）', mobileCustSrc.includes('href="tel:'))
+ok(
+  '客户详情页 改资料/新建/删除 三个通道都在',
+  mobileCustSrc.includes("api('customer:update'") &&
+    mobileCustSrc.includes("api('customer:create'") &&
+    mobileCustSrc.includes("api('customer:delete'"),
+)
+ok('客户详情页删除被拒时把原因显示出来（有历史的客户不能删）', mobileCustSrc.includes('r.reason'))
+const mobileReceiptsSrc = fs.readFileSync(path.resolve('electron/mobile/pages/receipts.js'), 'utf8')
+ok('收款登记明细页注册为 page(receipts)', mobileReceiptsSrc.includes("page('receipts'"))
+ok(
+  '收款登记明细页同时取对账与登记流水（receipt:reconcile + receipt:list）',
+  mobileReceiptsSrc.includes("api('receipt:reconcile'") && mobileReceiptsSrc.includes("api('receipt:list'"),
+)
+ok('登记流水显示是谁登的（operator —— 原来这一栏从没被显示过）', mobileReceiptsSrc.includes('operator'))
+ok('「更多」里的收款登记改指向明细页', /收款登记[\s\S]{0,200}navigate\('receipts'\)/.test(mobileAppSrc))
+const mobileCustListSrc = fs.readFileSync(path.resolve('electron/mobile/pages/customers.js'), 'utf8')
+ok('客户列表页有「详情」入口且拦住冒泡', mobileCustListSrc.includes('data-detail') && mobileCustListSrc.includes('stopPropagation'))
+ok('客户列表页可新增客户', mobileCustListSrc.includes('新增客户'))
+ok(
+  '共享客户库与新页面都进了首屏加载与离线缓存',
+  fs.readFileSync(path.resolve('electron/mobile/index.html'), 'utf8').includes('lib/customer.js') &&
+    ['lib/customer.js', 'pages/customer.js', 'pages/receipts.js'].every((f) =>
+      fs.readFileSync(path.resolve('electron/mobile/sw.js'), 'utf8').includes(f),
+    ),
+)
+ok(
+  'customer / receipts 都在按需加载清单里',
+  /LAZY_PAGES\s*=\s*\{[^}]*customer:\s*1/.test(mobileAppSrc) && /LAZY_PAGES\s*=\s*\{[^}]*receipts:\s*1/.test(mobileAppSrc),
+)
+
+// 36g. 发壳审计工具（2026-09-21 补，对应 owner 选项 3「下次装壳清单」）
+const shellAuditSrc = fs.readFileSync(path.resolve('scripts/shell-release-audit.mjs'), 'utf8')
+ok('有发壳审计脚本（用同一份 computeCodeClosure 算"哪些热更推不到"）', shellAuditSrc.includes('computeCodeClosure'))
+ok(
+  '发壳审计把手机端与真壳层分开（两者发版路径不同，混在一起会误判）',
+  shellAuditSrc.includes('shellMobile') && shellAuditSrc.includes('shellCore'),
+)
+
 // 36c. 手机端传图全链路（真实走 /api/invoke，与手机端 lib/photo.js 的两步完全一致）
 //   手机拍完图不做任何"同步"——图片就存在**账本所在那台机器**上，products.photo_path 存文件名，
 //   因此手机与电脑看的是同一张图（前提是 36b 的地址修复在位）。
