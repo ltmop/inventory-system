@@ -20,7 +20,7 @@ page('stocktake', function (app) {
 
   function render() {
     app.innerHTML = ''
-    app.innerHTML += '<div class="sectitle"><span class="tag">📋 核对货架</span><span>每天核对一小片</span></div>'
+    app.innerHTML += '<div class="sectitle"><span class="tag">核对货架</span><span>每天核对一小片</span></div>'
     if (currentLoc) { renderStocktake(); return }
     // 没有盘点区域是正常情况（商品没货位），不重刷
     if (!loaded) return

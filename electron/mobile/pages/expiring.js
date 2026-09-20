@@ -15,7 +15,7 @@ page('expiring', function (app) {
     if (!loaded) { app.innerHTML = '<div class="text-center text-muted" style="padding:40px">加载中...</div>'; return }
     if (!items || items.length === 0) {
       app.innerHTML =
-        '<div class="text-center" style="padding:40px"><div style="font-size:44px">🎉</div>' +
+        '<div class="text-center" style="padding:40px"><div style="color:var(--ok);display:flex;justify-content:center">' + FiIcon('check', 44) + '</div>' +
         '<div class="font-bold mt">30 天内没有要过期的</div>' +
         '<div class="text-sm text-muted mt-sm">饵料/小药/活饵这些保质期货都新鲜</div></div>'
       return

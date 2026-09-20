@@ -32,15 +32,15 @@ page('ai', function (app) {
     const head = document.createElement('div'); head.style.cssText = 'padding:14px 16px 4px'
     const off = aiStatus && aiStatus.configured === false
     const statusLine = off
-      ? '<div style="margin-top:8px;font-size:12px;color:var(--red);font-weight:700">⚠️ 还没接通 AI —— 去电脑上「设置 → AI 助手」配一下，或者找维护看中心库服务</div>'
+      ? '<div style="margin-top:8px;font-size:12px;color:var(--red);font-weight:700;display:flex;align-items:center;gap:5px">' + FiIcon('alert', 13) + '还没接通 AI —— 去电脑上「设置 → AI 助手」配一下，或者找维护看中心库服务</div>'
       : '<div style="margin-top:8px;font-size:12px;color:var(--sub)">' +
           (aiStatus ? ('已接通 · ' + (aiStatus.provider || 'AI') + (aiStatus.model ? '（' + aiStatus.model + '）' : '')) : '正在检查 AI 状态…') +
           (remaining == null ? '' : ' · 本月免费用量还剩约 ' + Math.round(remaining / 1000) + 'k token') +
         '</div>'
     head.innerHTML =
-      '<div class="card" style="border:2px solid var(--gold);background:linear-gradient(135deg,#fffdf7,#faf3e3);margin:0;padding:14px">' +
+      '<div class="card" style="border:1px solid var(--line);background:var(--card);margin:0;padding:14px">' +
         '<div class="flex" style="align-items:center;gap:8px">' +
-          '<div style="width:40px;height:40px;border-radius:50%;background:var(--gold);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900">渔</div>' +
+          '<div style="width:40px;height:40px;border-radius:13px;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center">' + FiIcon('sparkle', 20) + '</div>' +
           '<div><div class="font-bold">小渔 · AI 助手</div><div class="text-xs" style="color:var(--sub)">问库存、要补货建议、看经营问题</div></div>' +
         '</div>' +
         statusLine +
@@ -51,7 +51,7 @@ page('ai', function (app) {
     // 对话区
     const chatBox = document.createElement('div'); chatBox.style.cssText = 'padding:12px 16px;max-height:52vh;overflow-y:auto'
     if (messages.length === 0) {
-      chatBox.innerHTML = '<div class="text-center text-muted" style="padding:24px;font-size:13px">打一句话问问小渔 👇</div>'
+      chatBox.innerHTML = '<div class="text-center text-muted" style="padding:24px;font-size:13px">打一句话问问小渔</div>'
     } else {
       messages.forEach(m => {
         const row = document.createElement('div')

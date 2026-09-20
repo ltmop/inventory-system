@@ -4,11 +4,11 @@ page('restock', function (app) {
   let loaded = false
   async function load() { try { items = await api('report:lowStock') } catch { items = [] }; loaded = true; render() }
   function render() {
-    app.innerHTML = '<div class="sectitle"><span class="tag">⚠️ 补货清单</span></div>'
+    app.innerHTML = '<div class="sectitle"><span class="tag">补货清单</span></div>'
     // AI 补货入口：让 AI 分析该补什么（点开 AI 助手）
     const aiBtn = document.createElement('div'); aiBtn.className = 'card'; aiBtn.style.cssText = 'cursor:pointer;border:2px dashed var(--gold);margin-bottom:10px'
     aiBtn.innerHTML = '<div class="flex" style="align-items:center;gap:8px">' +
-      '<span style="font-size:20px">🤖</span>' +
+      '<span style="color:var(--blue);display:flex">' + FiIcon('sparkle', 20) + '</span>' +
       '<div style="flex:1"><div class="font-bold" style="color:var(--gold)">让 AI 算该补什么</div><div class="text-xs" style="color:var(--sub)">结合销量/库存/滞销，给建议</div></div>' +
       '<span style="color:var(--gold)">→</span></div>'
     aiBtn.onclick = () => navigate('ai')

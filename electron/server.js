@@ -1171,6 +1171,59 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       return { ok: true }
     },
     // ---- v1.15 手机端新通道（只读/桥接，零新业务逻辑） ----
+    // ---- 安装/使用统计（2026-09-21）----
+    // 手机端每次启动上报一次；只存「安装号 + 版本 + 平台 + 机型 + 首末时间 + 打开次数」，
+    // 不采集任何经营数据。同时尽力转发官方统计（失败静默，绝不影响使用）。
+    'app:ping': async (d, p) => {
+      const id = String(p?.installId ?? '').trim().slice(0, 64)
+      if (!id) return { ok: false, reason: 'no-install-id' }
+      const ts = new Date().toISOString()
+      try {
+        d.exec(`CREATE TABLE IF NOT EXISTS app_installs (
+          install_id TEXT PRIMARY KEY, first_at TEXT, last_at TEXT, launches INTEGER DEFAULT 0,
+          version TEXT, web_version TEXT, platform TEXT, device TEXT)`)
+        d.prepare(`INSERT INTO app_installs (install_id, first_at, last_at, launches, version, web_version, platform, device)
+            VALUES (?, ?, ?, 1, ?, ?, ?, ?)
+            ON CONFLICT(install_id) DO UPDATE SET last_at = excluded.last_at, launches = launches + 1,
+              version = excluded.version, web_version = excluded.web_version,
+              platform = excluded.platform, device = excluded.device`)
+          .run(id, ts, ts, String(p?.version ?? ''), String(p?.webVersion ?? ''), String(p?.platform ?? ''), String(p?.device ?? ''))
+      } catch (e) { return { ok: false, reason: 'db-error', detail: String(e?.message ?? e) } }
+      try {
+        fetch('http://127.0.0.1:17533/api/v1/app/ping', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p),
+          signal: AbortSignal.timeout(2500),
+        }).catch(() => {})
+      } catch (e) { /* 转发失败不影响使用 */ }
+      return { ok: true }
+    },
+    // 使用情况：装了几台 / 今天几台在用 / 版本分布（本店自己的统计，来自本机账本的 app_installs 表）
+    'app:stats': (d) => {
+      try {
+        d.exec(`CREATE TABLE IF NOT EXISTS app_installs (
+          install_id TEXT PRIMARY KEY, first_at TEXT, last_at TEXT, launches INTEGER DEFAULT 0,
+          version TEXT, web_version TEXT, platform TEXT, device TEXT)`)
+        const day = (off = 0) => new Date(Date.now() - off * 86400000).toISOString().slice(0, 10)
+        const one = (sql, ...args) => Object.values(d.prepare(sql).get(...args))[0]
+        const days = []
+        for (let i = 6; i >= 0; i--) {
+          const dd = day(i)
+          days.push({
+            date: dd,
+            active: one("SELECT COUNT(*) FROM app_installs WHERE date(last_at,'localtime') = ?", dd),
+            added: one("SELECT COUNT(*) FROM app_installs WHERE date(first_at,'localtime') = ?", dd),
+          })
+        }
+        return {
+          devices: one('SELECT COUNT(*) FROM app_installs'),
+          today: one("SELECT COUNT(*) FROM app_installs WHERE date(last_at,'localtime') = ?", day(0)),
+          week: one("SELECT COUNT(*) FROM app_installs WHERE date(last_at,'localtime') >= ?", day(6)),
+          launches: one('SELECT COALESCE(SUM(launches),0) FROM app_installs'),
+          versions: d.prepare('SELECT version, COUNT(*) AS n FROM app_installs GROUP BY version ORDER BY n DESC LIMIT 8').all(),
+          days,
+        }
+      } catch (e) { return { devices: 0, today: 0, week: 0, launches: 0, versions: [], days: [], error: String(e?.message ?? e) } }
+    },
     'product:search': (d, p) => {
       const kw = String(p?.keyword ?? '').trim()
       if (!kw) return []

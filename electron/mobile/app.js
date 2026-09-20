@@ -26,6 +26,66 @@ const TOKEN = (() => {
 function readStoredServer() { try { return localStorage.getItem('fi-server') || '' } catch (e) { return '' } }
 // 优先用店主粘进来的地址（存在本机），否则用构建时注入的地址；官网/局域网 /m/ 两者都没有 = 留空 = 同源。
 let SERVER = readStoredServer() || (typeof window !== 'undefined' && window.__FI_SERVER__) || ''
+// ========== 图标库：界面里一律用内联 SVG，不用 emoji ==========
+// 口径：1.15em 跟着文字大小走、跟文字同色（stroke:currentColor），统一 1.8 描边、圆角线帽。
+const ICON = {
+  cart: '<path d="M4 5h2l2.2 10.2A1.8 1.8 0 0 0 10 16.6h8.2a1.8 1.8 0 0 0 1.76-1.44L21.5 8H7"/><circle cx="10.5" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="M20.5 20.5 16 16"/>',
+  camera: '<path d="M4 8.5h3l1.6-2.2h6.8L17 8.5h3V19H4z"/><circle cx="12" cy="13.5" r="3.2"/>',
+  sparkle: '<path d="M12 4.2 13.7 9l4.8 1.7-4.8 1.7L12 17.2l-1.7-4.8L5.5 10.7 10.3 9z"/><path d="M18.6 4.4v2.6M17.3 5.7h2.6"/>',
+  chart: '<path d="M4 19V5M4 19h16"/><path d="M8 19v-6M12.5 19V9M17 19v-9"/>',
+  alert: '<path d="M12 4.6 21 19.4H3z"/><path d="M12 10v4M12 17h.01"/>',
+  clock: '<circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 1.8"/>',
+  trash: '<path d="M5 7h14M10 7V4.8h4V7M8 7l1 12.2h6L16 7"/><path d="M10.5 11v5M13.5 11v5"/>',
+  clipboard: '<rect x="6" y="4.6" width="12" height="15.8" rx="2.6"/><path d="M9.5 4.6V3.4h5v1.2M9 10h6M9 13.8h4"/>',
+  box: '<path d="M12 3.4 20 8v8l-8 4.6L4 16V8z"/><path d="M4 8l8 4.5L20 8M12 12.5v8"/>',
+  users: '<circle cx="9" cy="9" r="3.2"/><path d="M3.6 19c0-3 2.4-5.2 5.4-5.2S14.4 16 14.4 19"/><path d="M15.8 6.4a3 3 0 0 1 0 5.6M17 19c0-1.9.5-3.4 1.5-4.4"/>',
+  receipt: '<path d="M6 3.6h12v16.8l-3-1.8-3 1.8-3-1.8-3 1.8z"/><path d="M9 8.4h6M9 12.2h6"/>',
+  wallet: '<path d="M4 7.6A2.6 2.6 0 0 1 6.6 5H18a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6.6A2.6 2.6 0 0 1 4 16.4z"/><path d="M4 9.2h16"/><circle cx="16" cy="14" r="1.1"/>',
+  truck: '<path d="M3 7h10v9H3z"/><path d="M13 10h4l3 3v3h-7z"/><circle cx="7" cy="18" r="1.5"/><circle cx="17" cy="18" r="1.5"/>',
+  share: '<circle cx="17.5" cy="6.5" r="2.4"/><circle cx="6.5" cy="12" r="2.4"/><circle cx="17.5" cy="17.5" r="2.4"/><path d="M8.7 10.9 15.2 7.8M8.7 13.1l6.5 3.1"/>',
+  pulse: '<path d="M3 12.5h4l2-6.5 3 12.5 2.4-8 1.6 4H21"/>',
+  type: '<path d="M5 6.6V5h14v1.6M12 5v14M9 19h6"/>',
+  refresh: '<path d="M19.6 11a7.8 7.8 0 1 0-2.2 6.1"/><path d="M19.8 5.6V11h-5.4"/>',
+  undo: '<path d="M8.5 8.5H4V4"/><path d="M4.4 8.4A7.8 7.8 0 1 1 4 13"/>',
+  link: '<path d="M10.2 13.8a3.8 3.8 0 0 1 0-5.4l2.3-2.3a3.8 3.8 0 0 1 5.4 5.4l-1.4 1.4"/><path d="M13.8 10.2a3.8 3.8 0 0 1 0 5.4l-2.3 2.3a3.8 3.8 0 0 1-5.4-5.4l1.4-1.4"/>',
+  logout: '<path d="M15 5.2H7.4A2.2 2.2 0 0 0 5.2 7.4v9.2A2.2 2.2 0 0 0 7.4 18.8H15"/><path d="M18.5 12H9.6M15.4 8.6 18.8 12l-3.4 3.4"/>',
+  plus: '<path d="M12 5.2v13.6M5.2 12h13.6"/>',
+  minus: '<path d="M5.2 12h13.6"/>',
+  close: '<path d="M6.4 6.4l11.2 11.2M17.6 6.4 6.4 17.6"/>',
+  chevron: '<path d="M9.5 5.5 16 12l-6.5 6.5"/>',
+  check: '<path d="M4.8 12.6 9.6 17.4 19.2 6.6"/>',
+  phone: '<path d="M6 3.6h3l1.5 4-2 1.5a11 11 0 0 0 5 5l1.5-2 4 1.5v3a2 2 0 0 1-2.2 2A15.6 15.6 0 0 1 4 6.8 2 2 0 0 1 6 3.6Z"/>',
+  tag: '<path d="M4 4h7l9 9-7 7-9-9z"/><circle cx="8.4" cy="8.4" r="1.3"/>',
+  edit: '<path d="M4.5 19.5h4L20 8l-4-4L4.5 15.5z"/><path d="M14.6 5.4 18.6 9.4"/>',
+  download: '<path d="M12 4v10.6"/><path d="M8.2 11 12 14.8 15.8 11"/><path d="M5 19h14"/>',
+  store: '<path d="M4 9.4 6.2 5h11.6L20 9.4"/><path d="M4.6 9.4h14.8V19H4.6z"/><path d="M9.6 19v-5h4.8v5"/>',
+  user: '<circle cx="12" cy="8.4" r="3.4"/><path d="M5.2 19.6c0-3.5 3-5.8 6.8-5.8s6.8 2.3 6.8 5.8"/>',
+  bolt: '<path d="M13.2 3 5.6 13.2h5.2L10 21l7.6-10.2h-5.2z"/>',
+  fish: '<path d="M3.5 12S7.5 7 12.2 7c4 0 7.3 5 7.3 5s-3.3 5-7.3 5C7.5 17 3.5 12 3.5 12Z"/><circle cx="15.4" cy="11" r="1"/><path d="M3.5 12 1.6 9.2v5.6z"/>',
+  dot: '<circle cx="12" cy="12" r="3"/>',
+}
+/** 取一个内联 SVG 图标（size 用 px；不传就跟当前字号走） */
+function FiIcon(name, size) {
+  const inner = ICON[name] || ICON.dot
+  const s = size ? ' width="' + size + '" height="' + size + '"' : ''
+  return '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"' + s + '>' + inner + '</svg>'
+}
+// 底部弹层（白卡 + 圆角 + 回弹入场），分享/使用情况/字号都复用它
+function sheet(title, bodyHtml) {
+  const ov = document.createElement('div')
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.42);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);z-index:340;display:flex;align-items:flex-end;justify-content:center'
+  ov.innerHTML = '<div class="sheet" style="width:100%;max-width:430px;background:var(--card);border-radius:var(--r-xl) var(--r-xl) 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));max-height:88vh;overflow:auto">' +
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">' +
+      '<div style="font-size:16px;font-weight:800;flex:1">' + escHtml(title) + '</div>' +
+      '<button data-close style="width:32px;height:32px;border-radius:50%;border:none;background:var(--line2);color:var(--ink2);display:flex;align-items:center;justify-content:center">' + FiIcon('close', 16) + '</button>' +
+    '</div>' + bodyHtml + '</div>'
+  document.body.appendChild(ov)
+  ov.onclick = function (e) { if (e.target === ov) ov.remove() }
+  ov.querySelector('[data-close]').onclick = function () { ov.remove() }
+  return ov
+}
+
 const COLORS = ["#0e9f6e","#b7791f","#1677ff","#7c3aed","#d64545","#0e7490","#be185d","#3f6212","#9a3412"]
 
 // 防请求风暴：只有连接码失效(401)才全局标记锁死（横幅会引导到「更多 - 连接设置」重输）；
@@ -398,7 +458,7 @@ function openConnectPanel(firstRun) {
     '<button id="cn-off" style="width:100%;height:50px;margin-top:12px;border-radius:12px;border:none;background:rgba(248,113,113,.18);color:#ffd9d9;font-size:15px">断开本机连接</button>' +
     '<div style="font-size:12px;color:#8fa3c0;margin-top:14px;line-height:1.8">当前：' + (TOKEN ? '已连接' : '还没连接') + '<br>连接码在店主那台电脑上，或让店主发你一条链接。' +
     (firstRun ? '<br><br>连上以后，开单、查库存、看今天赚多少都能用。' : '') + '</div>' +
-    (SERVER ? '<button id="cn-up" style="width:100%;height:44px;margin-top:12px;border-radius:12px;border:none;background:rgba(255,255,255,.08);color:#b9c8dd;font-size:14px">🔄 检查更新（当前 ' + APP_VERSION + '）</button>' : '')
+    (SERVER ? '<button id="cn-up" style="width:100%;height:44px;margin-top:12px;border-radius:12px;border:none;background:rgba(255,255,255,.08);color:#b9c8dd;font-size:14px">' + FiIcon('refresh', 15) + ' 检查更新（当前 ' + APP_VERSION + '）</button>' : '')
   document.body.appendChild(ov)
   const inp = ov.querySelector('#cn-in'), echo = ov.querySelector('#cn-echo')
   function refresh() {
@@ -458,6 +518,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('dateEl').textContent = new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })
   renderPage()
   flushOffline() // 开机先把上次离线攒下的单据重传一遍
+  appPing()      // 上报一次「这台设备在用」（只发安装号+版本，不带经营数据）
   // 首次连上后问一次「这台手机谁在用」；不选就一直用「老板」，不再打扰
   try { if (!localStorage.getItem('fi-operator')) setTimeout(openOperatorPanel, 700) } catch (e) {}
 })
@@ -475,7 +536,7 @@ function renderPage(force) {
   app.classList.remove('absorb')   // 只有开单页要三区固定，别的页恢复正常滚动
   app.innerHTML = '<div class="text-center" style="padding:40px;color:var(--sub)">加载中...</div>'
   const fn = pages[page]
-  if (fn) { try { fn(app) } catch (e) { app.innerHTML = '<div class="text-center" style="padding:40px"><div style="font-size:48px">⚠️</div><div class="text-red font-bold mt">' + page + ' 出错</div><div class="text-sm text-muted mt-sm">' + e.message + '</div></div>' } }
+  if (fn) { try { fn(app) } catch (e) { app.innerHTML = '<div class="text-center" style="padding:40px"><div style="font-size:48px">' + FiIcon('alert', 15) + '</div><div class="text-red font-bold mt">' + page + ' 出错</div><div class="text-sm text-muted mt-sm">' + e.message + '</div></div>' } }
   else if (LAZY_PAGES[page]) {
     // 低频页：首次进入时才去取脚本；离线且缓存里还没有 → 明确告知，不假装加载中
     loadPageScript(page).then(function (ok) {
@@ -485,7 +546,7 @@ function renderPage(force) {
       else { app.innerHTML = '<div class="text-center" style="padding:40px"><div class="font-bold mt">这一页还没下载好</div><div class="text-sm text-muted mt-sm">连一次网打开它，之后离线也能用</div></div>' }
     })
   }
-  else { app.innerHTML = '<div class="text-center" style="padding:40px"><div style="font-size:48px">⚠️</div><div class="font-bold mt">页面未找到</div></div>' }
+  else { app.innerHTML = '<div class="text-center" style="padding:40px"><div style="font-size:48px">' + FiIcon('alert', 15) + '</div><div class="font-bold mt">页面未找到</div></div>' }
 }
 
 // ========== 印章动画 ==========
@@ -682,13 +743,13 @@ function openScanner(cb, hint) {
     '<div style="font-size:18px;font-weight:700;margin-bottom:8px">扫码 / 输条码</div>' +
     '<div style="font-size:13px;color:#8fa3c0;margin-bottom:14px">' + (hint || '扫描或输入商品条码') + '</div>' +
     (hasNative
-      ? '<button id="scan-live" style="width:100%;height:74px;border-radius:14px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:19px;font-weight:800;margin-bottom:12px">📷 开始扫描（把条码对准框里）</button>' +
+      ? '<button id="scan-live" style="width:100%;height:74px;border-radius:14px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:19px;font-weight:800;margin-bottom:12px">' + FiIcon('camera', 15) + ' 开始扫描（把条码对准框里）</button>' +
         '<div id="scan-live-tip" style="font-size:12px;color:#8fa3c0;margin-bottom:14px">摄像头实时识别，扫到自动填。也可以用下面的方式。</div>'
       : '') +
     '<input id="scan-input" type="text" placeholder="输入条码数字" style="height:56px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);border-radius:12px;color:#fff;font-size:20px;padding:0 14px;margin-bottom:12px;width:100%;outline:none">' +
     '<div style="display:flex;gap:10px">' +
       '<button id="scan-ok" style="flex:1;height:54px;border-radius:12px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:17px;font-weight:800">确认</button>' +
-      '<button id="scan-cam" style="flex:1;height:54px;border-radius:12px;border:none;background:rgba(255,255,255,.12);color:#e6edf5;font-size:17px">📷 拍照识别</button>' +
+      '<button id="scan-cam" style="flex:1;height:54px;border-radius:12px;border:none;background:rgba(255,255,255,.12);color:#e6edf5;font-size:17px">' + FiIcon('camera', 15) + ' 拍照识别</button>' +
     '</div>' +
     '<button id="scan-cancel" style="margin-top:12px;height:44px;border-radius:10px;border:none;background:transparent;color:#8fa3c0;font-size:15px">取消</button>'
   document.body.appendChild(overlay)
@@ -736,7 +797,7 @@ function openScanner(cb, hint) {
     liveBtn.onclick = async () => {
       liveBtn.disabled = true; liveBtn.textContent = '正在打开摄像头…'
       try { await nativeScanOnce(submitCode) } finally {
-        liveBtn.disabled = false; liveBtn.textContent = '📷 再扫一次'
+        liveBtn.disabled = false; liveBtn.innerHTML = FiIcon('camera', 16) + ' 再扫一次'
       }
     }
     setTimeout(() => { liveBtn.click() }, 250)
@@ -795,7 +856,7 @@ function openUndoPanel() {
   ov.id = 'undo-panel'
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(10,22,40,.97);z-index:310;padding:20px;color:#e6edf5;overflow:auto'
   ov.innerHTML =
-    '<div style="font-size:21px;font-weight:800;margin-bottom:6px">↩︎ 撤回误操作</div>' +
+    '<div style="font-size:21px;font-weight:800;margin-bottom:6px">' + FiIcon('undo', 15) + ' 撤回误操作</div>' +
     '<div style="font-size:13px;color:#8fa3c0;line-height:1.7;margin-bottom:14px">最近做过的「删商品 / 报损 / 入库」都在这里，点错了可以一键还原。<br>卖出去的单子请用「退货」（账才对得上）。</div>' +
     '<div id="undo-list" style="font-size:14px;color:#8fa3c0">加载中…</div>' +
     '<button id="undo-close" style="width:100%;height:50px;margin-top:16px;border-radius:12px;border:none;background:rgba(255,255,255,.12);color:#e6edf5;font-size:16px;font-weight:700">关闭</button>'
@@ -840,92 +901,189 @@ function openUndoPanel() {
   load()
 }
 
-page('more', (app) => {
-  app.innerHTML = ''
-  // 当前操作员：放最上面，换人点一下 —— 多人共用一台手机时这是每天都会用到的
-  const opCard = document.createElement('div')
-  opCard.className = 'card'; opCard.style.cursor = 'pointer'; opCard.onclick = openOperatorPanel
-  opCard.innerHTML = '<div class="font-bold">👤 当前操作员：' + escHtml(getOperator()) + '</div><div class="text-sm text-muted mt-sm">换人点这里 · 开单/入库/报损都记在这个名字上</div>'
-  app.appendChild(opCard)
-  // 界面字号：店里手机屏大小不一样，觉得挤就调小、看不清就调大（整套等比缩放）
-  const sizeCard = document.createElement('div')
-  sizeCard.className = 'card'
-  sizeCard.innerHTML = '<div class="font-bold">🔠 界面字号</div>' +
-    '<div class="text-sm text-muted mt-sm">觉得字太大太挤就调「小」，看不清就调「大」；整个界面一起变</div>' +
-    '<div class="sizes"><button data-sz="s">小</button><button data-sz="m">标准</button><button data-sz="l">大</button></div>'
-  app.appendChild(sizeCard)
-  const curSize = savedUiSize()
-  sizeCard.querySelectorAll('[data-sz]').forEach(function (b) {
+// ========== 安装与使用统计（老板能知道装了几台、今天几台在用）==========
+// 只上报「安装号 + 版本 + 机型」，不带任何经营数据 —— 统计的是"用得怎么样"，不是"卖了什么"。
+// 手机端连的是店里那台中心库（本来就是 https 且已登录），由它转存并转发官方服务，
+// 避免手机 WebView 因为 http 混合内容把统计请求拦掉。
+function installId() {
+  try {
+    let v = localStorage.getItem('fi-install-id')
+    if (!v) { v = 'i' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10); localStorage.setItem('fi-install-id', v) }
+    return v
+  } catch (e) { return '' }
+}
+const APP_SHARE_URL = 'http://43.128.20.39:17533/dl/app.apk'
+let pinged = false
+function appPing() {
+  if (pinged || !TOKEN) return
+  const id = installId()
+  if (!id) return
+  pinged = true
+  const ua = navigator.userAgent || ''
+  api('app:ping', {
+    installId: id,
+    version: APP_VERSION,
+    webVersion: WEB_VERSION_APPLIED || '',
+    platform: /Android/i.test(ua) ? 'android' : (/iPhone|iPad/i.test(ua) ? 'ios' : 'web'),
+    device: (ua.match(/;\s*([^;)]+)\s+Build\//) || [])[1] || '',
+  }).catch(function () { /* 统计失败不影响使用 */ })
+}
+/** 分享给同事：优先调系统分享面板，退回复制链接 */
+function shareApp() {
+  const text = 'AI 智能进销存 手机版 —— 装在手机上开单、查库存、看今天赚多少'
+  if (navigator.share) {
+    navigator.share({ title: 'AI 智能进销存', text: text, url: APP_SHARE_URL }).catch(function () { copyAppLink() })
+    return
+  }
+  copyAppLink()
+}
+function copyAppLink() {
+  const done = function () { toast('下载链接已复制，粘到微信发给同事即可') }
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(APP_SHARE_URL).then(done, function () { prompt('复制这个链接发给同事：', APP_SHARE_URL) })
+      return
+    }
+  } catch (e) { /* 落到 prompt */ }
+  prompt('复制这个链接发给同事：', APP_SHARE_URL)
+}
+/** 使用情况：装了几台 / 今天几台在用 / 版本分布（数据来自中心库统计表） */
+async function openUsagePanel() {
+  const ov = sheet('使用情况', '<div id="us-body" class="text-sm text-muted">正在读取…</div>' +
+    '<button id="us-share" class="okbtn" style="margin-top:14px">' + FiIcon('share', 16) + ' 分享给同事安装</button>')
+  ov.querySelector('#us-share').onclick = function () { ov.remove(); shareApp() }
+  const body = ov.querySelector('#us-body')
+  try {
+    const s = (await api('app:stats')) || {}
+    const days = Array.isArray(s.days) ? s.days : []
+    const max = Math.max(1, ...days.map(function (d) { return d.active || 0 }))
+    body.innerHTML =
+      '<div class="stat-grid">' +
+        '<div class="stat"><div class="k">装了这个 APP 的设备</div><div class="v">' + (s.devices || 0) + ' 台</div></div>' +
+        '<div class="stat"><div class="k">今天在用</div><div class="v">' + (s.today || 0) + ' 台</div></div>' +
+        '<div class="stat"><div class="k">近 7 天用过</div><div class="v">' + (s.week || 0) + ' 台</div></div>' +
+        '<div class="stat"><div class="k">累计打开次数</div><div class="v">' + (s.launches || 0) + ' 次</div></div>' +
+      '</div>' +
+      (days.length
+        ? '<div style="margin-top:16px;font-size:12px;font-weight:800;color:var(--sub)">最近 7 天每天在用</div>' +
+          days.map(function (d) {
+            return '<div style="margin-top:9px"><div class="flex" style="justify-content:space-between;font-size:12px"><span>' + escHtml(String(d.date).slice(5)) + '</span><span class="text-muted">' + (d.active || 0) + ' 台' + (d.added ? ' · 新增 ' + d.added : '') + '</span></div>' +
+              '<div class="bar"><i style="width:' + Math.round(((d.active || 0) / max) * 100) + '%"></i></div></div>'
+          }).join('')
+        : '') +
+      (Array.isArray(s.versions) && s.versions.length
+        ? '<div style="margin-top:16px;font-size:12px;font-weight:800;color:var(--sub)">版本分布</div>' +
+          s.versions.map(function (v) {
+            return '<div class="flex" style="justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line2);font-size:13px"><span>' + escHtml(v.version || '未知') + '</span><span class="text-muted">' + v.n + ' 台</span></div>'
+          }).join('')
+        : '') +
+      '<div class="text-xs text-muted" style="margin-top:14px;line-height:1.7">只统计设备数与打开次数（安装号 + 版本 + 机型），不采集任何经营数据、不采集个人信息。分享链接里带了下载计数，谁装的都能对得上。</div>'
+  } catch (e) {
+    body.innerHTML = '<div class="text-red text-sm">读不到统计：' + escHtml(e.message || '') + '</div>'
+  }
+}
+/** 界面字号：三档，整套等比缩放 */
+function openSizeSheet() {
+  const cur = savedUiSize()
+  const ov = sheet('界面字号',
+    '<div class="text-sm text-muted" style="margin-bottom:12px">觉得字大挤得慌就调「小」，看不清就调「大」；整个界面一起变，不用重开。</div>' +
+    '<div class="sizes" id="sz"><button data-sz="s">小</button><button data-sz="m">标准</button><button data-sz="l">大</button></div>')
+  ov.querySelectorAll('[data-sz]').forEach(function (b) {
     const v = b.getAttribute('data-sz')
-    if (v === curSize) b.classList.add('on')
+    if (v === cur) b.classList.add('on')
     b.onclick = function () {
       applyUiSize(v)
-      sizeCard.querySelectorAll('[data-sz]').forEach(function (x) { x.classList.remove('on') })
+      ov.querySelectorAll('[data-sz]').forEach(function (x) { x.classList.remove('on') })
       b.classList.add('on')
-      toast('字号已切换')
     }
   })
-  const items = [
-    ['🤖 AI 助手', '问库存、要补货建议、经营问答', () => navigate('ai')],
-    ['💰 今日盈利', '营业额/毛利/净利，今天赚了多少', () => navigate('today')],
-    ['⚠️ 补货清单', '低库存 + 补货建议', () => navigate('restock')],
-    ['⏰ 临期预警', '快过期的批次，躺着也能看', () => navigate('expiring')],
-    ['🗑️ 报损登记', '破损/临期报废，手机记一笔', () => navigate('waste')],
-        ['📦 组合商品', '多商品打包，点开看明细', () => navigate('kits')],
-    ['👤 客户欠款', '赊账查询与收款', () => navigate('customers')],
-    ['💸 支出记账', '记一笔房租/水电/进货', () => navigate('expenses')],
-    ['🏭 供应商', '进货对账', () => navigate('suppliers')],
-    ['💳 收款登记', '实收登记流水（谁/何时登的）+ 和营业额对账', () => navigate('receipts')],
-    ['📋 核对货架', '每天核对一片区域', () => navigate('stocktake')],
+}
+
+page('more', (app) => {
+  app.innerHTML = ''
+
+  // 顶部：现在用的是哪个账本 / 谁在用（多设备多店最容易搞混的就是这个）
+  const head = document.createElement('div')
+  head.className = 'card'
+  head.style.marginTop = '14px'
+  head.innerHTML =
+    '<div class="flex" style="align-items:center;gap:11px">' +
+      '<div style="width:38px;height:38px;border-radius:11px;background:var(--blue-l);color:var(--blue);display:flex;align-items:center;justify-content:center;flex:none">' + FiIcon('store', 20) + '</div>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div class="font-bold" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(savedAccount() || '用连接码接入') + '</div>' +
+        '<div class="text-xs text-muted" style="margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(savedServer() || SERVER || '本机账本') + '</div>' +
+      '</div>' +
+      '<button id="op-switch" style="border:1px solid var(--line);background:var(--card2);border-radius:999px;padding:6px 11px;font-size:11.5px;font-weight:700;color:var(--ink2);display:flex;align-items:center;gap:4px;flex:none">' + FiIcon('user', 14) + escHtml(getOperator()) + '</button>' +
+    '</div>'
+  app.appendChild(head)
+  head.querySelector('#op-switch').onclick = openOperatorPanel
+
+  // 分组渲染：一屏能扫完，不用在几十个入口里找
+  function block(title, rows) {
+    const g = document.createElement('div')
+    g.className = 'group'
+    g.innerHTML = escHtml(title) + '<span class="ln"></span>'
+    app.appendChild(g)
+    const list = document.createElement('div')
+    list.className = 'list'
+    rows.forEach(function (r) {
+      const row = document.createElement('div')
+      row.className = 'row'
+      row.innerHTML =
+        '<div class="ri ' + (r.tone || '') + '">' + FiIcon(r.icon, 18) + '</div>' +
+        '<div class="rt"><div class="a"' + (r.danger ? ' style="color:var(--danger)"' : '') + '>' + escHtml(r.t) + '</div><div class="b">' + escHtml(r.d) + '</div></div>' +
+        '<div class="ch">' + FiIcon('chevron', 16) + '</div>'
+      row.onclick = r.fn
+      list.appendChild(row)
+    })
+    app.appendChild(list)
+  }
+
+  block('经营', [
+    { icon: 'sparkle', t: 'AI 助手', d: '问库存、要补货建议、经营问答', fn: () => navigate('ai') },
+    { icon: 'chart', t: '今日盈利', d: '营业额 / 毛利 / 净利', fn: () => navigate('today') },
+    { icon: 'alert', t: '补货清单', d: '低库存 + 补货建议', fn: () => navigate('restock') },
+    { icon: 'clock', t: '临期预警', d: '快过期的批次，躺着也能看', fn: () => navigate('expiring') },
+    { icon: 'trash', t: '报损登记', d: '破损 / 临期报废，手机记一笔', fn: () => navigate('waste') },
+  ])
+  block('货品', [
+    { icon: 'clipboard', t: '核对货架', d: '每天核对一片区域', fn: () => navigate('stocktake') },
+    { icon: 'box', t: '组合商品', d: '多商品打包，点开看明细', fn: () => navigate('kits') },
+    { icon: 'tag', t: '配件清单', d: '配件 / 替换件', fn: () => navigate('parts') },
+  ])
+  block('账务', [
+    { icon: 'users', t: '客户欠款', d: '赊账查询与收款', fn: () => navigate('customers') },
+    { icon: 'receipt', t: '收款登记', d: '实收登记 + 和营业额对账', fn: () => navigate('receipts') },
+    { icon: 'wallet', t: '支出记账', d: '记一笔房租 / 水电 / 进货', fn: () => navigate('expenses') },
+    { icon: 'truck', t: '供应商', d: '进货对账', fn: () => navigate('suppliers') },
+  ])
+
+  const sys = [
+    { icon: 'share', t: '分享给同事', d: '把下载链接发微信，别人也能装', fn: shareApp },
+    { icon: 'pulse', t: '使用情况', d: '装了几台、今天几台在用、版本分布', fn: openUsagePanel },
+    { icon: 'type', t: '界面字号', d: '小 / 标准 / 大，整套一起变', fn: openSizeSheet },
+    { icon: 'undo', t: '撤回误操作', d: '删商品 / 报损 / 入库点错了能还原', fn: openUndoPanel },
   ]
-  items.forEach(([t, d, fn]) => {
-    const card = document.createElement('div')
-    card.className = 'card'; card.style.cursor = 'pointer'; card.onclick = fn
-    card.innerHTML = '<div class="font-bold">' + t + '</div><div class="text-sm text-muted mt-sm">' + d + '</div>'
-    app.appendChild(card)
-  })
-  if (SERVER) {   // APK 才显示：浏览器页面点它没有意义
-    const upCard = document.createElement('div')
-    upCard.className = 'card'; upCard.style.cursor = 'pointer'; upCard.onclick = function () { checkAllUpdates(false) }
-    upCard.innerHTML = '<div class="font-bold">🔄 检查更新</div>' +
-      '<div class="text-sm text-muted mt-sm">页面 ' + (WEB_VERSION_APPLIED || APP_VERSION) + (WEB_USING_BUNDLE ? '（热更）' : '（安装包自带）') + ' · 只下改动的那几个文件</div>' +
-      '<div class="text-sm text-muted mt-sm">安装包壳 ' + APP_VERSION + ' · 只有壳变了才需要重新安装</div>'
-    app.appendChild(upCard)
-    // 跑在热更包上时，给一个「一键回退」的后路（万一下发的网页有问题，不用重装）
+  if (SERVER) {
+    sys.push({ icon: 'refresh', t: '检查更新', d: '页面 ' + (WEB_VERSION_APPLIED || APP_VERSION) + (WEB_USING_BUNDLE ? '（热更）' : '（安装包自带）') + ' · 壳 ' + APP_VERSION, fn: () => checkAllUpdates(false) })
     if (WEB_USING_BUNDLE) {
-      const backCard = document.createElement('div')
-      backCard.className = 'card'; backCard.style.cursor = 'pointer'
-      backCard.onclick = function () {
+      sys.push({ icon: 'download', t: '回退到安装包版本', d: '当前跑的是热更包 ' + (WEB_VERSION_APPLIED || '') + '，点这里换回自带版本', fn: function () {
         const WU = webUpdaterPlugin()
         if (!WU) return
         if (!confirm('回退到安装包自带的版本（' + APP_VERSION + '）？回退后下次有新版本还会自动热更。')) return
         WU.rollback().then(function () { toast('已回退，正在重开…') }).catch(function () { toast('回退失败，请重开 APP 再试') })
-      }
-      backCard.innerHTML = '<div class="font-bold">↩︎ 回退到安装包版本</div>' +
-        '<div class="text-sm text-muted mt-sm">当前跑的是热更包 ' + (WEB_VERSION_APPLIED || '') + '；点这里换回安装包自带的 ' + APP_VERSION + '</div>'
-      app.appendChild(backCard)
+      } })
     }
   }
-  // 账号卡：显示「登录的是哪个账号、连的是哪个账本」——多设备/多店最容易搞混的就是这个
-  const acc = savedAccount()
-  const accCard = document.createElement('div')
-  accCard.className = 'card'
-  accCard.innerHTML = '<div class="font-bold">🪪 登录账号</div>' +
-    '<div class="text-sm text-muted mt-sm">' + (acc ? escHtml(acc) : '（用连接码接入，没走账号登录）') + '</div>' +
-    '<div class="text-sm text-muted mt-sm">账本：' + escHtml(savedServer() || SERVER || '本机') + '</div>'
-  app.appendChild(accCard)
-  // 撤回入口：误删商品 / 误报损 / 误入库 都能一键还原（服务端留了快照）
-  const undoCard = document.createElement('div')
-  undoCard.className = 'card'; undoCard.style.cursor = 'pointer'; undoCard.onclick = function () { openUndoPanel() }
-  undoCard.innerHTML = '<div class="font-bold">↩︎ 撤回误操作</div><div class="text-sm text-muted mt-sm">删商品 / 报损 / 入库点错了，可以一键还原</div>'
-  app.appendChild(undoCard)
-  const connCard = document.createElement('div')
-  connCard.className = 'card'; connCard.style.cursor = 'pointer'; connCard.onclick = function () { openConnectPanel() }
-  connCard.innerHTML = '<div class="font-bold">🔗 连接设置</div><div class="text-sm text-muted mt-sm">' + (TOKEN ? '已连接店铺账本' : '还没连接') + ' · 换店铺、粘连接码或扫码' + '</div>'
-  app.appendChild(connCard)
-  const logoutCard = document.createElement('div')
-  logoutCard.className = 'card'; logoutCard.style.cursor = 'pointer'
-  logoutCard.onclick = function () {
+  sys.push({ icon: 'link', t: '连接设置', d: (TOKEN ? '已连接店铺账本' : '还没连接') + ' · 换店铺 / 粘连接码 / 扫码', fn: () => openConnectPanel() })
+  block('系统', sys)
+
+  const out = document.createElement('div')
+  out.className = 'list'
+  out.style.marginBottom = '6px'
+  out.innerHTML = '<div class="row"><div class="ri red">' + FiIcon('logout', 18) + '</div>' +
+    '<div class="rt"><div class="a" style="color:var(--danger)">退出登录</div><div class="b">换人或换店铺时用；退出不会动账本里的数据</div></div></div>'
+  out.querySelector('.row').onclick = function () {
     if (!confirm('退出登录？\n\n退出后这台手机就看不到账本了，下次要用账号密码重新登录（离线攒着还没上传的单据也会一起清掉，请先确认没有待上传）。')) return
     try {
       localStorage.removeItem('fi-mobile-token')
@@ -935,10 +1093,10 @@ page('more', (app) => {
     toast('已退出，正在返回登录页…')
     setTimeout(function () { location.reload() }, 500)
   }
-  logoutCard.innerHTML = '<div class="font-bold" style="color:var(--red)">🚪 退出登录</div><div class="text-sm text-muted mt-sm">换人或换店铺时用；退出不会动账本里的数据</div>'
-  app.appendChild(logoutCard)
+  app.appendChild(out)
+
   const note = document.createElement('div')
-  note.className = 'text-center text-sm text-muted'; note.style.padding = '20px'
+  note.className = 'note'
   note.textContent = '采购订货、经营报表、批量导入、设置请在电脑上操作'
   app.appendChild(note)
 })
@@ -953,8 +1111,8 @@ function openReceiptPanel() {
   }
   overlay.innerHTML =
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
-      '<div style="font-size:20px;font-weight:700">💳 收款对账</div>' +
-      '<button id="rec-close" style="width:40px;height:40px;border-radius:20px;background:rgba(255,255,255,.12);color:#fff;border:none;font-size:20px">✕</button>' +
+      '<div style="font-size:20px;font-weight:700">' + FiIcon('receipt', 18) + ' 收款对账</div>' +
+      '<button id="rec-close" style="width:40px;height:40px;border-radius:20px;background:rgba(255,255,255,.12);color:#fff;border:none;font-size:20px">' + FiIcon('close', 16) + '</button>' +
     '</div>' +
     '<div style="margin-bottom:12px"><input type="date" id="rec-date" value="' + todayStr() + '" style="width:100%;height:46px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:10px;color:#fff;font-size:16px;padding:0 12px"></div>' +
     '<div id="rec-sum" style="margin-bottom:12px"></div>' +
@@ -964,7 +1122,7 @@ function openReceiptPanel() {
   document.getElementById('rec-close').onclick = () => overlay.remove()
 
   const METHODS = ['现金', '微信', '支付宝', '其他']
-  const EMOJI = { 现金: '💵', 微信: '💚', 支付宝: '🅰️', 其他: '📒' }
+  const MI = { 现金: 'wallet', 微信: 'phone', 支付宝: 'bolt', 其他: 'receipt' }
   const fmt = (fen) => '¥' + (fen / 100).toFixed(2)
   const dateEl = document.getElementById('rec-date')
   const sumEl = document.getElementById('rec-sum')
@@ -991,7 +1149,7 @@ function openReceiptPanel() {
       const cur = recon && recon.byMethod && recon.byMethod[m] ? (recon.byMethod[m] / 100).toFixed(2) : ''
       rows +=
         '<div style="display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.06);border-radius:10px;padding:10px 12px;margin-bottom:8px">' +
-          '<div style="font-size:16px;font-weight:600">' + (EMOJI[m] || '') + ' ' + m + '</div>' +
+          '<div style="font-size:16px;font-weight:600">' + (MI[m] ? FiIcon(MI[m], 15) : '') + ' ' + m + '</div>' +
           '<input id="rec-in-' + m + '" type="number" step="0.01" min="0" placeholder="' + (cur || '实收金额') + '" value="' + cur + '" style="width:120px;height:40px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:8px;color:#fff;font-size:15px;text-align:right;padding:0 8px">' +
         '</div>'
     }

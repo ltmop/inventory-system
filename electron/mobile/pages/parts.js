@@ -15,7 +15,7 @@ page('parts', function (app) {
     if (!loaded) { app.innerHTML = '<div class="text-center text-muted" style="padding:40px">加载中...</div>'; return }
     if (!parts || parts.length === 0) {
       app.innerHTML =
-        '<div class="text-center" style="padding:40px"><div style="font-size:44px">🎣</div>' +
+        '<div class="text-center" style="padding:40px"><div style="color:var(--blue);display:flex;justify-content:center">' + FiIcon('tag', 44) + '</div>' +
         '<div class="font-bold mt">还没有设配节</div>' +
         '<div class="text-sm text-muted mt-sm">在电脑上把竿梢/手把节绑到主竿，手机上就能查库存</div></div>'
       return

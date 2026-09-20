@@ -84,7 +84,7 @@ page('stock', function (app) {
 
     // 搜索框
     const sr = document.createElement('div'); sr.className = 'scanrow'
-    const inp = document.createElement('input'); inp.className = 'search'; inp.placeholder = '🔍 输入品名/条码/SKU 过滤...'; inp.value = keyword; inp.style.width = '100%'
+    const inp = document.createElement('input'); inp.className = 'search'; inp.placeholder = '输入品名 / 条码 / SKU'; inp.value = keyword; inp.style.width = '100%'
     inp.oninput = (e) => search(e.target.value.trim())
     sr.appendChild(inp); app.appendChild(sr)
 
@@ -110,7 +110,7 @@ page('stock', function (app) {
         return b
       }
       bar.appendChild(mk('全部 ' + all.length, cat === '' && !lowOnly, () => { cat = ''; applyFilter() }))
-      bar.appendChild(mk('🔴 只看低库存', lowOnly, () => { lowOnly = !lowOnly; applyFilter() }))
+      bar.appendChild(mk('只看低库存', lowOnly, () => { lowOnly = !lowOnly; applyFilter() }))
       catNames.forEach(c => bar.appendChild(mk(c + ' ' + cats[c], cat === c, () => { cat = (cat === c ? '' : c); applyFilter() })))
       app.appendChild(bar)
     }
@@ -125,7 +125,7 @@ page('stock', function (app) {
     // 顶部统计（大字）
     const lowCount = results.filter(p => (p.total_stock || 0) < (p.min_stock || 5)).length
     const stat = document.createElement('div'); stat.style.cssText = 'padding:8px 18px 12px;font-size:15px;font-weight:700'
-    stat.textContent = '共 ' + results.length + ' 个SKU' + (cat ? '（' + cat + '）' : '') + (lowCount > 0 ? ' · 🔴 低库存 ' + lowCount + ' 个' : ' · 库存都充足')
+    stat.textContent = '共 ' + results.length + ' 个SKU' + (cat ? '（' + cat + '）' : '') + (lowCount > 0 ? ' · 低库存 ' + lowCount + ' 个' : ' · 库存都充足')
     app.appendChild(stat)
 
     // 低库存置顶
@@ -155,7 +155,7 @@ page('stock', function (app) {
     for (const grpKey of Object.keys(groups)) {
       const isLoc = groups[grpKey].every(p => (p.location || '').trim() === grpKey) && grpKey.trim()
       const title = document.createElement('div'); title.className = 'sectitle'
-      title.innerHTML = '<span class="tag" style="font-size:14px">' + (isLoc ? '📍 ' : '') + grpKey + '</span><span style="font-size:13px">' + groups[grpKey].length + ' 个</span>'
+      title.innerHTML = '<span class="tag" style="font-size:14px">' + '' + grpKey + '</span><span style="font-size:13px">' + groups[grpKey].length + ' 个</span>'
       q.push(function () { app.appendChild(title) })
 
       groups[grpKey].forEach(p => {
@@ -163,15 +163,15 @@ page('stock', function (app) {
         const low = total < (p.min_stock || 5)
         const isHot = p.is_hot === 1
         const isClear = p.is_clearance === 1
-        const badges = (isHot ? '<span style="background:#ff6b6b;color:#fff;border-radius:4px;padding:1px 6px;font-size:12px;font-weight:800">🔥热销</span> ' : '') +
-          (isClear ? '<span style="background:#f59e0b;color:#fff;border-radius:4px;padding:1px 6px;font-size:12px;font-weight:800">🏷处理货</span> ' : '')
+        const badges = (isHot ? '<span class="badge badge-red">热销</span> ' : '') +
+          (isClear ? '<span style="background:#f59e0b;color:#fff;border-radius:4px;padding:1px 6px;font-size:12px;font-weight:800">' + FiIcon('tag', 12) + '处理货</span> ' : '')
         const card = document.createElement('div'); card.className = 'card'; card.style.cssText = 'margin:0 16px 8px;padding:12px 14px'
         // 缩略图（点它也能拍照/换图）：没图时给一个虚线相机位，让人一眼知道这儿能挂图。
         // loading=lazy：300+ 个 SKU 一次性上屏时，屏幕外的图不要立刻都去请求。
         const photoUrl = p.photo_path ? FiPhoto.productPhotoUrl(p.photo_path, p.updated_at) : ''
         const thumb = photoUrl
           ? '<img data-photo-img src="' + photoUrl + '" alt="" loading="lazy" style="width:52px;height:52px;object-fit:cover;border-radius:8px;border:2px solid var(--ink);flex:none;background:var(--card)">'
-          : '<div data-photo-img style="width:52px;height:52px;border-radius:8px;border:2px dashed var(--line);display:flex;align-items:center;justify-content:center;font-size:20px;flex:none;color:var(--sub)">📷</div>'
+          : '<div data-photo-img style="width:52px;height:52px;border-radius:8px;border:2px dashed var(--line);display:flex;align-items:center;justify-content:center;font-size:20px;flex:none;color:var(--sub)">' + FiIcon('camera', 15) + '</div>'
         card.innerHTML =
           '<div class="split" style="align-items:center;gap:10px">' +
             thumb +
@@ -184,12 +184,12 @@ page('stock', function (app) {
               '<div class="text-sm" style="color:var(--sub)">' + (p.suggest_price ? fmt(p.suggest_price) : '未定价') + '</div>' +
             '</div>' +
           '</div>' +
-          '<button data-detail style="width:100%;height:38px;margin-top:8px;border-radius:8px;border:2px solid var(--gold);background:var(--card);color:var(--gold);font-size:14px;font-weight:800">📋 详情 / 改价 · 改单位 · 换图</button>' +
+          '<button data-detail style="width:100%;height:38px;margin-top:8px;border-radius:8px;border:2px solid var(--gold);background:var(--card);color:var(--gold);font-size:14px;font-weight:800">' + FiIcon('clipboard', 15) + ' 详情 / 改价 · 改单位 · 换图</button>' +
           '<div style="display:flex;gap:8px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)">' +
-            '<button data-hot style="flex:1;height:36px;border-radius:8px;border:2px solid var(--ink);font-size:13px;font-weight:800;background:' + (isHot ? '#ff6b6b' : 'var(--card)') + ';color:' + (isHot ? '#fff' : 'var(--ink)') + '">🔥 热销</button>' +
-            '<button data-clear style="flex:1;height:36px;border-radius:8px;border:2px solid var(--ink);font-size:13px;font-weight:800;background:' + (isClear ? '#f59e0b' : 'var(--card)') + ';color:' + (isClear ? '#fff' : 'var(--ink)') + '">🏷 处理货</button>' +
-            '<button data-pic style="flex:0 0 76px;height:36px;border-radius:8px;border:2px solid var(--ink);font-size:13px;font-weight:800;background:var(--card);color:var(--ink)">📷 ' + (p.photo_path ? '换图' : '拍照') + '</button>' +
-            '<button data-del style="flex:0 0 72px;height:36px;border-radius:8px;border:2px solid var(--red);font-size:13px;font-weight:800;background:#fff;color:var(--red)">🗑 删除</button>' +
+            '<button data-hot style="flex:1;height:36px;border-radius:8px;border:2px solid var(--ink);font-size:13px;font-weight:800;background:' + (isHot ? '#ff6b6b' : 'var(--card)') + ';color:' + (isHot ? '#fff' : 'var(--ink)') + '">' + FiIcon('bolt', 12) + ' 热销</button>' +
+            '<button data-clear style="flex:1;height:36px;border-radius:8px;border:2px solid var(--ink);font-size:13px;font-weight:800;background:' + (isClear ? '#f59e0b' : 'var(--card)') + ';color:' + (isClear ? '#fff' : 'var(--ink)') + '">' + FiIcon('tag', 12) + ' 处理货</button>' +
+            '<button data-pic style="flex:0 0 76px;height:36px;border-radius:8px;border:2px solid var(--ink);font-size:13px;font-weight:800;background:var(--card);color:var(--ink)">' + FiIcon('camera', 15) + ' ' + (p.photo_path ? '换图' : '拍照') + '</button>' +
+            '<button data-del style="flex:0 0 72px;height:36px;border-radius:8px;border:2px solid var(--red);font-size:13px;font-weight:800;background:#fff;color:var(--red)">' + FiIcon('trash', 15) + ' 删除</button>' +
           '</div>'
         card.onclick = () => { try { localStorage.setItem('fi-pos-preselect', String(p.id)) } catch {} navigate('pos') }
         const hotBtn = card.querySelector('[data-hot]')
@@ -209,7 +209,7 @@ page('stock', function (app) {
     }
 
     const foot = document.createElement('div'); foot.className = 'text-center'; foot.style.cssText = 'padding:16px;color:var(--sub);font-size:13px'
-    foot.textContent = '点商品可去开单页卖它；「📋 详情」里能改价/改单位/换图；点左边相机位或「📷」也能拍图；删除只能删没入过库、没流水的新建错档（有历史的可改停产）'
+    foot.innerHTML = '点商品可去开单页卖它；「详情」里能改价/改单位/换图；点左边相机位或「' + FiIcon('camera', 13) + '」也能拍图；删除只能删没入过库、没流水的新建错档（有历史的可改停产）'
     q.push(function () { app.appendChild(foot) })
     drain()
   }

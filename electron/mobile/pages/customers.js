@@ -31,7 +31,7 @@ page('customers', function (app) {
     // 「＋ 新增客户」放最上面（不管有没有欠款都要能建人）
     const addBtn = document.createElement('button')
     addBtn.style.cssText = 'margin:0 16px 10px;width:calc(100% - 32px);height:44px;border-radius:10px;border:2px dashed var(--ink);background:var(--card);font-size:15px;font-weight:800;color:var(--ink)'
-    addBtn.textContent = '＋ 新增客户'
+    addBtn.innerHTML = FiIcon('plus', 15) + ' 新增客户'
     addBtn.onclick = addCustomer
     app.appendChild(addBtn)
 
@@ -59,7 +59,7 @@ page('customers', function (app) {
           '<div class="text-right"><div style="font-size:24px;font-weight:900;color:var(--red)">' + fmt(c.outstanding) + '</div>' +
             '<div class="text-sm text-muted">点此收款</div></div>' +
         '</div>' +
-        '<button data-detail style="width:100%;height:38px;margin-top:8px;border-radius:8px;border:2px solid var(--gold);background:var(--card);color:var(--gold);font-size:14px;font-weight:800">📋 详情 / 欠款明细 · 改资料 · 打电话</button>'
+        '<button data-detail style="width:100%;height:38px;margin-top:8px;border-radius:8px;border:2px solid var(--gold);background:var(--card);color:var(--gold);font-size:14px;font-weight:800">' + FiIcon('clipboard', 15) + ' 详情 / 欠款明细 · 改资料 · 打电话</button>'
       // 点卡片 = 直接收款（催账最快的那条路，不能被打断）；详情走按钮
       card.onclick = () => openPayPanel(c)
       const dbtn = card.querySelector('[data-detail]')

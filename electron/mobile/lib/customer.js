@@ -15,7 +15,7 @@
     overlay.innerHTML =
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
         '<div class="text-lg font-bold" style="font-size:22px">' + escHtml(c.name || '客户') + '</div>' +
-        '<button id="pay-close" style="width:40px;height:40px;border-radius:20px;background:rgba(255,255,255,.12);color:#fff;border:none;font-size:20px">✕</button>' +
+        '<button id="pay-close" style="width:40px;height:40px;border-radius:20px;background:rgba(255,255,255,.12);color:#fff;border:none">' + FiIcon('close', 18) + '</button>' +
       '</div>' +
       '<div class="text-sm" style="color:#8fa3c0">还欠</div>' +
       '<div class="font-bold" style="font-size:40px;color:#ff6b6b;margin:4px 0 20px">' + fmt(owing) + '</div>' +

@@ -81,7 +81,7 @@ page('waste', function (app) {
       overlay.innerHTML =
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
           '<div style="font-size:20px;font-weight:700">选要报损的货</div>' +
-          '<button id="waste-pick-close" style="width:40px;height:40px;border-radius:20px;background:rgba(255,255,255,.12);color:#fff;border:none;font-size:20px">✕</button>' +
+          '<button id="waste-pick-close" style="width:40px;height:40px;border-radius:20px;background:rgba(255,255,255,.12);color:#fff;border:none">' + FiIcon('close', 18) + '</button>' +
         '</div>' +
         '<div id="waste-pick-list" style="flex:1;overflow:auto"></div>'
       document.body.appendChild(overlay)

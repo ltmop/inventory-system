@@ -68,14 +68,14 @@ page('customer', function (app) {
           (totalCredit != null ? '<div class="text-sm text-muted" style="margin-top:6px">累计赊账 ' + fmt(totalCredit) + ' · 已还 ' + fmt(paidBack) + '</div>' : '') +
         '</div>' +
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">' +
-          '<button id="cd-pay" style="height:56px;border-radius:12px;border:none;background:var(--green);color:#fff;font-size:17px;font-weight:900">💰 收款</button>' +
+          '<button id="cd-pay" style="height:56px;border-radius:12px;border:none;background:var(--green);color:#fff;font-size:17px;font-weight:900">' + FiIcon('wallet', 15) + ' 收款</button>' +
           (c.phone
-            ? '<a href="tel:' + escHtml(c.phone) + '" style="height:56px;border-radius:12px;border:2px solid var(--ink);background:var(--card);color:var(--ink);font-size:17px;font-weight:800;display:flex;align-items:center;justify-content:center;text-decoration:none">📞 打电话</a>'
-            : '<button id="cd-nophone" style="height:56px;border-radius:12px;border:2px dashed var(--line);background:var(--card);color:var(--sub);font-size:15px;font-weight:700">📞 没填电话</button>') +
+            ? '<a href="tel:' + escHtml(c.phone) + '" style="height:56px;border-radius:12px;border:2px solid var(--ink);background:var(--card);color:var(--ink);font-size:17px;font-weight:800;display:flex;align-items:center;justify-content:center;text-decoration:none">' + FiIcon('phone', 15) + ' 打电话</a>'
+            : '<button id="cd-nophone" style="height:56px;border-radius:12px;border:2px dashed var(--line);background:var(--card);color:var(--sub);font-size:15px;font-weight:700">' + FiIcon('phone', 15) + ' 没填电话</button>') +
         '</div>' +
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">' +
-          '<button id="cd-edit" style="height:44px;border-radius:10px;border:2px solid var(--ink);background:var(--card);font-size:15px;font-weight:800">✏️ 改资料</button>' +
-          '<button id="cd-del" style="height:44px;border-radius:10px;border:2px solid var(--red);background:#fff;color:var(--red);font-size:15px;font-weight:800">🗑 删除客户</button>' +
+          '<button id="cd-edit" style="height:44px;border-radius:10px;border:2px solid var(--ink);background:var(--card);font-size:15px;font-weight:800">' + FiIcon('edit', 15) + ' 改资料</button>' +
+          '<button id="cd-del" style="height:44px;border-radius:10px;border:2px solid var(--red);background:#fff;color:var(--red);font-size:15px;font-weight:800">' + FiIcon('trash', 15) + ' 删除客户</button>' +
         '</div>' +
         salesBlock() +
         paymentsBlock()

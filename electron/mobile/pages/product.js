@@ -12,7 +12,7 @@ page('product', function (app) {
   try { p = JSON.parse(localStorage.getItem('fi-product-edit') || 'null') } catch (e) { p = null }
   if (!p || !p.id) {
     app.innerHTML = '<div style="padding:40px;text-align:center">' +
-      '<div style="font-size:44px">📦</div>' +
+      '<div style="color:var(--blue);display:flex;justify-content:center">' + FiIcon('box', 44) + '</div>' +
       '<div class="font-bold" style="margin-top:8px">没拿到商品</div>' +
       '<div class="text-sm text-muted" style="margin-top:4px">回库存页重新点一次「详情」</div>' +
       '<div id="pd-back2" style="margin-top:16px;height:46px;line-height:46px;border-radius:10px;border:2px solid var(--ink);background:var(--card);font-weight:800">回库存页</div>' +
@@ -43,7 +43,7 @@ page('product', function (app) {
     const url = p.photo_path ? FiPhoto.productPhotoUrl(p.photo_path, p.updated_at) : ''
     return url
       ? '<img id="pd-img" src="' + url + '" alt="" style="width:100%;max-height:260px;object-fit:contain;background:#fff;border-radius:12px;border:2px solid var(--ink)">'
-      : '<div id="pd-img" style="height:150px;border-radius:12px;border:2px dashed var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--sub)"><div style="font-size:38px">📷</div><div class="text-sm" style="margin-top:6px">还没有图片，点这里拍一张</div></div>'
+      : '<div id="pd-img" style="height:150px;border-radius:12px;border:2px dashed var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--sub)"><div style="font-size:38px">' + FiIcon('camera', 15) + '</div><div class="text-sm" style="margin-top:6px">还没有图片，点这里拍一张</div></div>'
   }
 
   function render() {
@@ -112,8 +112,8 @@ page('product', function (app) {
     acts.style.cssText = 'padding:0 16px 20px'
     acts.innerHTML =
       '<button id="pd-sell" style="width:100%;height:56px;border:none;border-radius:12px;background:var(--green);color:#fff;font-size:18px;font-weight:900">🛒 去开单卖它</button>' +
-      '<button id="pd-pic" style="width:100%;height:48px;margin-top:10px;border-radius:12px;border:2px solid var(--ink);background:var(--card);font-size:15px;font-weight:800">📷 ' + (p.photo_path ? '换一张图片' : '拍一张图片') + '</button>' +
-      '<button id="pd-del" style="width:100%;height:48px;margin-top:10px;border-radius:12px;border:2px solid var(--red);background:#fff;color:var(--red);font-size:15px;font-weight:800">🗑 删除（有历史会引导改停产）</button>'
+      '<button id="pd-pic" style="width:100%;height:48px;margin-top:10px;border-radius:12px;border:2px solid var(--ink);background:var(--card);font-size:15px;font-weight:800">' + FiIcon('camera', 15) + ' ' + (p.photo_path ? '换一张图片' : '拍一张图片') + '</button>' +
+      '<button id="pd-del" style="width:100%;height:48px;margin-top:10px;border-radius:12px;border:2px solid var(--red);background:#fff;color:var(--red);font-size:15px;font-weight:800">' + FiIcon('trash', 15) + ' 删除（有历史会引导改停产）</button>'
     app.appendChild(acts)
 
     document.getElementById('pd-back').onclick = function () { navigate('stock') }

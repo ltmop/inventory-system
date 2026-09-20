@@ -55,7 +55,7 @@ page('inbound', function (app) {
       '<div class="fld"><label>商品照片（可选）</label>' +
         '<div style="display:flex;align-items:center;gap:10px">' +
           '<img id="f-photo-prev" alt="商品照片" style="display:none;width:110px;height:110px;object-fit:cover;border-radius:10px;border:2px solid var(--ink);flex:none">' +
-          '<button type="button" id="f-photo-btn" style="flex:1;height:46px;border-radius:10px;border:2px dashed var(--ink);background:var(--card);color:var(--ink);font-size:15px;font-weight:800">📷 拍一张 / 从相册选</button>' +
+          '<button type="button" id="f-photo-btn" style="flex:1;height:46px;border-radius:10px;border:2px dashed var(--ink);background:var(--card);color:var(--ink);font-size:15px;font-weight:800">' + FiIcon('camera', 15) + ' 拍一张 / 从相册选</button>' +
         '</div>' +
       '</div>' +
       '<button class="okbtn" id="f-ok">完成入库</button>'
@@ -195,7 +195,7 @@ page('inbound', function (app) {
     const prevEl = document.getElementById('f-photo-prev')
     if (prevEl) { prevEl.removeAttribute('src'); prevEl.style.display = 'none' }
     const pbtn = document.getElementById('f-photo-btn')
-    if (pbtn) pbtn.textContent = '📷 拍一张 / 从相册选'
+    if (pbtn) pbtn.innerHTML = FiIcon('camera', 15) + ' 拍一张 / 从相册选'
     if (aiResult) { aiTag.classList.add('show') } else { aiTag.classList.remove('show') }
     form.classList.add('show')
     // 存 code 到临时属性
@@ -273,7 +273,7 @@ page('inbound', function (app) {
     const prev = document.getElementById('f-photo-prev')
     if (prev && b64) { prev.src = 'data:image/jpeg;base64,' + b64; prev.style.display = '' }
     const b = document.getElementById('f-photo-btn')
-    if (b) b.textContent = '✅ 已拍好（点一下可重拍）'
+    if (b) b.innerHTML = FiIcon('check', 15) + ' 已拍好（点一下可重拍）'
   }
 
   /** 认出多行（整张进货单）时给个可选入口：点了才走批量核对，不强制 */
@@ -284,7 +284,7 @@ page('inbound', function (app) {
     const b = document.createElement('button')
     b.id = 'f-batch'; b.type = 'button'
     b.style.cssText = 'width:100%;height:46px;margin-top:8px;border-radius:10px;border:2px solid var(--ink);background:var(--gold);color:#fff;font-size:15px;font-weight:800'
-    b.textContent = '📋 这是进货单（' + items.length + ' 行）→ 逐行核对入库'
+    b.innerHTML = FiIcon('clipboard', 15) + ' 这是进货单（' + items.length + ' 行）→ 逐行核对入库'
     b.onclick = function () { showBatchReview(items) }
     okBtn.parentNode.insertBefore(b, okBtn)
   }
@@ -332,7 +332,7 @@ page('inbound', function (app) {
     overlay.style.cssText = 'position:fixed;inset:0;background:var(--paper);z-index:350;display:flex;flex-direction:column;color:var(--ink)'
     overlay.innerHTML =
       '<div style="padding:14px 16px;border-bottom:3px solid var(--ink);display:flex;align-items:center;gap:8px">' +
-        '<button id="br-back" style="width:40px;height:40px;border-radius:8px;border:2px solid var(--ink);background:var(--card);font-size:18px">✕</button>' +
+        '<button id="br-back" style="width:40px;height:40px;border-radius:8px;border:2px solid var(--ink);background:var(--card);font-size:18px">' + FiIcon('close', 16) + '</button>' +
         '<div style="flex:1"><div class="font-bold" style="font-size:16px">进货单核对</div><div class="text-xs" style="color:var(--sub)">AI 认出 ' + items.length + ' 行，核对数量/价格后一起入库</div></div>' +
       '</div>'
     const list = document.createElement('div'); list.style.cssText = 'flex:1;overflow-y:auto;padding:12px 16px'
@@ -343,7 +343,7 @@ page('inbound', function (app) {
       card.innerHTML =
         '<div class="split" style="margin-bottom:6px">' +
           '<div style="min-width:0"><div class="font-bold" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + name + '</div>' +
-          '<div class="text-xs text-muted">' + (it.category || '其他') + (isNew ? ' · 🆕 新商品' : ' · 已有商品') + '</div></div>' +
+          '<div class="text-xs text-muted">' + (it.category || '其他') + (isNew ? ' · ' + FiIcon('sparkle', 12) + ' 新商品' : ' · 已有商品') + '</div></div>' +
           '<div class="text-right" style="flex:none"><span class="badge ' + (isNew ? 'badge-green' : 'badge') + '">' + (isNew ? '建档' : '入库') + '</span></div>' +
         '</div>' +
         '<div class="flex" style="gap:8px">' +
@@ -423,7 +423,7 @@ page('inbound', function (app) {
       const prevAfter = document.getElementById('f-photo-prev')
       if (prevAfter) { prevAfter.removeAttribute('src'); prevAfter.style.display = 'none' }
       const btnAfter = document.getElementById('f-photo-btn')
-      if (btnAfter) btnAfter.textContent = '📷 拍一张 / 从相册选'
+      if (btnAfter) btnAfter.innerHTML = FiIcon('camera', 15) + ' 拍一张 / 从相册选'
       loadRecents()
     } catch (e) { toast('入库失败: ' + e.message) }
   }

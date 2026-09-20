@@ -15,7 +15,7 @@ page('kits', function (app) {
     if (!loaded) { app.innerHTML = '<div class="text-center text-muted" style="padding:40px">加载中...</div>'; return }
     if (!kits || kits.length === 0) {
       app.innerHTML =
-        '<div class="text-center" style="padding:40px"><div style="font-size:44px">🧰</div>' +
+        '<div class="text-center" style="padding:40px"><div style="color:var(--blue);display:flex;justify-content:center">' + FiIcon('box', 44) + '</div>' +
         '<div class="font-bold mt">还没有套装</div>' +
         '<div class="text-sm text-muted mt-sm">在电脑上建新手套装/绑钩套装，手机上点开看明细</div></div>'
       return
@@ -47,7 +47,7 @@ page('kits', function (app) {
       overlay.innerHTML =
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
           '<div style="font-size:20px;font-weight:700">' + (detail.kit ? detail.kit.name : '套装明细') + '</div>' +
-          '<button id="kit-close" style="width:40px;height:40px;border-radius:20px;background:rgba(255,255,255,.12);color:#fff;border:none;font-size:20px">✕</button>' +
+          '<button id="kit-close" style="width:40px;height:40px;border-radius:20px;background:rgba(255,255,255,.12);color:#fff;border:none">' + FiIcon('close', 18) + '</button>' +
         '</div>' +
         '<div id="kit-items" style="flex:1;overflow:auto"></div>'
       document.body.appendChild(overlay)

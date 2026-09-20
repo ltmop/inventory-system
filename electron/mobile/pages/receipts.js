@@ -1,4 +1,4 @@
-// receipts.js: 收款登记明细 —— 从「更多 → 💳 收款登记」进来
+// receipts.js: 收款登记明细 —— 从「更多 → ' + FiIcon('receipt', 18) + ' 收款登记」进来
 //
 // 为什么要这一页：原来的「收款对账」是个一次性的全屏面板 —— 填完保存就关掉，
 // 只显示「今天各方式实收多少钱」，**看不到这笔登记是谁在什么时候填的**（receipt:list 里
@@ -6,7 +6,7 @@
 // 在手机上原来查不到。这一页就是把登记流水摊开来。
 page('receipts', function (app) {
   const METHODS = ['现金', '微信', '支付宝', '其他']
-  const EMOJI = { 现金: '💵', 微信: '💚', 支付宝: '🅰️', 其他: '📒' }
+  const MI = { 现金: 'wallet', 微信: 'phone', 支付宝: 'bolt', 其他: 'receipt' }
   let date = today()
   let recon = null
   let list = null
@@ -42,7 +42,7 @@ page('receipts', function (app) {
       '<div class="fld"><label>看哪一天</label><input id="rc-date" type="date" value="' + date + '"></div>' +
       (recon ? summaryBlock(recon) : '<div class="card text-sm text-muted">对账数据没取到 —— 下拉刷新或检查网络。</div>') +
       listBlock() +
-      '<button id="rc-open" style="width:100%;height:56px;margin-top:12px;border:none;border-radius:12px;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:17px;font-weight:900">✏️ 登记 / 修改这一天的实收</button>' +
+      '<button id="rc-open" style="width:100%;height:56px;margin-top:12px;border:none;border-radius:12px;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:17px;font-weight:900">' + FiIcon('edit', 15) + ' 登记 / 修改这一天的实收</button>' +
       '<div class="card text-sm text-muted" style="margin-top:12px">' +
         '<b>差异怎么读</b><br>' +
         '· 差异 ≈ 0 → 账平：收到的钱和开单的营业额对得上<br>' +
@@ -81,7 +81,7 @@ page('receipts', function (app) {
     const body = METHODS.filter((m) => rows.some((r) => r.method === m)).map((m) => {
       const r = rows.find((x) => x.method === m)
       return '<div class="split" style="padding:9px 0;border-bottom:1px dashed var(--line)">' +
-        '<div><div class="font-bold">' + (EMOJI[m] || '') + ' ' + escHtml(m) + '</div>' +
+        '<div><div class="font-bold">' + (MI[m] ? FiIcon(MI[m], 15) : '') + ' ' + escHtml(m) + '</div>' +
           '<div class="text-sm text-muted">' + escHtml(r.operator || '没记是谁登的') + ' · ' + String(r.created_at || '').slice(5, 16).replace('T', ' ') + '</div></div>' +
         '<div style="font-weight:800;font-size:18px">' + fmt(r.amount) + '</div>' +
       '</div>'

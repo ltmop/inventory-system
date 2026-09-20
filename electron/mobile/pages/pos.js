@@ -132,10 +132,10 @@ page('pos', function (app) {
   hintRow.innerHTML = '<span>点分类找货 · 点商品直接加单</span>'
   const opBtn = document.createElement('button')
   opBtn.style.cssText = 'margin-left:auto;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:1px 8px;font-size:11px;font-weight:700;color:var(--ink)'
-  opBtn.textContent = '👤 ' + getOperator()
+  opBtn.innerHTML = FiIcon('user', 13) + ' ' + esc(getOperator())
   opBtn.onclick = function () {
     openOperatorPanel()
-    setTimeout(function () { opBtn.textContent = '👤 ' + getOperator() }, 1200)
+    setTimeout(function () { opBtn.innerHTML = FiIcon('user', 13) + ' ' + esc(getOperator()) }, 1200)
   }
   hintRow.appendChild(opBtn)
   top.appendChild(hintRow)
@@ -153,10 +153,10 @@ page('pos', function (app) {
   function renderCats() {
     if (!elCats) return
     elCats.innerHTML = ''
-    function chip(label, val, count, cls) {
+    function chip(label, val, count, iconName) {
       const b = document.createElement('button')
-      b.className = 'cat' + (cls ? ' ' + cls : '') + (activeCat === val && !keyword ? ' on' : '')
-      b.innerHTML = esc(label) + (count != null ? ' <span class="n">' + count + '</span>' : '')
+      b.className = 'cat' + (activeCat === val && !keyword ? ' on' : '')
+      b.innerHTML = (iconName ? FiIcon(iconName, 13) : '') + esc(label) + (count != null ? ' <span class="n">' + count + '</span>' : '')
       b.onclick = function () {
         activeCat = (activeCat === val ? '' : val)
         keyword = ''; if (elInput) elInput.value = ''
@@ -164,7 +164,7 @@ page('pos', function (app) {
       }
       elCats.appendChild(b)
     }
-    chip('🔥 热销', '', null)
+    chip('热销', '', null, 'bolt')
     chip('全部', '__all', allProducts.length || null)
     catList().forEach(function (c) { chip(c.name, c.name, c.count) })
   }
@@ -213,7 +213,7 @@ page('pos', function (app) {
 
   function grid(box, list) {
     const g = document.createElement('div'); g.className = 'pgrid'
-    list.forEach(function (p) { g.appendChild(productCard(p)) })
+    list.forEach(function (p, i) { const card = productCard(p); card.style.setProperty('--i', i); g.appendChild(card) })
     box.appendChild(g)
   }
 
@@ -223,8 +223,8 @@ page('pos', function (app) {
     card.innerHTML = (n > 0 ? '<div class="badge">' + n + '</div>' : '') +
       thumbHtml(p, 'im') +
       '<div class="nm">' + esc(prodName(p)) + '</div>' +
-      '<div class="pr">' + fmt(p.suggest_price || 0) + (p.total_stock == null ? '' : '<span style="font-size:10px;color:var(--sub);font-weight:400"> 存 ' + p.total_stock + '</span>') + '</div>' +
-      '<div class="cam" title="给这件商品拍照">📷</div>'
+      '<div class="pr">' + fmt(p.suggest_price || 0) + (p.total_stock == null ? '' : '<span class="stk"> 存 ' + p.total_stock + '</span>') + '</div>' +
+      '<div class="cam" title="给这件商品拍照">' + FiIcon('camera', 15) + '</div>'
     card.onclick = function () { addToCart(p) }
     const cam = card.querySelector('.cam')
     cam.onclick = function (e) { e.stopPropagation(); snapPhoto(p) }
@@ -240,7 +240,7 @@ page('pos', function (app) {
     if (!rows.length) {
       box.innerHTML = '<div style="padding:10px 16px">' +
         '<div class="text-sm text-muted" style="margin-bottom:8px">没找到「' + esc(keyword) + '」，可以现场建档卖：</div>' +
-        '<button class="scanbtn" id="create-sell" style="width:100%;height:48px;background:var(--gold);border-color:var(--gold)">➕ 建档卖「' + esc(keyword) + '」</button>' +
+        '<button class="scanbtn" id="create-sell" style="width:100%;height:48px;background:var(--blue);color:#fff">' + FiIcon('plus', 16) + ' 建档卖「' + esc(keyword) + '」</button>' +
         '</div>'
       const btn = document.getElementById('create-sell')
       if (btn) btn.onclick = async function () { const p = await createOnTheFly(keyword); if (p) addToCart(p) }
@@ -248,8 +248,8 @@ page('pos', function (app) {
     }
     sectionTitle(box, '找到 ' + rows.length + ' 个', '点一下加单')
     rows.forEach(function (p) {
-      const badges = (p.is_hot === 1 ? '<span style="background:#ff6b6b;color:#fff;border-radius:3px;padding:0 4px;font-size:10px;font-weight:800">🔥热销</span> ' : '') +
-        (p.is_clearance === 1 ? '<span style="background:#f59e0b;color:#fff;border-radius:3px;padding:0 4px;font-size:10px;font-weight:800">🏷处理</span> ' : '')
+      const badges = (p.is_hot === 1 ? '<span class="badge badge-red" style="display:inline-flex;align-items:center;gap:3px">' + FiIcon('bolt', 11) + '热销</span> ' : '') +
+        (p.is_clearance === 1 ? '<span class="badge badge-blue" style="display:inline-flex;align-items:center;gap:3px">' + FiIcon('tag', 11) + '处理</span> ' : '')
       const r = document.createElement('div'); r.className = 'srow'
       r.innerHTML = thumbHtml(p, 'im') +
         '<div class="info">' +
@@ -257,8 +257,9 @@ page('pos', function (app) {
           '<div class="d">' + esc(p.category || '') + ' · 存 ' + (p.total_stock || 0) + ' · ' + esc(p.sku_code || '') + '</div>' +
         '</div>' +
         '<div class="pr">' + fmt(p.suggest_price || 0) + '</div>' +
-        '<div class="cam2">📷</div>'
+        '<div class="cam2">' + FiIcon('camera', 15) + '</div>'
       r.onclick = function (e) { if (e.target.closest('.cam2')) { snapPhoto(p); return } addToCart(p) }
+      r.style.setProperty('--i', rows.indexOf(p))
       box.appendChild(r)
     })
   }
@@ -305,10 +306,10 @@ page('pos', function (app) {
     const n = cart.reduce(function (s, c) { return s + c.qty }, 0)
 
     const head = document.createElement('div'); head.className = 'chead'
-    head.innerHTML = '<span class="t">🛒 购物清单' + (cart.length ? ' · ' + n + ' 件' : '') + '</span>' +
-      (cart.length ? '<button class="clr">清空</button>' : '') +
+    head.innerHTML = '<span class="t">' + FiIcon('cart', 16) + '购物清单' + (cart.length ? '<span class="pill">' + n + '</span>' : '') + '</span>' +
+      (cart.length ? '<button class="clr">' + FiIcon('trash', 12) + '清空</button>' : '') +
       '<span class="sum">' + fmt(totalFen) + '</span>' +
-      '<span class="chev">' + (collapsed ? '▸ 展开' : '▾ 收起') + '</span>'
+      '<span class="chev">' + FiIcon('chevron', 14) + '</span>'
     head.onclick = function (e) {
       if (e.target.closest('.clr')) {
         e.stopPropagation()
@@ -354,12 +355,12 @@ page('pos', function (app) {
       '<div class="info">' +
         '<div class="n">' + esc(prodName(p)) + '</div>' +
         '<div class="p">' +
-          '<span class="pb" title="点这里改这一单的卖价">' + fmt(c.selling_price) + (isMeter ? '/' + esc(p.unit) : '') + ' ✎</span>' +
-          (changed ? '<span class="chg">已改价</span><span class="rs">↺ 原 ' + fmt(c.orig_price) + '</span>' : '') +
+          '<span class="pb" title="点这里改这一单的卖价">' + fmt(c.selling_price) + (isMeter ? '/' + esc(p.unit) : '') + FiIcon('edit', 11) + '</span>' +
+          (changed ? '<span class="chg">已改价</span><span class="rs" title="还原原价">' + FiIcon('undo', 11) + '原 ' + fmt(c.orig_price) + '</span>' : '') +
         '</div>' +
       '</div>' +
-      '<div class="qty"><button data-m>−</button><span class="n" data-e>' + c.qty + (isMeter ? esc(p.unit) : '') + '</span><button data-p>+</button></div>' +
-      '<button class="del" data-del title="从购物清单移除这一行">✕</button>'
+      '<div class="qty"><button data-m>' + FiIcon('minus', 14) + '</button><span class="n" data-e>' + c.qty + (isMeter ? esc(p.unit) : '') + '</span><button data-p>' + FiIcon('plus', 14) + '</button></div>' +
+      '<button class="del" data-del title="从购物清单移除这一行">' + FiIcon('close', 14) + '</button>'
     line.querySelector('[data-m]').onclick = function () {
       c.qty = Math.round((c.qty - step) * 10) / 10
       if (c.qty <= 0) cart.splice(cart.indexOf(c), 1)
@@ -594,10 +595,10 @@ page('pos', function (app) {
     overlay.innerHTML =
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
         '<div style="font-size:19px;font-weight:700">赊给谁？</div>' +
-        '<button id="cust-close" style="width:40px;height:40px;border-radius:20px;background:rgba(255,255,255,.12);color:#fff;border:none;font-size:19px">✕</button>' +
+        '<button id="cust-close" style="width:40px;height:40px;border-radius:20px;background:rgba(255,255,255,.12);color:#fff;border:none;font-size:19px">' + FiIcon('close', 16) + '</button>' +
       '</div>' +
       '<div id="cust-list" style="flex:1;overflow:auto"></div>' +
-      '<button id="cust-new" style="height:54px;border-radius:14px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:17px;font-weight:800;margin-top:10px">➕ 新建客户</button>'
+      '<button id="cust-new" style="height:54px;border-radius:14px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:17px;font-weight:800;margin-top:10px">' + FiIcon('plus', 15) + ' 新建客户</button>'
     document.body.appendChild(overlay)
     document.getElementById('cust-close').onclick = function () { overlay.remove() }
     const listBox = document.getElementById('cust-list')
