@@ -2084,6 +2084,54 @@ ok(
 ok('库存页缩略图懒加载（300+ SKU 不一次性拉全部图）', mobileStockSrc.includes('loading="lazy"'))
 ok('手机端图片地址支持版本参数（&v=）', mobilePhotoSrc.includes('&v=') && mobilePhotoSrc.includes('version'))
 
+// 36d. 手机端商品详情/编辑页（2026-09-21 补，对应 owner 选项 7）
+//   原状：卡片上只有 热销/处理货/拍照/删除 四个开关，改价/改单位/改预警线在手机上没入口。
+const mobileProductSrc = fs.readFileSync(path.resolve('electron/mobile/pages/product.js'), 'utf8')
+ok('手机端有商品详情页且注册为 page(product)', mobileProductSrc.includes("page('product'"))
+ok(
+  '详情页保存走 product:update 命令层入口（带 operator）',
+  mobileProductSrc.includes("api('product:update'") && mobileProductSrc.includes('operator: getOperator()'),
+)
+ok(
+  '详情页换图复用 lib/photo.js（不另写一套上传）',
+  mobileProductSrc.includes('FiPhoto.pickPhoto') && mobileProductSrc.includes('FiPhoto.saveProductPhoto'),
+)
+ok(
+  '详情页有「去开单卖它」并沿用 fi-pos-preselect 约定',
+  mobileProductSrc.includes('goSell') && mobileProductSrc.includes("localStorage.setItem('fi-pos-preselect'"),
+)
+ok(
+  '详情页删除遇历史引导改停产（与库存页同一套口径）',
+  mobileProductSrc.includes("status: '停产'") && mobileProductSrc.includes('product:delete'),
+)
+// 状态值必须落在 products.status 的 CHECK 白名单里，写错会被库直接拒绝
+ok(
+  '详情页状态取值都在 schema CHECK 白名单内',
+  ['待盘点', '已盘点', '在售', '已售罄', '停产'].every((s) => mobileProductSrc.includes("'" + s + "'")),
+)
+ok(
+  '详情页对可小数单位会提示（按斤/按米卖的散货）',
+  mobileProductSrc.includes('allow_decimal') && mobileProductSrc.includes('可以填小数'),
+)
+ok('详情页保存时不传 photo_path（免得把已挂的图清掉）', !/photo_path\s*:\s*null/.test(mobileProductSrc))
+const mobileAppSrc = fs.readFileSync(path.resolve('electron/mobile/app.js'), 'utf8')
+ok('详情页进了按需加载清单（首屏不白等）', /LAZY_PAGES\s*=\s*\{[^}]*product:\s*1/.test(mobileAppSrc))
+ok('库存页有「详情」入口且拦住了冒泡', mobileStockSrc.includes('data-detail') && mobileStockSrc.includes('openDetail(p)'))
+ok('库存页把商品带进详情页（fi-product-edit）', mobileStockSrc.includes("localStorage.setItem('fi-product-edit'"))
+ok('离线缓存清单含详情页', fs.readFileSync(path.resolve('electron/mobile/sw.js'), 'utf8').includes("BASE + 'pages/product.js'"))
+
+// 36e. 主进程两条韧性修复（2026-09-21 查 crash.log 后补）
+//   ⚠️ 这两个文件是**壳层**，不在热更闭包（scripts/lib/code-closure.mjs 只含 electron/commands*），
+//      所以只有下次装安装包才生效 —— 断言在这里是为了防止以后被无意改回去。
+ok(
+  '主进程给 console 加了安全网（stdout 断了不再变成 uncaughtException）',
+  mainSrc.includes('const orig = console[level].bind(console)'),
+)
+ok(
+  '渲染进程崩溃重载有节流（60 秒最多 3 次，避免无限闪屏）',
+  mainSrc.includes('recentRendererCrashes') && mainSrc.includes('render-process-gone-storm'),
+)
+
 // 36c. 手机端传图全链路（真实走 /api/invoke，与手机端 lib/photo.js 的两步完全一致）
 //   手机拍完图不做任何"同步"——图片就存在**账本所在那台机器**上，products.photo_path 存文件名，
 //   因此手机与电脑看的是同一张图（前提是 36b 的地址修复在位）。
