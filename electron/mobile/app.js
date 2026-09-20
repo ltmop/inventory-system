@@ -106,7 +106,19 @@ async function invokeRaw(channel, payload) {
     clearTimeout(timer)
     const data = await r.json().catch(function () { return {} })
     if (netDown && r.ok) { netDown = false; hideNetBanner() }
-    if (r.status === 401) { tokenFailed = true; showNetBanner('连接已失效，点这里重新输入连接码', '#ffdede', function () { openConnectPanel() }); throw new Error(data.error || '连接已失效，请到「更多 - 连接设置」重新输入连接码') }
+    if (r.status === 401) {
+      // 中心库换过连接码就会 401：重输旧码没用。
+      // ① 有设备令牌 → **自动**换成当前有效的新码并重连（用户无感）；
+      // ② 没有（当初是用连接码接入的）→ 引导用账号密码登录，登录后也会存下设备令牌，以后同样自动恢复。
+      tokenFailed = true
+      if (!selfHealTried) {
+        selfHealTried = true
+        const fixed = await refreshCentralToken()
+        if (fixed) { toast('店里换过连接码，已自动更新，正在重连…'); setTimeout(function () { location.reload() }, 400); throw new Error('连接码已自动更新') }
+      }
+      showNetBanner('登录已过期（店里换过连接码）· 点这里用账号密码重新登录', '#ffdede', function () { openLoginPanel(false, 'stale') })
+      throw new Error(data.error || '登录已过期，请用账号密码重新登录')
+    }
     if (r.status >= 500 && attempt < 2) {
       lastErr = new Error(data.error || '服务端繁忙，正在重试'); lastErr.network = true
       await sleep(700 * (attempt + 1)); continue
@@ -139,8 +151,8 @@ function apiCached(channel, payload) {
 // opts.idempotencyKey：调用方自带的幂等键（开单页按购物车复用），不传则自动生成。
 // 写通道遇网络故障会带同一个 key 自动重试 3 次；飞行中的同内容写操作只发一次（双击去重）。
 async function api(channel, payload, opts) {
-  if (tokenFailed) throw new Error('连接已失效，请到「更多 - 连接设置」重新输入连接码')
-  if (!TOKEN) throw new Error('还没连上店铺账本，请到「更多 - 连接设置」填入连接码')
+  if (tokenFailed) throw new Error('登录已过期，请用账号密码重新登录（更多 → 登录账号）')
+  if (!TOKEN) throw new Error('还没登录：请用账号密码登录（或用店主给的连接码/扫码接入）')
   const p = Object.assign({}, payload || {})
   const isWrite = !!WRITE_CHANNELS[channel]
   if (isWrite && !p.idempotencyKey) p.idempotencyKey = (opts && opts.idempotencyKey) || newIdemKey()
@@ -262,6 +274,30 @@ const CLOUD_LOGIN = 'https://sync.junchengzn.com'
 function savedAccount() { try { return localStorage.getItem('fi-account') || '' } catch (e) { return '' } }
 function savedServer() { try { return localStorage.getItem('fi-server') || '' } catch (e) { return '' } }
 
+// 4001 自救：中心库换过连接码时，用**设备令牌**去云端换当前有效的新码 —— 用户什么都不用做。
+// 为什么要存设备令牌：账号密码登录时拿到过 uploadToken，它不像连接码那样会被轮换；
+// 有了它，换码后手机能自己恢复（不用再让用户重输密码/连接码）。
+let selfHealTried = false
+function refreshCentralToken() {
+  let uid = '', tk = ''
+  try { uid = localStorage.getItem('fi-device-userid') || ''; tk = localStorage.getItem('fi-device-token') || '' } catch (e) {}
+  if (!uid || !tk) return Promise.resolve(false)
+  return cfFetch(CLOUD_LOGIN + '/api/cockpit/central-config', { headers: { 'x-user-id': uid, 'x-token': tk } }, 15000)
+    .then(function (r) { return r.json().catch(function () { return {} }) })
+    .then(function (c) {
+      if (!c || !c.ok || !c.token) return false
+      let cur = ''
+      try { cur = localStorage.getItem('fi-mobile-token') || '' } catch (e) {}
+      if (String(c.token) === cur) return false          // 码没变 → 是真别的问题，别乱动
+      try {
+        localStorage.setItem('fi-mobile-token', String(c.token))
+        localStorage.setItem('fi-server', String(c.url || CLOUD_LOGIN))
+      } catch (e) {}
+      return true
+    })
+    .catch(function () { return false })
+}
+
 function cfFetch(url, opt, ms) {
   return new Promise(function (resolve, reject) {
     var ctrl = new AbortController()
@@ -272,7 +308,7 @@ function cfFetch(url, opt, ms) {
   })
 }
 
-function openLoginPanel(firstRun) {
+function openLoginPanel(firstRun, reason) {
   const old = document.getElementById('lg-panel'); if (old) old.remove()
   const ov = document.createElement('div')
   ov.id = 'lg-panel'
@@ -280,8 +316,10 @@ function openLoginPanel(firstRun) {
   const inpCss = 'width:100%;height:58px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);border-radius:12px;color:#fff;font-size:17px;padding:0 14px;outline:none;margin-bottom:10px'
   ov.innerHTML =
     '<div style="font-size:22px;font-weight:800;margin-bottom:6px">登录店铺账本</div>' +
-    '<div style="font-size:14px;color:#8fa3c0;line-height:1.75;margin-bottom:16px">用电脑上那个<b style="color:#d4af37">账号 + 密码</b>登录，和桌面端同一套账号、同一本账。' +
-    (firstRun ? '<br><br>登录后开单、入库、查库存、看今天赚多少都能用。' : '') + '</div>' +
+    (reason === 'stale'
+      ? '<div style="font-size:14px;line-height:1.8;color:#ffd9a8;background:rgba(212,175,55,.14);border-radius:10px;padding:12px;margin-bottom:14px">店里换过连接码了，旧的连接码已经作废（所以刚才一直提示失效）。<br>用<b>账号密码</b>登录就行 —— 登录会自动拿到当前有效的新码。</div>'
+      : '<div style="font-size:14px;color:#8fa3c0;line-height:1.75;margin-bottom:16px">用电脑上那个<b style="color:#d4af37">账号 + 密码</b>登录，和桌面端同一套账号、同一本账。</div>') +
+    (firstRun ? '<div style="font-size:14px;color:#8fa3c0;line-height:1.75;margin-bottom:16px">登录后开单、入库、查库存、看今天赚多少都能用。</div>' : '') +
     '<input id="lg-user" placeholder="账号" autocomplete="username" spellcheck="false" style="' + inpCss + '">' +
     '<input id="lg-pass" type="password" placeholder="密码" autocomplete="current-password" style="' + inpCss + '">' +
     '<div id="lg-msg" style="font-size:13px;color:#ffb4b4;min-height:20px;margin:2px 0 12px;line-height:1.6"></div>' +
@@ -313,6 +351,9 @@ function openLoginPanel(firstRun) {
           localStorage.setItem('fi-mobile-token', String(c.token))
           localStorage.setItem('fi-server', String(c.url || CLOUD_LOGIN))
           localStorage.setItem('fi-account', String(j.username || payload.username))
+          // 设备令牌留着：以后店里换连接码，手机能自己换到新码，不用再找你
+          localStorage.setItem('fi-device-userid', String(j.userId))
+          localStorage.setItem('fi-device-token', String(j.uploadToken))
         } catch (e) {}
         say('登录成功，正在打开…', '#8ce0a8')
         setTimeout(function () { location.reload() }, 400)
@@ -356,7 +397,7 @@ function openConnectPanel(firstRun) {
     '</div>' +
     '<button id="cn-go" style="width:100%;height:60px;border-radius:14px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:19px;font-weight:800">连接</button>' +
     '<button id="cn-off" style="width:100%;height:50px;margin-top:12px;border-radius:12px;border:none;background:rgba(248,113,113,.18);color:#ffd9d9;font-size:15px">断开本机连接</button>' +
-    '<div style="font-size:12px;color:#8fa3c0;margin-top:14px;line-height:1.8">当前：' + (TOKEN ? '已连接' : '还没连接') + '<br>连接码在店主那台电脑上，或让店主发你一条链接。' +
+    '<div style="font-size:12px;color:#8fa3c0;margin-top:14px;line-height:1.8">当前：' + (TOKEN ? '已连接' : '还没连接') + '<br>连接码在店主那台电脑上，或让店主发你一条链接。<br><b style="color:#d4af37">店里换过连接码的话，旧码会直接失效——这时请改用账号密码登录</b>（上面按钮里可以切回去）。' +
     (firstRun ? '<br><br>连上以后，开单、查库存、看今天赚多少都能用。' : '') + '</div>' +
     (SERVER ? '<button id="cn-up" style="width:100%;height:44px;margin-top:12px;border-radius:12px;border:none;background:rgba(255,255,255,.08);color:#b9c8dd;font-size:14px">🔄 检查更新（当前 ' + APP_VERSION + '）</button>' : '')
   document.body.appendChild(ov)
@@ -486,8 +527,8 @@ function prodName(p) { const n = ((p.brand || '') + ' ' + (p.model || '')).trim(
 //   也就是下面这套「下载安装包 → 拉起系统安装器」。
 // 版本号必须与 android/app/build.gradle 的 versionCode/versionName 一致 ——
 // 有 scripts/check-version-sync.mjs 强制校验，发版前必跑（否则会重演「版本号三处不一致、更新永远是哑的」）。
-const APP_VERSION = 'v1.2.0'
-const APP_VERSION_CODE = 1104
+const APP_VERSION = 'v1.2.1'
+const APP_VERSION_CODE = 1105
 const UPDATE_BASE = 'http://43.128.20.39:17533'
 const WEB_MANIFEST = 'https://junchengzn.com/download/web/manifest.json'   // 网页层清单（HTTPS 静态）
 let WEB_VERSION_APPLIED = ''   // 当前真正跑着的网页层版本（热更后会与 APP_VERSION 不同）
@@ -667,7 +708,7 @@ async function decodeBarcode(img) {
 
 // 首屏按需加载：只预载 4 个高频页（开单/入库/库存/今日），其余首次进入时才注入脚本，
 // 缩短启动白屏；离线也能用 —— sw.js 的预缓存里已经包含全部页面脚本。
-const LAZY_PAGES = { ai: 1, restock: 1, expiring: 1, waste: 1, kits: 1, customers: 1, expenses: 1, suppliers: 1, stocktake: 1, parts: 1, product: 1, customer: 1, receipts: 1 }
+const LAZY_PAGES = { ai: 1, restock: 1, expiring: 1, waste: 1, kits: 1, customers: 1, expenses: 1, suppliers: 1, stocktake: 1, parts: 1 }
 const lazyLoading = {}
 function loadPageScript(name) {
   if (pages[name] || !LAZY_PAGES[name]) return Promise.resolve(!!pages[name])
@@ -703,7 +744,7 @@ page('more', (app) => {
     ['👤 客户欠款', '赊账查询与收款', () => navigate('customers')],
     ['💸 支出记账', '记一笔房租/水电/进货', () => navigate('expenses')],
     ['🏭 供应商', '进货对账', () => navigate('suppliers')],
-    ['💳 收款登记', '实收登记流水（谁/何时登的）+ 和营业额对账', () => navigate('receipts')],
+    ['💳 收款登记', '微信/支付宝/现金实收登记 + 日结对账', () => openReceiptPanel()],
     ['📋 核对货架', '每天核对一片区域', () => navigate('stocktake')],
   ]
   items.forEach(([t, d, fn]) => {
@@ -754,6 +795,8 @@ page('more', (app) => {
       localStorage.removeItem('fi-mobile-token')
       localStorage.removeItem('fi-server')
       localStorage.removeItem('fi-account')
+      localStorage.removeItem('fi-device-userid')
+      localStorage.removeItem('fi-device-token')
     } catch (e) {}
     toast('已退出，正在返回登录页…')
     setTimeout(function () { location.reload() }, 500)
