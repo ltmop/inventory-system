@@ -200,6 +200,40 @@ export function batchUpdateProducts(db, { ids, priceMode, status, operator }) {
 }
 
 /**
+ * 按成本批量定价（2026-09-20）：导入的库存常常只有成本、没有售价，导致开单每次都要现场输价。
+ * 规则：售价 = round(成本 × ratio)，最常见的是 ratio=2（成本×2），老板觉得不合适再单个改。
+ * - onlyEmpty=true（默认）：只补「还没定价」的（suggest_price 为 NULL 或 ≤0），不动已定过价的；
+ * - 成本 ≤0 的跳过并计数（×2 还是 0，定了也没法卖），返回 skippedNoCost 让界面如实说。
+ * 一次事务 + 一条审计，不逐个请求（省得撞写限流）。
+ */
+export function priceFromCost(db, { ratio = 2, onlyEmpty = true, ids = null, operator = null } = {}) {
+  const r = Number(ratio)
+  if (!(r > 1)) throw new Error('加价倍数必须大于 1（例如 2 表示成本×2）')
+  const list = Array.isArray(ids) && ids.length ? ids : null
+  const where = []
+  const params = []
+  if (list) { where.push('id IN (' + list.map(() => '?').join(',') + ')'); params.push(...list) }
+  const rows = db.prepare('SELECT id, sku_code, brand, model, cost_price, suggest_price FROM products' + (where.length ? ' WHERE ' + where.join(' AND ') : '')).all(...params)
+  let skippedNoCost = 0, skippedPriced = 0
+  const targets = []
+  for (const p of rows) {
+    const cost = Number(p.cost_price) || 0
+    if (cost <= 0) { skippedNoCost++; continue }
+    if (onlyEmpty && p.suggest_price != null && Number(p.suggest_price) > 0) { skippedPriced++; continue }
+    targets.push({ id: p.id, price: Math.max(1, Math.round(cost * r)) })
+  }
+  if (!targets.length) return { ok: true, updated: 0, skippedNoCost, skippedPriced, ratio: r }
+  return inTransaction(db, () => {
+    const ts = now()
+    const upd = db.prepare('UPDATE products SET suggest_price = ?, updated_at = ? WHERE id = ?')
+    for (const t of targets) upd.run(t.price, ts, t.id)
+    logAudit(db, '按成本定价', `按成本×${r} 给 ${targets.length} 个商品补售价`,
+      { count: targets.length, ratio: r, onlyEmpty, skippedNoCost }, operator)
+    return { ok: true, updated: targets.length, skippedNoCost, skippedPriced, ratio: r }
+  })
+}
+
+/**
  * 手动标记商品：热销（is_hot）/ 处理货（is_clearance）。手机端老板自己标。
  * @param {{ id:number, is_hot?:0|1, is_clearance?:0|1, operator?:string }} input
  */

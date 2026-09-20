@@ -852,7 +852,7 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
   function isViewToken(provided) { return tokenOkSingle(provided, viewToken) }
   // 写通道（只读 token 禁止调用）；其余通道视为只读
   const WRITE_CHANNELS = new Set([
-    'product:create','product:update','product:batchUpdate','product:delete','product:mark',
+    'product:create','product:update','product:batchUpdate','product:delete','product:mark','product:priceFromCost',
     'inbound:create','outbound:confirm','outbound:checkout','outbound:return','outbound:exchange',
     'supplier:create','supplier:update','supplier:delete','supplier:pay',
     'stocktake:create','stocktake:updateItem','stocktake:complete','stocktake:submit','import:batch',
@@ -1118,6 +1118,9 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     'customer:delete': (d, p) => cmds.deleteCustomer(d, p),
     'customer:list': (d) => cmds.listCustomers(d),
     'customer:statement': (d, p) => cmds.customerStatement(d, p),
+    // 按成本批量定价（2026-09-20）：导入的库存只有成本没售价 → 开单每次都要现场输价。
+    // 一次调用补一批，老板觉得不合适再单个改。
+    'product:priceFromCost': (d, p) => cmds.priceFromCost(d, p ?? {}),
     'payment:record': (d, p) => cmds.recordPayment(d, p),
     'expense:create': (d, p) => cmds.createExpense(d, p),
     'expense:update': (d, p) => cmds.updateExpense(d, p),
