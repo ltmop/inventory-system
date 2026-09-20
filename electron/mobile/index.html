@@ -118,7 +118,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro SC","PingFang SC","Mic
 .grid,.pgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;padding:0 12px 12px}
 .pgrid>*,.grid>*{animation:cardIn .4s var(--ease) both;animation-delay:calc(var(--i,0) * 18ms)}
 @keyframes cardIn{from{opacity:0;transform:translate3d(0,14px,0) scale(.97)}to{opacity:1;transform:none}}
-.hot,.pcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;position:relative;user-select:none;box-shadow:var(--sh-1);transition:transform .22s var(--spring),box-shadow .22s var(--ease)}
+.hot,.pcard{background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;position:relative;user-select:none;box-shadow:var(--sh-1);transition:transform .22s var(--spring),box-shadow .22s var(--ease)}
 .hot:active,.pcard:active{transform:scale(.96);box-shadow:0 2px 6px rgba(16,24,40,.06)}
 .hot .ph,.pcard .ph{width:100%;aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:calc(var(--s)*28px);font-weight:800;color:#fff}
 .hot .im,.pcard .im{width:100%;aspect-ratio:1;object-fit:cover;display:block;background:var(--line2)}
@@ -131,7 +131,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro SC","PingFang SC","Mic
 .cam:active{transform:scale(.88)}
 
 /* ---------- 搜索结果行 ---------- */
-.srow{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);padding:10px;margin:0 14px 8px;box-shadow:var(--sh-1);transition:transform .2s var(--spring),box-shadow .2s var(--ease);animation:cardIn .34s var(--ease) both;animation-delay:calc(var(--i,0) * 14ms)}
+.srow{display:flex;align-items:center;gap:10px;background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);border:1px solid var(--line);border-radius:var(--r-lg);padding:10px;margin:0 14px 8px;box-shadow:var(--sh-1);transition:transform .2s var(--spring),box-shadow .2s var(--ease);animation:cardIn .34s var(--ease) both;animation-delay:calc(var(--i,0) * 14ms)}
 .srow:active{transform:scale(.985)}
 .srow .ph{width:calc(var(--s)*44px);height:calc(var(--s)*44px);border-radius:var(--r-md);flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:calc(var(--s)*17px);font-weight:800}
 .srow .im{width:calc(var(--s)*44px);height:calc(var(--s)*44px);border-radius:var(--r-md);flex:none;object-fit:cover;background:var(--line2)}

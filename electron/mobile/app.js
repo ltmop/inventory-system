@@ -608,7 +608,9 @@ function fmt(cents, nullText) {
   return '¥' + (v % 1 ? v.toFixed(2) : v.toFixed(0))
 }
 
-function phColor(p) { return COLORS[(p.id || 0) % COLORS.length] }
+// 商品缩略底色：**统一**白蓝渐变（老板说"颜色太花了"）。
+// 原来按商品 id 在 9 色里取一个，一屏十几张卡五颜六色；现在只有一种蓝，靠首字和名称区分。
+function phColor() { return 'linear-gradient(135deg,#60a5fa,#2563eb)' }
 function phChar(p) { const name = (((p.brand || '') + ' ' + (p.model || '')).trim() || p.sku_code || ''); return name[0] || '?' }
 function prodName(p) { const n = ((p.brand || '') + ' ' + (p.model || '')).trim(); return (n || p.sku_code || '未知') }
 

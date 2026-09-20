@@ -94,7 +94,8 @@ page('today', function (app) {
         '</div>' +
         '<div class="d" style="margin-top:5px">毛利率 ' + margin + '% · 支出 ' + fmt(expense) + ' · 应收 ' + fmt(recv) + '</div>' +
       '</div>'
-    app.appendChild(fixed)
+    // 营收条必须是这一页最上面的东西（原来排在 AI 日报卡下面，第一眼看到的却是日报）
+    app.insertBefore(fixed, app.firstChild || null)
 
     // 收款方式对账（现金/微信/支付宝各收了多少、几笔，微信/支付宝列出明细方便核对钱包）
     if (methods.length > 0) {

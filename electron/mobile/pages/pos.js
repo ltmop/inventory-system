@@ -248,7 +248,8 @@ page('pos', function (app) {
     }
     sectionTitle(box, '找到 ' + rows.length + ' 个', '点一下加单')
     rows.forEach(function (p) {
-      const badges = (p.is_hot === 1 ? '<span class="badge badge-red" style="display:inline-flex;align-items:center;gap:3px">' + FiIcon('bolt', 11) + '热销</span> ' : '') +
+      // 角标也统一在蓝白体系里：热销=实心蓝，处理=浅蓝描边
+      const badges = (p.is_hot === 1 ? '<span class="badge" style="display:inline-flex;align-items:center;gap:3px;background:var(--blue);color:#fff">' + FiIcon('bolt', 11) + '热销</span> ' : '') +
         (p.is_clearance === 1 ? '<span class="badge badge-blue" style="display:inline-flex;align-items:center;gap:3px">' + FiIcon('tag', 11) + '处理</span> ' : '')
       const r = document.createElement('div'); r.className = 'srow'
       r.innerHTML = thumbHtml(p, 'im') +

@@ -103,13 +103,12 @@ page('stock', function (app) {
     all.forEach(p => { const c = p.category || '其他'; cats[c] = (cats[c] || 0) + 1 })
     const catNames = Object.keys(cats).sort((a, b) => cats[b] - cats[a])
     if (catNames.length > 1 || cat) {
-      const bar = document.createElement('div')
-      bar.style.cssText = 'display:flex;gap:8px;overflow-x:auto;padding:2px 16px 10px;-webkit-overflow-scrolling:touch'
+      // 用统一的 .cats/.cat 样式（白蓝）—— 原来这里是内联黑底，和新设计撞色又看不清字
+      const bar = document.createElement('div'); bar.className = 'cats'
       const mk = (label, on, fn) => {
         const b = document.createElement('button')
+        b.className = 'cat' + (on ? ' on' : '')
         b.textContent = label
-        b.style.cssText = 'flex:none;height:38px;padding:0 14px;border-radius:19px;font-size:14px;font-weight:800;border:2px solid var(--ink);white-space:nowrap;' +
-          (on ? 'background:var(--ink);color:var(--paper)' : 'background:var(--card);color:var(--ink)')
         b.onclick = fn
         return b
       }
@@ -168,7 +167,7 @@ page('stock', function (app) {
         const low = total < (p.min_stock || 5)
         const isHot = p.is_hot === 1
         const isClear = p.is_clearance === 1
-        const badges = (isHot ? '<span class="badge badge-red">热销</span> ' : '') +
+        const badges = (isHot ? '<span class="badge" style="background:var(--blue);color:#fff">热销</span> ' : '') +
           (isClear ? '<span style="background:#f59e0b;color:#fff;border-radius:4px;padding:1px 6px;font-size:12px;font-weight:800">' + FiIcon('tag', 12) + '处理货</span> ' : '')
         const card = document.createElement('div'); card.className = 'card'; card.style.cssText = 'margin:0 16px 8px;padding:12px 14px'
         // 缩略图（点它也能拍照/换图）：没图时给一个虚线相机位，让人一眼知道这儿能挂图。
@@ -189,12 +188,12 @@ page('stock', function (app) {
               '<div class="text-sm" style="color:var(--sub)">' + (p.suggest_price ? fmt(p.suggest_price) : '未定价') + '</div>' +
             '</div>' +
           '</div>' +
-          '<button data-detail style="width:100%;height:38px;margin-top:8px;border-radius:8px;border:2px solid var(--gold);background:var(--card);color:var(--gold);font-size:14px;font-weight:800">' + FiIcon('clipboard', 15) + ' 详情 / 改价 · 改单位 · 换图</button>' +
+          '<button data-detail style="width:100%;height:38px;margin-top:8px;border-radius:10px;border:1px solid var(--line);background:var(--card2);color:var(--blue);font-size:14px;font-weight:800">' + FiIcon('clipboard', 15) + ' 详情 / 改价 · 改单位 · 换图</button>' +
           '<div style="display:flex;gap:8px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)">' +
-            '<button data-hot style="flex:1;height:36px;border-radius:8px;border:2px solid var(--ink);font-size:13px;font-weight:800;background:' + (isHot ? '#ff6b6b' : 'var(--card)') + ';color:' + (isHot ? '#fff' : 'var(--ink)') + '">' + FiIcon('bolt', 12) + ' 热销</button>' +
-            '<button data-clear style="flex:1;height:36px;border-radius:8px;border:2px solid var(--ink);font-size:13px;font-weight:800;background:' + (isClear ? '#f59e0b' : 'var(--card)') + ';color:' + (isClear ? '#fff' : 'var(--ink)') + '">' + FiIcon('tag', 12) + ' 处理货</button>' +
-            '<button data-pic style="flex:0 0 76px;height:36px;border-radius:8px;border:2px solid var(--ink);font-size:13px;font-weight:800;background:var(--card);color:var(--ink)">' + FiIcon('camera', 15) + ' ' + (p.photo_path ? '换图' : '拍照') + '</button>' +
-            '<button data-del style="flex:0 0 72px;height:36px;border-radius:8px;border:2px solid var(--red);font-size:13px;font-weight:800;background:#fff;color:var(--red)">' + FiIcon('trash', 15) + ' 删除</button>' +
+            '<button data-hot style="flex:1;height:36px;border-radius:10px;border:1px solid var(--line);background:var(--card2);font-size:13px;font-weight:800;background:' + (isHot ? '#ff6b6b' : 'var(--card)') + ';color:' + (isHot ? '#fff' : 'var(--ink)') + '">' + FiIcon('bolt', 12) + ' 热销</button>' +
+            '<button data-clear style="flex:1;height:36px;border-radius:10px;border:1px solid var(--line);background:var(--card2);font-size:13px;font-weight:800;background:' + (isClear ? '#f59e0b' : 'var(--card)') + ';color:' + (isClear ? '#fff' : 'var(--ink)') + '">' + FiIcon('tag', 12) + ' 处理货</button>' +
+            '<button data-pic style="flex:0 0 76px;height:36px;border-radius:10px;border:1px solid var(--line);background:var(--card2);font-size:13px;font-weight:800;background:var(--card);color:var(--ink)">' + FiIcon('camera', 15) + ' ' + (p.photo_path ? '换图' : '拍照') + '</button>' +
+            '<button data-del style="flex:0 0 72px;height:36px;border-radius:10px;border:1px solid var(--red);background:#fff;font-size:13px;font-weight:800;background:#fff;color:var(--red)">' + FiIcon('trash', 15) + ' 删除</button>' +
           '</div>'
         card.onclick = () => { try { localStorage.setItem('fi-pos-preselect', String(p.id)) } catch {} navigate('pos') }
         const hotBtn = card.querySelector('[data-hot]')
