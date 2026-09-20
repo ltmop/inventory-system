@@ -1,6 +1,7 @@
 // inbound.js: 入库页 —— 拍照建档 / 扫码入库 双入口 → 已入库印章
 page('inbound', function (app) {
   let recentInbounds = []
+  let pendingPhoto = null // 已选好、还没入库的商品图（base64）；入库拿到 id 后再挂到商品上
   loadRecents()
 
   async function loadRecents() {
@@ -50,6 +51,12 @@ page('inbound', function (app) {
         '<div class="fld"><label>数量</label><input id="f-qty" type="number" step="0.1" placeholder="多少个 / 多少米？"></div>' +
       '</div>' +
       '<div class="fld"><label id="f-expiry-label">到期日（可选）</label><input id="f-expiry" type="date" placeholder="2026-12-31"></div>' +
+      '<div class="fld"><label>商品照片（可选）</label>' +
+        '<div style="display:flex;align-items:center;gap:10px">' +
+          '<img id="f-photo-prev" alt="" style="display:none;width:56px;height:56px;object-fit:cover;border-radius:8px;border:2px solid var(--ink);flex:none">' +
+          '<button type="button" id="f-photo-btn" style="flex:1;height:46px;border-radius:10px;border:2px dashed var(--ink);background:var(--card);color:var(--ink);font-size:15px;font-weight:800">📷 拍一张 / 从相册选</button>' +
+        '</div>' +
+      '</div>' +
       '<button class="okbtn" id="f-ok">完成入库</button>'
     app.appendChild(form)
 
@@ -64,6 +71,21 @@ page('inbound', function (app) {
     } catch (e) { /* 忽略 */ }
 
     document.getElementById('f-ok').onclick = finishInbound
+
+    // 商品照片：选好先本地预览，等入库建档拿到商品 id 再真正存（见 finishInbound）
+    const photoBtn = document.getElementById('f-photo-btn')
+    const photoPrev = document.getElementById('f-photo-prev')
+    if (photoBtn) {
+      photoBtn.onclick = async () => {
+        try {
+          const b64 = await FiPhoto.pickPhoto()
+          if (!b64) return
+          pendingPhoto = b64
+          if (photoPrev) { photoPrev.src = 'data:image/jpeg;base64,' + b64; photoPrev.style.display = '' }
+          photoBtn.textContent = '✅ 已选好（点一下可重选）'
+        } catch (e) { toast('选图失败: ' + (e.message || '')) }
+      }
+    }
 
     // 今日入库记录
     if (recentInbounds.length > 0) {
@@ -166,6 +188,12 @@ page('inbound', function (app) {
     // 到期日字段重置：清空上次的值
     const expiryEl = document.getElementById('f-expiry')
     if (expiryEl) expiryEl.value = ''
+    // 商品照片也一起重置：每次建档重新选，免得上一张误挂到新商品上
+    pendingPhoto = null
+    const prevEl = document.getElementById('f-photo-prev')
+    if (prevEl) { prevEl.removeAttribute('src'); prevEl.style.display = 'none' }
+    const pbtn = document.getElementById('f-photo-btn')
+    if (pbtn) pbtn.textContent = '📷 拍一张 / 从相册选'
     if (aiResult) { aiTag.classList.add('show') } else { aiTag.classList.remove('show') }
     form.classList.add('show')
     // 存 code 到临时属性
@@ -341,10 +369,21 @@ page('inbound', function (app) {
         cost_price: cost, suggest_price: 0, status: '待盘点', unit: unit,
       })
       await api('inbound:create', { productId: r.id, quantity: qty, costPrice: cost, location: '', operator: getOperator(), expiryDate: expiry })
+      // 商品照片：建档拿到 id 后再挂（photo:save 只落盘，photo_path 要单独更新一次）。
+      // 图没存上不算入库失败 —— 货已经进来了，只提示一句，别让人以为白干。
+      if (pendingPhoto) {
+        try { await FiPhoto.saveProductPhoto(r.id, pendingPhoto) }
+        catch (e) { toast('已入库，但照片没存上：' + (e.message || '')) }
+        pendingPhoto = null
+      }
       showStamp('已入库', name + ' × ' + qty + (unit === '米' ? '米' : ''), true)
       form.classList.remove('show')
       document.getElementById('ai-tag').classList.remove('show')
       ;['f-name', 'f-cost', 'f-qty'].forEach(id => document.getElementById(id).value = '')
+      const prevAfter = document.getElementById('f-photo-prev')
+      if (prevAfter) { prevAfter.removeAttribute('src'); prevAfter.style.display = 'none' }
+      const btnAfter = document.getElementById('f-photo-btn')
+      if (btnAfter) btnAfter.textContent = '📷 拍一张 / 从相册选'
       loadRecents()
     } catch (e) { toast('入库失败: ' + e.message) }
   }
