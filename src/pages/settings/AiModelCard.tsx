@@ -26,6 +26,7 @@ interface Provider {
   customized?: boolean
   vision?: string | null
   defaultVision?: string | null
+  note?: string
 }
 
 /**
@@ -124,6 +125,7 @@ export function AiModelCard() {
                 <SelectItem key={p.key} value={p.key}>
                   {p.name}
                   {p.configured ? '（已配 Key）' : '（未配 Key）'}
+                  {p.note ? ` · ${p.note}` : ''}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -190,6 +192,15 @@ export function AiModelCard() {
           </div>
         )}
         {!online && <p className="text-xs text-amber-600">当前离线：验证需要联网，请连上网再保存。</p>}
+        <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-muted-foreground">
+          <div className="font-medium text-slate-700">哪档最省？</div>
+          <p className="mt-1">
+            · <b>不花钱</b>：继续用「阿东官方AI」（内置连接码，免费额度）；或选 <b>智谱 GLM-4-Flash</b>（官方免费档，支持工具调用）。
+          </p>
+          <p>· <b>最便宜的自备 Key</b>：<b>DeepSeek deepseek-flash</b> —— 每百万 token 输入 ¥1 / 输出 ¥4（空闲时段半价，含周末全天），自带图像理解，一张进货单识别约两三分钱。</p>
+          <p>· 阿里百炼 <b>qwen-flash</b> 也是最便宜一档（有免费额度），把上面模型名改成 qwen-flash 即可。</p>
+          <p>· 店里这点用量（一天几十次问答+几张单据），任何一档一个月通常都只要几毛到几块钱。</p>
+        </div>
         <p className="text-xs text-muted-foreground">
           密钥只存在这台电脑（写盘前用系统安全存储加密），不会上传到别处；中心库模式下会推到店里自己的服务器，
           让手机端也用同一个模型。更多模型（Kimi / 豆包 / GLM / 通义）在「AI智能」页切换。

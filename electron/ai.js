@@ -50,21 +50,31 @@ const PROVIDERS = {
     keyPage: 'https://console.volcengine.com/ark',
   },
   glm: {
+    // GLM-4-Flash 是智谱**首个免费的大模型 API**（官方文档：docs.bigmodel.cn/cn/guide/models/free），
+    // 支持 Function Calling + 128K 上下文 —— 店里这点用量，这一档基本就是零成本。
     name: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash',
+    note: '文本免费（智谱官方免费档）· 识图需另配视觉模型',
     vision: 'glm-4v-flash', keyFile: 'glm-key.enc', keyPrefix: '',
     keyPage: 'https://open.bigmodel.cn/usercenter/apikeys',
   },
   qwen: {
-    name: '通义千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus',
+    // 阿里百炼：qwen-flash 是最便宜的一档（新用户还有免费额度）；模型名可自己在设置里改回 qwen-plus。
+    name: '通义千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-flash',
+    note: '便宜档 qwen-flash（百炼按量计费）· 模型名可改',
     vision: 'qwen-vl-plus', keyFile: 'qwen-key.enc', keyPrefix: 'sk-',
     keyPage: 'https://bailian.console.aliyun.com',
   },
   deepseek: {
-    name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat',
+    // 2026-09 官方价目：deepseek-flash（V4.1-Flash，含图像理解）
+    //   输入（缓存未命中）空闲 1 元 / 高峰 2 元（每百万 token），输出 空闲 4 元 / 高峰 8 元；
+    //   空闲时段 = 高峰半价（周一至周五 9:00-12:00、14:00-18:00 之外，含周末与节假日全天）。
+    //   旧模型名 deepseek-chat / deepseek-v4-flash-vision-exp 仍可调用，按 Flash 价计费。
+    name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash',
+    note: '便宜：空闲时段 输入¥1/输出¥4（每百万 token）· 自带图像理解',
     // 2026-09-21 更正：DeepSeek 已上线多模态视觉模型（官方公告 2026-08-21，
     // model=deepseek-v4-flash-vision-exp），拍照建档/进货单识别可以直接用它，不必再依赖豆包。
     // 实测同一张送货单：关掉思考链后 1.0~1.1 秒出结果、4/4 行品牌型号数量单价全对。
-    vision: 'deepseek-v4-flash-vision-exp',
+    vision: 'deepseek-flash',
     // 这类推理模型默认会先输出一大段思考，把 max_tokens 吃光导致 content 为空 ——
     // 视觉识别要的是"快而准"，所以允许调用方要求关掉思考链。
     noThink: true,
@@ -167,6 +177,8 @@ export function aiProviders() {
     name: p.name,
     model: aiEndpoint(key).model,
     defaultModel: p.model,
+    /** 价格提示（设置页显示，帮老板选便宜档） */
+    note: p.note || '',
     vision: aiEndpoint(key).vision,
     defaultVision: p.vision || null,
     baseUrl: aiEndpoint(key).baseUrl,
