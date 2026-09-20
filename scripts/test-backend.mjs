@@ -2067,6 +2067,22 @@ const mobileInboundSrc = fs.readFileSync(path.resolve('electron/mobile/pages/inb
 ok('入库建档可挂商品照片', mobileInboundSrc.includes('FiPhoto.pickPhoto') && mobileInboundSrc.includes('FiPhoto.saveProductPhoto'))
 ok('入库页加载了图片助手', fs.readFileSync(path.resolve('electron/mobile/index.html'), 'utf8').includes('lib/photo.js'))
 ok('手机端离线缓存清单含图片助手', fs.readFileSync(path.resolve('electron/mobile/sw.js'), 'utf8').includes("BASE + 'lib/photo.js'"))
+// 库存页：给**已有商品**补图/换图 + 缩略图（2026-09-21 补）
+const mobileStockSrc = fs.readFileSync(path.resolve('electron/mobile/pages/stock.js'), 'utf8')
+ok(
+  '库存页卡片有图片位（无图时给相机占位，不藏入口）',
+  mobileStockSrc.includes('data-photo-img') && mobileStockSrc.includes('FiPhoto.productPhotoUrl'),
+)
+ok(
+  '库存页可给已有商品拍照/换图（缩略图 + 按钮两个入口，都要 stopPropagation 免得误触进开单页）',
+  (mobileStockSrc.match(/pickProductPhoto\(p\)/g) || []).length >= 3,
+)
+ok(
+  '库存页缩略图用 updated_at 穿透缓存（换图后文件名不变，不会拿旧图）',
+  mobileStockSrc.includes('FiPhoto.productPhotoUrl(p.photo_path, p.updated_at)'),
+)
+ok('库存页缩略图懒加载（300+ SKU 不一次性拉全部图）', mobileStockSrc.includes('loading="lazy"'))
+ok('手机端图片地址支持版本参数（&v=）', mobilePhotoSrc.includes('&v=') && mobilePhotoSrc.includes('version'))
 
 // 36c. 手机端传图全链路（真实走 /api/invoke，与手机端 lib/photo.js 的两步完全一致）
 //   手机拍完图不做任何"同步"——图片就存在**账本所在那台机器**上，products.photo_path 存文件名，
