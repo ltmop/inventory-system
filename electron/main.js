@@ -402,7 +402,7 @@ function registerIpc() {
   handle('ai:providers', () => ai.aiProviders())
   handle('ai:setProvider', (d, p) => ai.setProvider(p.provider))
   // 自定义 API 地址 / 模型（2026-09-21）：接入自建或中转的 DeepSeek 只需填 密钥 + API 地址
-  handle('ai:setEndpoint', (d, p) => ai.setProviderEndpoint(p?.provider, { baseUrl: p?.baseUrl, model: p?.model }))
+  handle('ai:setEndpoint', (d, p) => ai.setProviderEndpoint(p?.provider, { baseUrl: p?.baseUrl, model: p?.model, visionModel: p?.visionModel }))
   handle('ai:syncCentral', () => pushAiConfigToCentral())
   handle('ai:setKey', (d, p) => ai.setApiKey(p.key))
   handle('ai:clearKey', () => ai.clearApiKey())

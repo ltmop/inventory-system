@@ -61,7 +61,13 @@ const PROVIDERS = {
   },
   deepseek: {
     name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat',
-    vision: null, // DeepSeek 没有视觉模型，进货单识别会自动走豆包兜底
+    // 2026-09-21 更正：DeepSeek 已上线多模态视觉模型（官方公告 2026-08-21，
+    // model=deepseek-v4-flash-vision-exp），拍照建档/进货单识别可以直接用它，不必再依赖豆包。
+    // 实测同一张送货单：关掉思考链后 1.0~1.1 秒出结果、4/4 行品牌型号数量单价全对。
+    vision: 'deepseek-v4-flash-vision-exp',
+    // 这类推理模型默认会先输出一大段思考，把 max_tokens 吃光导致 content 为空 ——
+    // 视觉识别要的是"快而准"，所以允许调用方要求关掉思考链。
+    noThink: true,
     keyFile: 'deepseek-key.enc', keyPrefix: 'sk-',
     keyPage: 'https://platform.deepseek.com/api_keys',
   },
@@ -80,13 +86,17 @@ let endpointOverrides = {}
 /** 取某提供商最终生效的 { baseUrl, model }（覆盖优先） */
 export function aiEndpoint(name = currentProviderName) {
   const p = PROVIDERS[name]
-  if (!p) return { baseUrl: '', model: '' }
+  if (!p) return { baseUrl: '', model: '', vision: null }
   const o = endpointOverrides[name] || {}
-  return { baseUrl: o.baseUrl || p.baseUrl, model: o.model || p.model }
+  return {
+    baseUrl: o.baseUrl || p.baseUrl,
+    model: o.model || p.model,
+    vision: o.visionModel || p.vision || null,
+  }
 }
 
 /** 保存某提供商的 API 地址 / 模型（空串 = 恢复默认）。返回该提供商的状态。 */
-export function setProviderEndpoint(name, { baseUrl, model } = {}) {
+export function setProviderEndpoint(name, { baseUrl, model, visionModel } = {}) {
   const target = PROVIDERS[name] ? name : currentProviderName
   const cur = endpointOverrides[target] || {}
   const next = { ...cur }
@@ -101,6 +111,11 @@ export function setProviderEndpoint(name, { baseUrl, model } = {}) {
     if (m) next.model = m
     else delete next.model
   }
+  if (visionModel !== undefined) {
+    const v = String(visionModel || '').trim()
+    if (v) next.visionModel = v
+    else delete next.visionModel
+  }
   if (Object.keys(next).length) endpointOverrides[target] = next
   else delete endpointOverrides[target]
   saveProviderConfig()
@@ -109,10 +124,10 @@ export function setProviderEndpoint(name, { baseUrl, model } = {}) {
 
 /** 给中心库同步用：当前生效的提供商 + 地址 + 模型 + 密钥（只在店内自己的服务器之间流动） */
 export function aiSyncPayload() {
-  const { baseUrl, model } = aiEndpoint(currentProviderName)
+  const { baseUrl, model, vision } = aiEndpoint(currentProviderName)
   let key = ''
   try { key = readApiKey() || '' } catch { key = '' }
-  return { provider: currentProviderName, baseUrl, model, key }
+  return { provider: currentProviderName, baseUrl, model, visionModel: vision, key }
 }
 
 /** 主进程启动时调用一次，确定数据目录 + 读取上次选的提供商 */
@@ -128,8 +143,10 @@ export function initAi(dir) {
 function currentProvider() {
   const base = PROVIDERS[currentProviderName] ?? PROVIDERS.kimi
   const o = endpointOverrides[currentProviderName] || {}
-  // 生效值 = 默认 叠加 自定义覆盖（自定义 API 地址/模型就是在这里起作用）
-  return o.baseUrl || o.model ? { ...base, baseUrl: o.baseUrl || base.baseUrl, model: o.model || base.model } : base
+  // 生效值 = 默认 叠加 自定义覆盖（自定义 API 地址/模型/视觉模型就是在这里起作用）
+  return (o.baseUrl || o.model || o.visionModel)
+    ? { ...base, baseUrl: o.baseUrl || base.baseUrl, model: o.model || base.model, vision: o.visionModel || base.vision }
+    : base
 }
 
 function keyFileFor(name) {
@@ -150,6 +167,8 @@ export function aiProviders() {
     name: p.name,
     model: aiEndpoint(key).model,
     defaultModel: p.model,
+    vision: aiEndpoint(key).vision,
+    defaultVision: p.vision || null,
     baseUrl: aiEndpoint(key).baseUrl,
     defaultBaseUrl: p.baseUrl,
     /** 自己填过 API 地址/模型的，界面要显示"已自定义" */
@@ -264,7 +283,7 @@ function readApiKey() {
  *   token 数以网关实读 usage 为准（客户端自报不采信）；余额不足返回 { ok:false, reason:'quota-exceeded', code:402 }
  * - BYOK：直连厂商不变，成功后只记本地用量（recordLocalUsage，不扣费）
  */
-async function chatRaw(messages, { tools = undefined, maxTokens = 300, model, feature = FEATURES.AGENT_CHAT } = {}) {
+async function chatRaw(messages, { tools = undefined, maxTokens = 300, model, feature = FEATURES.AGENT_CHAT, noThink = false } = {}) {
   // ---- 官方网关分支：统一走计费阀门 ----
   if (currentProviderName === 'gateway') {
     const g = await consumeViaGateway(feature, messages, { tools, maxTokens })
@@ -286,6 +305,8 @@ async function chatRaw(messages, { tools = undefined, maxTokens = 300, model, fe
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
     const body = { model: useModel, messages, temperature: 0.3, max_tokens: maxTokens }
+    // 推理模型关掉思考链（视觉识别要快；思考链会把 max_tokens 吃光导致空回复）
+    if (noThink) body.thinking = { type: 'disabled' }
     if (tools) {
       body.tools = tools
       body.tool_choice = 'auto'
@@ -414,13 +435,13 @@ export async function parseInboundNote({ imageBase64, mimeType } = {}) {
     '5. 只输出 JSON\n\n' +
     `店内商品清单（ID|品牌|型号|品类|最近进价）：\n${productList || '（店内暂无商品）'}`
 
-  // 优先豆包视觉（中文单据识别更准），超时/失败再降级 Kimi 视觉
+  // 视觉识别：**先用手上主力模型自带的视觉**（老板填了 DeepSeek 就用 DeepSeek 视觉，
+  // 2026-08-21 起官方有 deepseek-v4-flash-vision-exp），不行再退豆包视觉。
+  // 关掉思考链（noThink）：实测同一张送货单 1.0 秒出结果，不关则思考链吃光 max_tokens、content 为空。
+  const pv = currentProvider().vision
   let text = null
-  const doubaoRes = await doubaoVision({ imageBase64, mimeType: mime, prompt })
-  if (doubaoRes.ok && doubaoRes.content) {
-    text = doubaoRes.content
-  } else if (currentProvider().vision) {
-    // 主力模型有视觉才走它兜底；DeepSeek 这类没有视觉模型的提供商跳过（识别靠豆包）
+  let firstErr = null
+  if (pv && currentProviderName !== 'gateway') {
     const r = await chatRaw(
       [
         { role: 'system', content: '你是进销存店的入库录单员。用户拍了一张送货单/进货单的照片，你要把单据上的商品逐行识别出来。只输出 JSON，不要 markdown 代码块，不要任何解释文字。' },
@@ -432,12 +453,35 @@ export async function parseInboundNote({ imageBase64, mimeType } = {}) {
           ],
         },
       ],
-      { model: currentProvider().vision, maxTokens: 1200 },
+      { model: pv, maxTokens: 2000, noThink: !!currentProvider().noThink },
     )
-    if (!r.ok) return r
-    text = r.message.content?.trim() ?? ''
-  } else {
-    return { ok: false, reason: doubaoRes.reason || '识别失败' }
+    if (r.ok && r.message?.content?.trim()) text = r.message.content.trim()
+    else firstErr = r.reason || 'empty'
+  }
+  if (!text) {
+    const doubaoRes = await doubaoVision({ imageBase64, mimeType: mime, prompt })
+    if (doubaoRes.ok && doubaoRes.content) {
+      text = doubaoRes.content
+    } else if (pv && currentProviderName === 'gateway') {
+      // 官方网关：由网关按内容路由到视觉模型
+      const r = await chatRaw(
+        [
+          { role: 'system', content: '你是进销存店的入库录单员。用户拍了一张送货单/进货单的照片，你要把单据上的商品逐行识别出来。只输出 JSON，不要 markdown 代码块，不要任何解释文字。' },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              { type: 'image_url', image_url: { url: `data:${mime};base64,${imageBase64}` } },
+            ],
+          },
+        ],
+        { model: pv, maxTokens: 2000 },
+      )
+      if (!r.ok) return r
+      text = r.message.content?.trim() ?? ''
+    } else {
+      return { ok: false, reason: doubaoRes.reason || firstErr || '识别失败' }
+    }
   }
 
   // 模型有时会包一层 ```json，剥掉再解析

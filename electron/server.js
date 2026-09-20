@@ -1187,7 +1187,7 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
         const provider = String(p?.provider || '').trim()
         if (provider) aiRef.setProvider(provider)
         if (p?.baseUrl !== undefined || p?.model !== undefined) {
-          aiRef.setProviderEndpoint(provider || undefined, { baseUrl: p?.baseUrl, model: p?.model })
+          aiRef.setProviderEndpoint(provider || undefined, { baseUrl: p?.baseUrl, model: p?.model, visionModel: p?.visionModel })
         }
         if (p?.key) aiRef.setApiKey(String(p.key))
         return { ok: true, status: aiRef.aiStatus() }

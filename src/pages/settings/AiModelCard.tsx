@@ -24,6 +24,8 @@ interface Provider {
   configured: boolean
   official?: boolean
   customized?: boolean
+  vision?: string | null
+  defaultVision?: string | null
 }
 
 /**
@@ -36,6 +38,7 @@ export function AiModelCard() {
   const [provider, setProvider] = useState('deepseek')
   const [baseUrl, setBaseUrl] = useState('')
   const [model, setModel] = useState('')
+  const [visionModel, setVisionModel] = useState('')
   const [keyInput, setKeyInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
@@ -58,8 +61,13 @@ export function AiModelCard() {
     setBusy(true)
     setMsg(null)
     try {
-      if (baseUrl.trim() || model.trim()) {
-        await backend.invoke('ai:setEndpoint', { provider, baseUrl: baseUrl.trim(), model: model.trim() })
+      if (baseUrl.trim() || model.trim() || visionModel.trim()) {
+        await backend.invoke('ai:setEndpoint', {
+          provider,
+          baseUrl: baseUrl.trim(),
+          model: model.trim(),
+          visionModel: visionModel.trim(),
+        })
       }
       if (keyInput.trim()) await backend.invoke('ai:setKey', { key: keyInput.trim() })
       const t = await backend.invoke('ai:test')
@@ -155,11 +163,25 @@ export function AiModelCard() {
           />
           <Button
             onClick={save}
-            disabled={!backend || busy || !online || (!keyInput.trim() && !baseUrl.trim() && !model.trim())}
+            disabled={!backend || busy || !online || (!keyInput.trim() && !baseUrl.trim() && !model.trim() && !visionModel.trim())}
             className="bg-brand-600 hover:bg-brand-700"
           >
             {busy ? '验证中...' : '保存并验证'}
           </Button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="w-16 text-sm font-medium text-muted-foreground">视觉模型</span>
+          <Input
+            value={visionModel}
+            onChange={(e) => setVisionModel(e.target.value)}
+            placeholder={cur?.vision || cur?.defaultVision || 'deepseek-v4-flash-vision-exp'}
+            className="w-[22rem] font-mono text-xs"
+            disabled={!backend}
+          />
+          <span className="text-xs text-muted-foreground">
+            拍照建档 / 进货单识图用；DeepSeek 视觉模型官方叫 <span className="font-mono">deepseek-v4-flash-vision-exp</span>（留空用默认）
+          </span>
         </div>
 
         {msg && (
