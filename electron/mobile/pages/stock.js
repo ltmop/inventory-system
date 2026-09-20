@@ -58,6 +58,13 @@ page('stock', function (app) {
     } catch (e) { toast('删除失败: ' + (e.message || '')) }
   }
 
+  // 打开商品详情/编辑页（改价、改单位、改预警线、改货位、换图、去开单）。
+  // 沿用开单页 fi-pos-preselect 的现成约定：把这一行商品 JSON 带过去，不新增后端通道。
+  function openDetail(p) {
+    try { localStorage.setItem('fi-product-edit', JSON.stringify(p)) } catch (e) { /* 存不下时详情页会兜底提示 */ }
+    navigate('product')
+  }
+
   // 商品图片：拍照/相册 → 存到账本机器 + 挂到商品。已有商品补图、换图都走这里。
   // 换图后文件名不变，靠列表重拉后 URL 带上新的 updated_at 穿透浏览器缓存。
   async function pickProductPhoto(p) {
@@ -177,6 +184,7 @@ page('stock', function (app) {
               '<div class="text-sm" style="color:var(--sub)">' + (p.suggest_price ? fmt(p.suggest_price) : '未定价') + '</div>' +
             '</div>' +
           '</div>' +
+          '<button data-detail style="width:100%;height:38px;margin-top:8px;border-radius:8px;border:2px solid var(--gold);background:var(--card);color:var(--gold);font-size:14px;font-weight:800">📋 详情 / 改价 · 改单位 · 换图</button>' +
           '<div style="display:flex;gap:8px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)">' +
             '<button data-hot style="flex:1;height:36px;border-radius:8px;border:2px solid var(--ink);font-size:13px;font-weight:800;background:' + (isHot ? '#ff6b6b' : 'var(--card)') + ';color:' + (isHot ? '#fff' : 'var(--ink)') + '">🔥 热销</button>' +
             '<button data-clear style="flex:1;height:36px;border-radius:8px;border:2px solid var(--ink);font-size:13px;font-weight:800;background:' + (isClear ? '#f59e0b' : 'var(--card)') + ';color:' + (isClear ? '#fff' : 'var(--ink)') + '">🏷 处理货</button>' +
@@ -186,9 +194,11 @@ page('stock', function (app) {
         card.onclick = () => { try { localStorage.setItem('fi-pos-preselect', String(p.id)) } catch {} navigate('pos') }
         const hotBtn = card.querySelector('[data-hot]')
         const clearBtn = card.querySelector('[data-clear]')
+        const detailBtn = card.querySelector('[data-detail]')
         const picBtn = card.querySelector('[data-pic]')
         const picThumb = card.querySelector('[data-photo-img]')
         const delBtn = card.querySelector('[data-del]')
+        if (detailBtn) detailBtn.onclick = (e) => { e.stopPropagation(); openDetail(p) }
         if (hotBtn) hotBtn.onclick = async (e) => { e.stopPropagation(); await toggleMark(p.id, 'is_hot', !isHot) }
         if (clearBtn) clearBtn.onclick = async (e) => { e.stopPropagation(); await toggleMark(p.id, 'is_clearance', !isClear) }
         if (picBtn) picBtn.onclick = async (e) => { e.stopPropagation(); await pickProductPhoto(p) }
@@ -199,7 +209,7 @@ page('stock', function (app) {
     }
 
     const foot = document.createElement('div'); foot.className = 'text-center'; foot.style.cssText = 'padding:16px;color:var(--sub);font-size:13px'
-    foot.textContent = '点商品可去开单页卖它；点左边的相机位或「📷」能给商品拍/换图片；删除只能删没入过库、没流水的新建错档（有历史的可改停产）'
+    foot.textContent = '点商品可去开单页卖它；「📋 详情」里能改价/改单位/换图；点左边相机位或「📷」也能拍图；删除只能删没入过库、没流水的新建错档（有历史的可改停产）'
     q.push(function () { app.appendChild(foot) })
     drain()
   }

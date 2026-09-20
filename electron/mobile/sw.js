@@ -7,6 +7,7 @@ const ASSETS = [
   BASE + 'pages/pos.js', BASE + 'pages/inbound.js', BASE + 'pages/stock.js', BASE + 'pages/today.js',
   BASE + 'pages/expiring.js', BASE + 'pages/waste.js', BASE + 'pages/parts.js', BASE + 'pages/kits.js', BASE + 'pages/restock.js',
   BASE + 'pages/customers.js', BASE + 'pages/suppliers.js', BASE + 'pages/expenses.js', BASE + 'pages/stocktake.js', BASE + 'pages/ai.js',
+  BASE + 'pages/product.js',
   BASE + 'lib/photo.js', BASE + 'lib/zxing.min.js',
 ]
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())) })
