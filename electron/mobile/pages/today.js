@@ -80,19 +80,21 @@ page('today', function (app) {
     const split = data.paySplit || {}, recv = data.receivable || 0
     const methods = Object.entries(split.byMethod || {}).filter(([, v]) => v > 0)
 
-    // 三件套卡片：营业额 / 毛利 / 净利(盈利)
-    const c1 = document.createElement('div'); c1.className = 'card'
-    c1.innerHTML =
-      '<div class="split">' +
-        '<div><div class="text-sm" style="color:var(--sub)">营业额</div><div class="text-2xl font-bolder" style="color:var(--blue)">' + fmt(rev) + '</div></div>' +
-        '<div class="text-right"><div class="text-sm" style="color:var(--sub)">毛利</div><div class="text-2xl font-bolder" style="color:var(--green)">' + fmt(prof) + '</div></div>' +
-      '</div>' +
-      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)">' +
-        '<div><div class="text-sm" style="color:var(--sub)">今日支出</div><div class="text-lg font-bolder" style="color:var(--sand-500,var(--gold))">' + fmt(expense) + '</div></div>' +
-        '<div class="text-right"><div class="text-sm" style="color:var(--sub)">盈利(净利)</div><div class="text-2xl font-bolder" style="color:' + (net >= 0 ? 'var(--green)' : 'var(--red)') + '">' + fmt(net) + '</div></div>' +
-      '</div>' +
-      '<div class="text-xs text-muted mt-sm">毛利率 ' + margin + '% · 应收 ' + fmt(recv) + '</div>'
-    app.appendChild(c1)
+    // 固定营收条：营业额/毛利/净利 钉在顶部，往下翻流水和对账也一直看得到今天的数
+    const d = new Date()
+    const wd = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()]
+    const fixed = document.createElement('div'); fixed.className = 'sticky-bar'
+    fixed.innerHTML =
+      '<div class="today-fixed">' +
+        '<div class="d">' + (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日 · ' + wd + ' · 今日经营</div>' +
+        '<div class="row3">' +
+          '<div class="m"><div class="k">营业额</div><div class="v" style="color:var(--blue)">' + fmt(rev) + '</div></div>' +
+          '<div class="m"><div class="k">毛利</div><div class="v" style="color:var(--ok)">' + fmt(prof) + '</div></div>' +
+          '<div class="m"><div class="k">净利</div><div class="v" style="color:' + (net >= 0 ? 'var(--ok)' : 'var(--danger)') + '">' + fmt(net) + '</div></div>' +
+        '</div>' +
+        '<div class="d" style="margin-top:5px">毛利率 ' + margin + '% · 支出 ' + fmt(expense) + ' · 应收 ' + fmt(recv) + '</div>' +
+      '</div>'
+    app.appendChild(fixed)
 
     // 收款方式对账（现金/微信/支付宝各收了多少、几笔，微信/支付宝列出明细方便核对钱包）
     if (methods.length > 0) {

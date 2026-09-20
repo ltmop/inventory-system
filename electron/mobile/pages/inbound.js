@@ -28,14 +28,17 @@ page('inbound', function (app) {
     scan.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="26" height="26"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M4 12h16"/></svg>扫码入库'
     scan.onclick = () => openScanner(onScan, '扫条码入库')
     row.appendChild(photo); row.appendChild(manual); row.appendChild(scan)
-    app.appendChild(row)
+    // 固定顶栏：入库入口与搜索钉在顶部，翻看最近入库时也能一键操作
+    const sticky = document.createElement('div'); sticky.className = 'sticky-bar'
+    sticky.appendChild(row)
+    app.appendChild(sticky)
 
     // 搜索
     const searchDiv = document.createElement('div'); searchDiv.className = 'scanrow'
     const input = document.createElement('input'); input.className = 'search'; input.placeholder = '没有相机？打字搜或新建商品'
     input.style.width = '100%'; input.onchange = () => { const v = input.value.trim(); if (v) onScan(v) }
     searchDiv.appendChild(input)
-    app.appendChild(searchDiv)
+    sticky.appendChild(searchDiv)
 
     // 建档表单（拍照或扫码后展开）
     const form = document.createElement('div'); form.className = 'form-card'; form.id = 'inbound-form'

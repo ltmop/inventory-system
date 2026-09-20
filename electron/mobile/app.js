@@ -387,6 +387,8 @@ function openLoginPanel(firstRun, reason) {
       ? '<div style="font-size:14px;line-height:1.8;color:#ffd9a8;background:rgba(212,175,55,.14);border-radius:10px;padding:12px;margin-bottom:14px">店里换过连接码了，旧的连接码已经作废（所以刚才一直提示失效）。<br>用<b>账号密码</b>登录就行 —— 登录会自动拿到当前有效的新码。</div>'
       : reason === 'bind'
         ? '<div style="font-size:14px;line-height:1.8;color:#ffd9a8;background:rgba(212,175,55,.14);border-radius:10px;padding:12px;margin-bottom:14px">这台手机现在是<b>用连接码接入</b>的（没有走过账号密码）。<br>用账号密码登录一次，以后店里换连接码手机能自己恢复，忘了密码也能找回来。</div>'
+        : reason === 'switch'
+          ? '<div style="font-size:14px;color:#8fa3c0;line-height:1.75;margin-bottom:16px">换一个账号登录。当前：<b style="color:#d4af37">' + escHtml(savedAccount() || '连接码接入') + '</b></div>'
       : '<div style="font-size:14px;color:#8fa3c0;line-height:1.75;margin-bottom:16px">用电脑上那个<b style="color:#d4af37">账号 + 密码</b>登录，和桌面端同一套账号、同一本账。</div>') +
     (firstRun ? '<div style="font-size:14px;color:#8fa3c0;line-height:1.75;margin-bottom:16px">登录后开单、入库、查库存、看今天赚多少都能用。</div>' : '') +
     '<input id="lg-user" placeholder="账号" autocomplete="username" spellcheck="false" style="' + inpCss + '">' +
@@ -560,6 +562,7 @@ function renderPage(force) {
   })
   const app = document.getElementById('app')
   app.classList.remove('absorb')   // 只有开单页要三区固定，别的页恢复正常滚动
+  renderAccountChip()              // 右上角账号一直挂着（账号/登录方式变了要跟着变）
   app.innerHTML = '<div class="text-center" style="padding:40px;color:var(--sub)">加载中...</div>'
   const fn = pages[page]
   if (fn) { try { fn(app) } catch (e) { app.innerHTML = '<div class="text-center" style="padding:40px"><div style="font-size:48px">' + FiIcon('alert', 15) + '</div><div class="text-red font-bold mt">' + page + ' 出错</div><div class="text-sm text-muted mt-sm">' + e.message + '</div></div>' } }
@@ -1025,6 +1028,56 @@ function openSizeSheet() {
   })
 }
 
+// ========== 右上角「登录账号」（顶栏一直挂着）==========
+// 老板要的：谁登录的一眼看到。点一下能看登录方式、换账号、切换操作员、退出。
+function renderAccountChip() {
+  const el = document.getElementById('acctChip')
+  if (!el) return
+  const lm = loginMethod()
+  const label = lm.byAccount ? lm.account : (TOKEN ? '连接码接入' : '未登录')
+  el.className = 'acct-chip' + (lm.byAccount ? '' : ' warn')
+  el.innerHTML = '<span class="av">' + escHtml(String(label).trim().slice(0, 1) || '?') + '</span>' +
+    '<span class="nm">' + escHtml(label) + '</span>'
+  el.onclick = openAccountSheet
+}
+/** 退出登录（更多页和右上角账号面板共用同一段逻辑） */
+function logoutNow() {
+  if (!confirm('退出登录？\n\n退出后这台手机就看不到账本了，下次要用账号密码重新登录（离线攒着还没上传的单据也会一起清掉，请先确认没有待上传）。')) return
+  try {
+    localStorage.removeItem('fi-mobile-token')
+    localStorage.removeItem('fi-server')
+    localStorage.removeItem('fi-account')
+  } catch (e) {}
+  toast('已退出，正在返回登录页…')
+  setTimeout(function () { location.reload() }, 500)
+}
+function openAccountSheet() {
+  const lm = loginMethod()
+  const info = [
+    ['账号', lm.byAccount ? lm.account : '（还没用账号密码登录）'],
+    ['登录方式', lm.byAccount ? ('账号密码' + (lm.deviceToken ? ' · 换连接码会自动恢复' : '')) : '连接码接入'],
+    ['当前操作员', getOperator()],
+    ['账本', savedServer() || SERVER || '本机'],
+  ]
+  const ov = sheet('登录账号',
+    '<div class="list" style="margin:0 0 12px">' + info.map(function (r) {
+      return '<div class="row" style="cursor:default"><div class="rt">' +
+        '<div class="a" style="font-size:11.5px;color:var(--sub);font-weight:600">' + escHtml(r[0]) + '</div>' +
+        '<div class="b" style="color:var(--ink);font-size:14px;font-weight:700;margin-top:2px">' + escHtml(String(r[1])) + '</div></div></div>'
+    }).join('') + '</div>' +
+    '<button id="ac-login" class="okbtn">' + (lm.byAccount ? '切换账号 / 重新登录' : '用账号密码登录') + '</button>' +
+    '<div class="flex" style="gap:8px;margin-top:10px">' +
+      '<button id="ac-op" style="flex:1;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--card2);font-size:14px;font-weight:700;color:var(--ink)">切换操作员</button>' +
+      '<button id="ac-conn" style="flex:1;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--card2);font-size:14px;font-weight:700;color:var(--ink)">账号与连接</button>' +
+    '</div>' +
+    '<button id="ac-out" style="width:100%;height:44px;margin-top:10px;border-radius:12px;border:1px solid var(--danger-l);background:var(--danger-l);font-size:14px;font-weight:700;color:var(--danger)">退出登录</button>' +
+    (lm.byAccount ? '' : '<div class="text-xs text-muted" style="margin-top:10px;line-height:1.7">现在这台手机是粘连接码接进来的：店里换过连接码就得重新粘。用账号密码登录一次，以后会自动恢复，忘了密码也能找回。</div>'))
+  ov.querySelector('#ac-login').onclick = function () { ov.remove(); openLoginPanel(false, lm.byAccount ? 'switch' : 'bind') }
+  ov.querySelector('#ac-op').onclick = function () { ov.remove(); openOperatorPanel() }
+  ov.querySelector('#ac-conn').onclick = function () { ov.remove(); openConnectPanel() }
+  ov.querySelector('#ac-out').onclick = function () { ov.remove(); logoutNow() }
+}
+
 page('more', (app) => {
   app.innerHTML = ''
 
@@ -1131,16 +1184,7 @@ page('more', (app) => {
   out.style.marginBottom = '6px'
   out.innerHTML = '<div class="row"><div class="ri red">' + FiIcon('logout', 18) + '</div>' +
     '<div class="rt"><div class="a" style="color:var(--danger)">退出登录</div><div class="b">换人或换店铺时用；退出不会动账本里的数据</div></div></div>'
-  out.querySelector('.row').onclick = function () {
-    if (!confirm('退出登录？\n\n退出后这台手机就看不到账本了，下次要用账号密码重新登录（离线攒着还没上传的单据也会一起清掉，请先确认没有待上传）。')) return
-    try {
-      localStorage.removeItem('fi-mobile-token')
-      localStorage.removeItem('fi-server')
-      localStorage.removeItem('fi-account')
-    } catch (e) {}
-    toast('已退出，正在返回登录页…')
-    setTimeout(function () { location.reload() }, 500)
-  }
+  out.querySelector('.row').onclick = logoutNow
   app.appendChild(out)
 
   const note = document.createElement('div')

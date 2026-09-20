@@ -81,18 +81,22 @@ page('stock', function (app) {
 
   function render() {
     app.innerHTML = ''
+    // 固定顶栏：搜索/筛选/统计钉在最上面，往下翻也能随时搜（老板反馈"划下去就搜不了"）
+    const sticky = document.createElement('div'); sticky.className = 'sticky-bar'
+    app.appendChild(sticky)
 
     // 搜索框
     const sr = document.createElement('div'); sr.className = 'scanrow'
-    const inp = document.createElement('input'); inp.className = 'search'; inp.placeholder = '输入品名 / 条码 / SKU'; inp.value = keyword; inp.style.width = '100%'
+    const inp = document.createElement('input'); inp.className = 'search'; inp.placeholder = '输入品名 / 条码 / SKU'; inp.value = keyword
     inp.oninput = (e) => search(e.target.value.trim())
-    sr.appendChild(inp); app.appendChild(sr)
+    sr.appendChild(inp); sticky.appendChild(sr)
 
     // 扫码查库存
-    const btn = document.createElement('button'); btn.className = 'scanbtn'; btn.style.margin = '10px 16px'; btn.style.width = 'calc(100% - 32px)'
-    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M4 12h16"/></svg>扫码查库存'
+    const btn = document.createElement('button'); btn.className = 'scanbtn'
+    btn.style.cssText = 'flex:none;margin:0;padding:0 13px'
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M4 12h16"/></svg>扫码'
     btn.onclick = () => openScanner((code) => { if (code) { inp.value = code; search(code) } }, '扫码查库存')
-    app.appendChild(btn)
+    sr.appendChild(btn)
 
     // ---- 分类筛选条（横滑）：不用再一个个翻 ----
     const cats = {}
@@ -112,7 +116,7 @@ page('stock', function (app) {
       bar.appendChild(mk('全部 ' + all.length, cat === '' && !lowOnly, () => { cat = ''; applyFilter() }))
       bar.appendChild(mk('只看低库存', lowOnly, () => { lowOnly = !lowOnly; applyFilter() }))
       catNames.forEach(c => bar.appendChild(mk(c + ' ' + cats[c], cat === c, () => { cat = (cat === c ? '' : c); applyFilter() })))
-      app.appendChild(bar)
+      sticky.appendChild(bar)
     }
 
     if (results.length === 0) {
@@ -126,7 +130,8 @@ page('stock', function (app) {
     const lowCount = results.filter(p => (p.total_stock || 0) < (p.min_stock || 5)).length
     const stat = document.createElement('div'); stat.style.cssText = 'padding:8px 18px 12px;font-size:15px;font-weight:700'
     stat.textContent = '共 ' + results.length + ' 个SKU' + (cat ? '（' + cat + '）' : '') + (lowCount > 0 ? ' · 低库存 ' + lowCount + ' 个' : ' · 库存都充足')
-    app.appendChild(stat)
+    stat.style.paddingBottom = '10px'
+    sticky.appendChild(stat)
 
     // 低库存置顶
     const sorted = [...results].sort((a, b) => {
