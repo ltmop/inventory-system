@@ -221,10 +221,10 @@ page('pos', function (app) {
     const n = inCartQty(p.id)
     const card = document.createElement('div'); card.className = 'pcard'
     card.innerHTML = (n > 0 ? '<div class="badge">' + n + '</div>' : '') +
-      thumbHtml(p, 'im') +
+      // 图片区单独一层：相机按钮放图片里（原来钉在卡片左下角，把价格压住了）
+      '<div class="thumb">' + thumbHtml(p, 'im') + '<div class="cam" title="给这件商品拍照">' + FiIcon('camera', 14) + '</div></div>' +
       '<div class="nm">' + esc(prodName(p)) + '</div>' +
-      '<div class="pr">' + fmt(p.suggest_price || 0) + (p.total_stock == null ? '' : '<span class="stk"> 存 ' + p.total_stock + '</span>') + '</div>' +
-      '<div class="cam" title="给这件商品拍照">' + FiIcon('camera', 15) + '</div>'
+      '<div class="pr"><span>' + fmt(p.suggest_price || 0) + '</span>' + (p.total_stock == null ? '' : '<span class="stk">存 ' + p.total_stock + '</span>') + '</div>'
     card.onclick = function () { addToCart(p) }
     const cam = card.querySelector('.cam')
     cam.onclick = function (e) { e.stopPropagation(); snapPhoto(p) }
@@ -356,7 +356,7 @@ page('pos', function (app) {
         '<div class="n">' + esc(prodName(p)) + '</div>' +
         '<div class="p">' +
           '<span class="pb" title="点这里改这一单的卖价">' + fmt(c.selling_price) + (isMeter ? '/' + esc(p.unit) : '') + FiIcon('edit', 11) + '</span>' +
-          (changed ? '<span class="chg">已改价</span><span class="rs" title="还原原价">' + FiIcon('undo', 11) + '原 ' + fmt(c.orig_price) + '</span>' : '') +
+          (changed ? '<span class="chg">已改价</span><span class="rs" title="还原原价">' + FiIcon('undo', 11) + '原 ' + fmt(c.orig_price) + '</span>' : (c.price_persist ? '<span class="chg" style="background:var(--blue-l);color:var(--blue)">长期价</span>' : '')) +
         '</div>' +
       '</div>' +
       '<div class="qty"><button data-m>' + FiIcon('minus', 14) + '</button><span class="n" data-e>' + c.qty + (isMeter ? esc(p.unit) : '') + '</span><button data-p>' + FiIcon('plus', 14) + '</button></div>' +
@@ -380,18 +380,51 @@ page('pos', function (app) {
     return line
   }
 
-  // 点价格 → 改这一单的卖价（不动商品档案；改错了点 ↺ 还原）
+  // 点价格 → 改这一单的卖价；改完问一句：只改这一单，还是以后这件货都按这个价（改商品档案）
   function editPrice(c) {
     const name = prodName(c.product)
     const cur = (c.selling_price / 100).toFixed(2).replace(/\.00$/, '')
-    const v = prompt('「' + name + '」这一单卖多少钱？（元）\n只改这一单，商品档案里的定价不动。', cur)
+    const v = prompt('「' + name + '」这一单卖多少钱？（元）\n（填完会问你：只改这一单，还是以后都按这个价）', cur)
     if (v === null) return
     const n = parseFloat(v)
     if (!(n > 0)) { toast('价格要大于 0'); return }
-    c.selling_price = Math.round(n * 100)
-    c.price_changed = c.selling_price !== c.orig_price
+    const fen = Math.round(n * 100)
+    c.selling_price = fen
+    c.price_changed = fen !== c.orig_price
     resetIdem()
     renderCart()
+    askPriceScope(c, fen)
+  }
+
+  // 改价范围：一次性 / 长期改档案。老板原话："要提醒是否固定当前商品价格，而不是一次性的。"
+  function askPriceScope(c, fen) {
+    const p = c.product
+    const ov = sheet('这个价怎么用？',
+      '<div class="text-sm text-muted" style="margin-bottom:12px">「' + esc(prodName(p)) + '」改成 <b style="color:var(--blue)">' + fmt(fen) + '</b>。<br>只改这一单，还是以后都按这个价卖？</div>' +
+      '<button id="ps-once" class="okbtn">只改这一单（一次性）</button>' +
+      '<button id="ps-keep" style="width:100%;height:48px;margin-top:10px;border-radius:12px;border:1px solid var(--line);background:var(--card2);font-size:15px;font-weight:800;color:var(--ink)">以后这件货都按 ' + fmt(fen) + ' 卖（改商品档案）</button>' +
+      '<div class="text-xs text-muted" style="margin-top:10px;line-height:1.7">一次性：只影响当前这一单，商品档案里的定价不动，行尾点 ↺ 可还原。<br>长期：改商品档案售价，以后开单默认带这个价，库存页和电脑端也跟着变。</div>')
+    ov.querySelector('#ps-once').onclick = function () { ov.remove(); toast('这一单按 ' + fmt(fen) + ' 结算') }
+    ov.querySelector('#ps-keep').onclick = async function () {
+      ov.remove()
+      try {
+        await api('product:update', { id: p.id, suggest_price: fen, operator: getOperator() })
+        const at = new Date().toISOString()
+        // 本地同步：热销榜、分类货架、清单里的这件（没手动改过价的）都跟着改
+        ;[allProducts, hotProducts].forEach(function (list) {
+          (list || []).forEach(function (x) { if (x.id === p.id) { x.suggest_price = fen; x.updated_at = at } })
+        })
+        cart.forEach(function (x) {
+          if (x.product_id === p.id && !x.price_persist) {
+            x.selling_price = fen; x.orig_price = fen; x.price_changed = false
+            x.product.suggest_price = fen
+          }
+        })
+        c.price_persist = true
+        toast('已改商品档案：以后「' + prodName(p) + '」都按 ' + fmt(fen) + ' 卖')
+        renderCart(); renderMid()
+      } catch (e) { toast('改档案失败：' + ((e && e.message) || '请重试')) }
+    }
   }
 
   // 点数量 → 精确填数（米/斤这类可以填小数）
