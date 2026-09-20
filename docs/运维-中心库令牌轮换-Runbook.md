@@ -119,3 +119,83 @@ pm2 restart inventory-app
 - 后续所有检查已改成只回**布尔值 / HTTP 状态码 / 哈希**，不再打印令牌本身。
 
 > 本文件不含任何真实令牌值。**任何 Runbook 都不该写真实密钥。**
+
+---
+
+## 5. 本次实际执行记录（2026-09-21）
+
+owner 选项 6「换中心库令牌」—— 已执行。
+
+### 5.1 做了什么
+
+| 步骤 | 结果 |
+|---|---|
+| 备份 | `server-token.txt.bak-20260920-123213` / `server-view-token.txt.bak-20260920-123213`（与现役 `cmp` 一致 → 回滚可恢复服务） |
+| 生成新令牌 | `openssl rand -hex 16`，32 位十六进制，`chmod 600`；与旧令牌不同 |
+| 重启 | `pm2 restart inventory-app` |
+| 只读令牌 | **未轮换**（它没有出现在那次会话里，没必要动） |
+
+### 5.2 验证（实测，不是推断）
+
+```
+不带令牌        -> 401   ✓
+新令牌          -> 200   ✓
+旧令牌          -> 401   ✓  ← 已作废
+只读令牌        -> 200   ✓  ← 未受影响
+新令牌 写通道   -> 400   ✓  ← 400 是业务报错（商品不存在）= 令牌**通过**了；
+                              令牌无效会是 401、只读令牌会是 403
+```
+
+桌面端 `central.json` 也同步成了新令牌（改前留了 `.bak-before-token-rotate-<ts>`），
+并用**主进程自己的模块**（`electron/centralConfig.js` 的 `getCentralConfigLocal()`）
+复核过：`isCentralConfigured()=true`、token 长度 32、与文件内容一致。
+
+### 5.3 🔑 两个让"恢复"变得很轻的关键事实（都是查出来的）
+
+**① 云服务不缓存令牌 —— 它每次都去读文件。**
+
+`/opt/inventory-cloud/index.js`：
+```js
+const CENTRAL_DATA_DIR = process.env.CENTRAL_DATA_DIR || '/opt/inventory-app/data'
+function readCentralToken(file) {
+  return fs.readFileSync(path.join(CENTRAL_DATA_DIR, file), 'utf8').trim()
+}
+// GET /api/cockpit/central-config → { ok, url, token, viewToken }，响应头 Cache-Control: no-store
+```
+
+所以**云服务里没有任何旧令牌副本**：`/api/cockpit/central-config` 每次调用返回的都是**当前文件里的值**。
+→ 意味着 **"重新登录一下"就是完整的恢复手段**，不需要任何人手抄令牌，也不会发回旧令牌。
+
+**② 桌面端渲染层根本没有把中心库配置写进 localStorage。**
+
+实测 `%APPDATA%\fishing-inventory\Local Storage\leveldb`：最后写入是 **9/12**，
+键只有 `fi-dark-mode` / `fi-font-size` / `fi-tts-speaker` / `fi-feedback-webhook` / `fi-wake`
+—— **没有 `fi-central-url` / `fi-central-token`**。
+
+于是 `electron/preload.cjs:12-15` 那个条件成立：
+```js
+if (cfg.url && cfg.token && !localStorage.getItem('fi-central-url')) { /* 用 central.json 补齐 */ }
+```
+→ 每次启动都从 `central.json` 注入。**只要把 `central.json` 更新成新令牌，重启软件就好了**，
+连粘贴都不需要。（这也是为什么第 3.3 节那份"每台设备都要手动重配"的清单价，在实际拓扑下比想象中轻。）
+
+### 5.4 各设备要做什么
+
+| 设备 | 要做的事 | 为什么 |
+|---|---|---|
+| **桌面端（中心库模式）** | **重启软件**（本次顺带也要重启才能拿到热更 1.1.10.3） | ① 启动时 preload 从已更新的 `central.json` 注入新令牌 |
+| 桌面端 —— 万一重启后仍报连接失败 | 设置 → 云同步 **重新登录一次**，或 设置 → 中心库 粘贴新令牌 | ② 云账号登录会自动拉到新配置（见 5.3①）；③ 手抄兜底 |
+| **手机 `/m`** | 打开会看到「连接已失效，点这里重新输入连接码」→ 点它 → **用账号+密码重新登录** | 手机把令牌存在自己的 localStorage（`fi-mobile-token`），必须换掉 |
+| 只读账号 / `/v/` 看店链接 | 不用动 | 只读令牌没轮换 |
+
+新令牌留了一份在本机文件 `D:\进销存备份\中心库新令牌-20260921.txt`（32 字节，sha256 前 16 位 `8b8f7b134159c048`），
+服务器上的临时副本已删除。**用完请自行决定是否删除这个文件。**
+
+### 5.5 如果要退回去
+
+```bash
+sudo cp -a /opt/inventory-app/data/server-token.txt.bak-20260920-123213 /opt/inventory-app/data/server-token.txt
+pm2 restart inventory-app
+# 本机：把 central.json.bak-before-token-rotate-<ts> 拷回 central.json，重启软件
+```
+（退回 = 旧令牌复活 = 这次那次暴露重新成立，想清楚再退。）
