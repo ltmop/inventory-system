@@ -604,8 +604,8 @@ applyUiSize(savedUiSize())
 //   也就是下面这套「下载安装包 → 拉起系统安装器」。
 // 版本号必须与 android/app/build.gradle 的 versionCode/versionName 一致 ——
 // 有 scripts/check-version-sync.mjs 强制校验，发版前必跑（否则会重演「版本号三处不一致、更新永远是哑的」）。
-const APP_VERSION = 'v1.2.1'
-const APP_VERSION_CODE = 1105
+const APP_VERSION = 'v1.3.0'
+const APP_VERSION_CODE = 1106
 const UPDATE_BASE = 'http://43.128.20.39:17533'
 const WEB_MANIFEST = 'https://junchengzn.com/download/web/manifest.json'   // 网页层清单（HTTPS 静态）
 let WEB_VERSION_APPLIED = ''   // 当前真正跑着的网页层版本（热更后会与 APP_VERSION 不同）
