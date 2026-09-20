@@ -16,11 +16,11 @@
     {
       "key": "with-models",
       "skipMarkers": [],
-      "floor": 798,
+      "floor": 803,
       "note": "本机齐全：spike/ 与 %APPDATA% 的模型、夹具音频都在",
-      "commit": "ea6f1db",
-      "worktreeDirty": true,
-      "updatedAt": "2026-09-20T04:16:21.157Z"
+      "commit": "df0e8ba",
+      "worktreeDirty": false,
+      "updatedAt": "2026-09-20T04:21:46.165Z"
     },
     {
       "key": "partial:KWS 夹具检出",
