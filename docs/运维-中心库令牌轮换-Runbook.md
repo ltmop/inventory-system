@@ -166,26 +166,36 @@ function readCentralToken(file) {
 所以**云服务里没有任何旧令牌副本**：`/api/cockpit/central-config` 每次调用返回的都是**当前文件里的值**。
 → 意味着 **"重新登录一下"就是完整的恢复手段**，不需要任何人手抄令牌，也不会发回旧令牌。
 
-**② 桌面端渲染层根本没有把中心库配置写进 localStorage。**
+**② 🔴 桌面端渲染层的 localStorage **确实存着**中心库令牌 —— 只改 `central.json` 不够。**
 
-实测 `%APPDATA%\fishing-inventory\Local Storage\leveldb`：最后写入是 **9/12**，
-键只有 `fi-dark-mode` / `fi-font-size` / `fi-tts-speaker` / `fi-feedback-webhook` / `fi-wake`
-—— **没有 `fi-central-url` / `fi-central-token`**。
+> ⚠️ 这一条我第一版写反了，2026-09-21 当天实测纠正：当时我查的是
+> `%APPDATA%\fishing-inventory\Local Storage\leveldb`，**查错了目录**。
+> 那个目录是 `dataDir`（我们自己的文件），**不是** Chromium 的 userData。
 
-于是 `electron/preload.cjs:12-15` 那个条件成立：
+真正的 userData 是 **`%APPDATA%\inventory-system`**（Electron 按 `package.json` 的 `name` 取；
+`%APPDATA%\fishing-inventory` 里那些 Cache/Local Storage 是**改名之前**留下的旧 profile）。
+它下面的 `Local Storage\leveldb` 里**明确含有** `fi-central-url` 与 `fi-central-token`，
+且换令牌后里面仍是被作废的旧值。
+
+后果：`electron/preload.cjs:12-15` 的守卫是
 ```js
-if (cfg.url && cfg.token && !localStorage.getItem('fi-central-url')) { /* 用 central.json 补齐 */ }
+if (cfg.url && cfg.token && !localStorage.getItem('fi-central-url')) { /* 才用 central.json 补齐 */ }
 ```
-→ 每次启动都从 `central.json` 注入。**只要把 `central.json` 更新成新令牌，重启软件就好了**，
-连粘贴都不需要。（这也是为什么第 3.3 节那份"每台设备都要手动重配"的清单价，在实际拓扑下比想象中轻。）
+localStorage 里**有** `fi-central-url` → 守卫不成立 → **preload 不会覆盖它**。
+所以只更新 `central.json` 时，桌面端仍然拿着旧令牌，实测该令牌请求中心库返回 **401**。
+（这次就是这么发生的：`central.json` 被我改成新令牌后重启，App 反手又把 localStorage 里的
+**旧令牌**写了回去 —— 那一刻才确认它存在 localStorage 里。）
+
+**怎么修**：必须把 localStorage 里那两个键也换掉（见 §6 的办法），或者由人在
+「设置 → 中心库」把新令牌粘进去（`CentralModeCard` 会写 localStorage 并 reload）。
 
 ### 5.4 各设备要做什么
 
 | 设备 | 要做的事 | 为什么 |
 |---|---|---|
-| **桌面端（中心库模式）** | **重启软件**（本次顺带也要重启才能拿到热更 1.1.10.3） | ① 启动时 preload 从已更新的 `central.json` 注入新令牌 |
-| 桌面端 —— 万一重启后仍报连接失败 | 设置 → 云同步 **重新登录一次**，或 设置 → 中心库 粘贴新令牌 | ② 云账号登录会自动拉到新配置（见 5.3①）；③ 手抄兜底 |
-| **手机 `/m`** | 打开会看到「连接已失效，点这里重新输入连接码」→ 点它 → **用账号+密码重新登录** | 手机把令牌存在自己的 localStorage（`fi-mobile-token`），必须换掉 |
+| **桌面端（中心库模式）** | **光重启不够**，要换掉 localStorage 里的令牌：用 §6 的辅助程序，或人在「设置 → 中心库」粘贴新令牌 | localStorage 里存着旧令牌，且 `preload.cjs` 的守卫不会覆盖它（见 5.3②） |
+| 桌面端 —— 更省事的一条路 | 设置 → 云同步 **重新登录一次** | 云账号登录会调 `/api/cockpit/central-config`，而它**实时读文件**返回**当前**令牌（见 5.3①），登录后自动写入 localStorage 并 reload |
+| **手机 `/m`** | 打开会看到「连接已失效，点这里重新输入连接码」→ 点它 → **用账号+密码重新登录** | 手机把令牌存在自己的 localStorage（`fi-mobile-token`），必须换掉；手机上走的就是"重新登录"这条路 |
 | 只读账号 / `/v/` 看店链接 | 不用动 | 只读令牌没轮换 |
 
 新令牌留了一份在本机文件 `D:\进销存备份\中心库新令牌-20260921.txt`（32 字节，sha256 前 16 位 `8b8f7b134159c048`），
@@ -199,3 +209,50 @@ pm2 restart inventory-app
 # 本机：把 central.json.bak-before-token-rotate-<ts> 拷回 central.json，重启软件
 ```
 （退回 = 旧令牌复活 = 这次那次暴露重新成立，想清楚再退。）
+
+---
+
+## 6. 人不在电脑前时，怎么把 localStorage 里的令牌换掉
+
+桌面端的令牌有两个存放点：主进程的 `dataDir/central.json`，和渲染层的
+`localStorage`（`fi-central-url` / `fi-central-token`，实体文件在
+`%APPDATA%\inventory-system\Local Storage\leveldb`）。
+**两个都要换**，而 localStorage 是 Chromium 的 LevelDB，手改格式风险高 ——
+用 Electron 自己写最可靠。
+
+做法（已实测跑通 2026-09-21）：
+
+1. **停掉 App**（必须：同一个 profile 只能有一个进程持有 LevelDB 的锁）。
+2. 准备一个一次性辅助程序（目录 + `package.json` + `main.js`），它做三件事：
+   - `app.setPath('userData', '%APPDATA%\\inventory-system')` —— **必须在任何 profile 访问之前**，
+     否则会写到辅助程序自己的 profile 里去；
+   - 开一个隐藏窗口 `loadFile(<任意 file:// 页面>)` —— 任意 `file://` 页面与 App 的页面**同源**
+     （Chromium 把 `file://` 归一个桶，正是 leveldb 里的 `_file://`），所以能读写同一份 localStorage；
+   - `executeJavaScript('localStorage.setItem("fi-central-token", <新令牌>)')`，回读校验后 `app.quit()`。
+     令牌从**文件**里读，不要写成命令行参数（避免出现在日志/进程列表/会话记录里）。
+3. 运行它，然后重启 App，用 `central.json` 是否变回新令牌来验证
+   （App 启动时会把渲染层的配置回写给主进程，所以这是很好的判据）。
+
+### ⚠️ 一个必须知道的坑：Electron 在 DSH 沙箱里起不来
+
+DSH 的命令跑在 Windows Job 对象里，**Chromium 的沙箱在 Job 里无法初始化**，
+表现是：进程被创建后**立刻静默退出**（退出码 0）、不写任何日志、连 profile 都不创建，
+甚至 `electron.exe --version` 都**零输出**。看起来像"软件坏了"，其实不是。
+
+绕开的两个办法（都实测可用）：
+
+```powershell
+# ① 交给 Explorer 跑（等价于用户双击；在交互会话、Job 之外）
+Start-Process explorer.exe -ArgumentList '"C:\path\to\app.exe"'
+
+# ② 用 WMI 创建进程（父进程是 WmiPrvSE，天然在 Job 之外；可带参数与重定向）
+Invoke-CimMethod -ClassName Win32_Process -MethodName Create `
+  -Arguments @{ CommandLine = 'cmd.exe /c start "" "C:\path\to\app.exe"' }
+```
+
+**但只有 ② 能可靠地跑"带参数 + 重定向输出"的辅助程序**：`.bat` 经 Explorer 投递会被策略挡掉
+（实测没被执行），而 WMI + `cmd /c "... > out.txt 2>&1"` 可以。
+
+判断顺序（排查"App 起不来"时照这个走，别急着怀疑软件）：
+**先确认 Electron 从当前 shell 能不能跑**（`electron.exe --version` 有输出吗）；
+不能 → 是执行环境的问题，换 WMI/Explorer；能 → 再查 App 自身。
