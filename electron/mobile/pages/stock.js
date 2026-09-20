@@ -58,6 +58,20 @@ page('stock', function (app) {
     } catch (e) { toast('删除失败: ' + (e.message || '')) }
   }
 
+  // 商品图片：拍照/相册 → 存到账本机器 + 挂到商品。已有商品补图、换图都走这里。
+  // 换图后文件名不变，靠列表重拉后 URL 带上新的 updated_at 穿透浏览器缓存。
+  async function pickProductPhoto(p) {
+    const name = prodName(p)
+    try {
+      const b64 = await FiPhoto.pickPhoto()
+      if (!b64) return
+      toast('正在上传「' + name + '」的图片…')
+      await FiPhoto.saveProductPhoto(p.id, b64)
+      toast('图片已保存')
+      await search(keyword)
+    } catch (e) { toast('图片保存失败：' + (e.message || '')) }
+  }
+
   function render() {
     app.innerHTML = ''
 
@@ -145,8 +159,15 @@ page('stock', function (app) {
         const badges = (isHot ? '<span style="background:#ff6b6b;color:#fff;border-radius:4px;padding:1px 6px;font-size:12px;font-weight:800">🔥热销</span> ' : '') +
           (isClear ? '<span style="background:#f59e0b;color:#fff;border-radius:4px;padding:1px 6px;font-size:12px;font-weight:800">🏷处理货</span> ' : '')
         const card = document.createElement('div'); card.className = 'card'; card.style.cssText = 'margin:0 16px 8px;padding:12px 14px'
+        // 缩略图（点它也能拍照/换图）：没图时给一个虚线相机位，让人一眼知道这儿能挂图。
+        // loading=lazy：300+ 个 SKU 一次性上屏时，屏幕外的图不要立刻都去请求。
+        const photoUrl = p.photo_path ? FiPhoto.productPhotoUrl(p.photo_path, p.updated_at) : ''
+        const thumb = photoUrl
+          ? '<img data-photo-img src="' + photoUrl + '" alt="" loading="lazy" style="width:52px;height:52px;object-fit:cover;border-radius:8px;border:2px solid var(--ink);flex:none;background:var(--card)">'
+          : '<div data-photo-img style="width:52px;height:52px;border-radius:8px;border:2px dashed var(--line);display:flex;align-items:center;justify-content:center;font-size:20px;flex:none;color:var(--sub)">📷</div>'
         card.innerHTML =
-          '<div class="split" style="align-items:center">' +
+          '<div class="split" style="align-items:center;gap:10px">' +
+            thumb +
             '<div style="min-width:0">' +
               '<div class="font-bold" style="font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + badges + prodName(p) + '</div>' +
               '<div class="text-sm" style="color:var(--sub);margin-top:2px">' + (p.sku_code || '') + '</div>' +
@@ -159,21 +180,26 @@ page('stock', function (app) {
           '<div style="display:flex;gap:8px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)">' +
             '<button data-hot style="flex:1;height:36px;border-radius:8px;border:2px solid var(--ink);font-size:13px;font-weight:800;background:' + (isHot ? '#ff6b6b' : 'var(--card)') + ';color:' + (isHot ? '#fff' : 'var(--ink)') + '">🔥 热销</button>' +
             '<button data-clear style="flex:1;height:36px;border-radius:8px;border:2px solid var(--ink);font-size:13px;font-weight:800;background:' + (isClear ? '#f59e0b' : 'var(--card)') + ';color:' + (isClear ? '#fff' : 'var(--ink)') + '">🏷 处理货</button>' +
-            '<button data-del style="flex:0 0 84px;height:36px;border-radius:8px;border:2px solid var(--red);font-size:13px;font-weight:800;background:#fff;color:var(--red)">🗑 删除</button>' +
+            '<button data-pic style="flex:0 0 76px;height:36px;border-radius:8px;border:2px solid var(--ink);font-size:13px;font-weight:800;background:var(--card);color:var(--ink)">📷 ' + (p.photo_path ? '换图' : '拍照') + '</button>' +
+            '<button data-del style="flex:0 0 72px;height:36px;border-radius:8px;border:2px solid var(--red);font-size:13px;font-weight:800;background:#fff;color:var(--red)">🗑 删除</button>' +
           '</div>'
         card.onclick = () => { try { localStorage.setItem('fi-pos-preselect', String(p.id)) } catch {} navigate('pos') }
         const hotBtn = card.querySelector('[data-hot]')
         const clearBtn = card.querySelector('[data-clear]')
+        const picBtn = card.querySelector('[data-pic]')
+        const picThumb = card.querySelector('[data-photo-img]')
         const delBtn = card.querySelector('[data-del]')
         if (hotBtn) hotBtn.onclick = async (e) => { e.stopPropagation(); await toggleMark(p.id, 'is_hot', !isHot) }
         if (clearBtn) clearBtn.onclick = async (e) => { e.stopPropagation(); await toggleMark(p.id, 'is_clearance', !isClear) }
+        if (picBtn) picBtn.onclick = async (e) => { e.stopPropagation(); await pickProductPhoto(p) }
+        if (picThumb) picThumb.onclick = async (e) => { e.stopPropagation(); await pickProductPhoto(p) }
         if (delBtn) delBtn.onclick = async (e) => { e.stopPropagation(); await removeProduct(p) }
         q.push(function () { app.appendChild(card) })
       })
     }
 
     const foot = document.createElement('div'); foot.className = 'text-center'; foot.style.cssText = 'padding:16px;color:var(--sub);font-size:13px'
-    foot.textContent = '点商品可去开单页卖它；删除只能删没入过库、没流水的新建错档（有历史的可改停产）'
+    foot.textContent = '点商品可去开单页卖它；点左边的相机位或「📷」能给商品拍/换图片；删除只能删没入过库、没流水的新建错档（有历史的可改停产）'
     q.push(function () { app.appendChild(foot) })
     drain()
   }

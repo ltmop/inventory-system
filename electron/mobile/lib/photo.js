@@ -63,11 +63,18 @@
     return r.path
   }
 
-  /** photo_path → <img src> 可用地址（手机端与接口同源，拼绝对地址 + 令牌最稳） */
-  function productPhotoUrl(photoPath) {
+  /**
+   * photo_path → <img src> 可用地址（手机端与接口同源，拼绝对地址 + 令牌最稳）。
+   * version 用于缓存穿透 —— 换图后文件名不变（还是 <商品id>.jpg），不换 URL 浏览器会拿旧图；
+   * 传商品的 updated_at 即可（服务端 updateProduct 每次都刷它）。
+   */
+  function productPhotoUrl(photoPath, version) {
     if (!photoPath) return ''
     if (String(photoPath).indexOf('data:') === 0) return String(photoPath)
-    return SERVER + '/api/photo?path=' + encodeURIComponent(photoPath) + '&token=' + encodeURIComponent(TOKEN)
+    var v = (version === undefined || version === null || version === '')
+      ? ''
+      : '&v=' + encodeURIComponent(String(version))
+    return SERVER + '/api/photo?path=' + encodeURIComponent(photoPath) + '&token=' + encodeURIComponent(TOKEN) + v
   }
 
   window.FiPhoto = {
