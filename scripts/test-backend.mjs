@@ -2041,6 +2041,86 @@ ok('main.js 注册 photo 通道', mainSrc.includes("'photo:save'") && mainSrc.in
 ok('main.js 注册 fi-img 自定义协议', mainSrc.includes("protocol.handle('fi-img'"))
 ok('preload 白名单含 photo 通道', preloadSrc.includes("'photo:save'") && preloadSrc.includes("'photo:delete'"))
 
+// 36b. 商品图片两端打通（2026-09-21）
+//   背景：桌面窗口是 main.js loadFile 加载的 file:// 页面。旧代码在 http 模式（中心库）下返回
+//   **相对地址** `/api/photo?…` → 浏览器解析成 file:///api/photo?… → 中心库模式下桌面端
+//   一张商品图都显示不出来。下面几条把修复与手机端上传链路一起锁住。
+const photoSrc = fs.readFileSync(path.resolve('src/lib/photo.ts'), 'utf8')
+ok(
+  'photo.ts http 分支用中心库绝对地址 + 中心库令牌（桌面是 file:// 页面）',
+  photoSrc.includes('getCentralConfig()') && photoSrc.includes('cfg.url.replace') && photoSrc.includes('cfg.token'),
+)
+ok('photo.ts 不再返回裸相对地址', !photoSrc.includes('return `/api/photo?path='))
+ok('photo.ts 桌面端判据用 window.fi（手机看店/局域网浏览器页保持相对地址不变）', photoSrc.includes('!!window.fi'))
+const mobilePhotoSrc = fs.readFileSync(path.resolve('electron/mobile/lib/photo.js'), 'utf8')
+ok(
+  '手机端图片助手存在且导出 FiPhoto',
+  mobilePhotoSrc.includes('window.FiPhoto') && mobilePhotoSrc.includes('pickPhoto') && mobilePhotoSrc.includes('saveProductPhoto'),
+)
+ok(
+  '手机端存图走 photo:save + product:update 两步',
+  mobilePhotoSrc.includes("api('photo:save'") && mobilePhotoSrc.includes("api('product:update'") && mobilePhotoSrc.includes('photo_path'),
+)
+ok('手机端图片地址拼绝对地址（SERVER + /api/photo）', mobilePhotoSrc.includes("SERVER + '/api/photo?path='"))
+ok('手机端压缩与桌面同口径（800px / 0.85）', mobilePhotoSrc.includes('MAX_EDGE = 800') && mobilePhotoSrc.includes('QUALITY = 0.85'))
+const mobileInboundSrc = fs.readFileSync(path.resolve('electron/mobile/pages/inbound.js'), 'utf8')
+ok('入库建档可挂商品照片', mobileInboundSrc.includes('FiPhoto.pickPhoto') && mobileInboundSrc.includes('FiPhoto.saveProductPhoto'))
+ok('入库页加载了图片助手', fs.readFileSync(path.resolve('electron/mobile/index.html'), 'utf8').includes('lib/photo.js'))
+ok('手机端离线缓存清单含图片助手', fs.readFileSync(path.resolve('electron/mobile/sw.js'), 'utf8').includes("BASE + 'lib/photo.js'"))
+
+// 36c. 手机端传图全链路（真实走 /api/invoke，与手机端 lib/photo.js 的两步完全一致）
+//   手机拍完图不做任何"同步"——图片就存在**账本所在那台机器**上，products.photo_path 存文件名，
+//   因此手机与电脑看的是同一张图（前提是 36b 的地址修复在位）。
+{
+  const mpDir = path.join(tmp, 'mobile-photo')
+  const mpdb = openDatabase(path.join(mpDir, 'data.db'))
+  const srvMP = createInventoryServer({ db: mpdb, dataDir: mpDir, basePort: 0 })
+  const stMP = await srvMP.start()
+  const mpBase = `http://127.0.0.1:${stMP.port}`
+  const mpToken = fs.readFileSync(path.join(mpDir, 'server-token.txt'), 'utf8').trim()
+  const call = (channel, payload) =>
+    fetch(`${mpBase}/api/invoke?token=${mpToken}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel, payload }),
+    }).then(async (r) => {
+      const body = await r.json().catch(() => ({}))
+      // 手机端 app.js 的 invokeRaw 返回的是 data.result（拆掉 {ok,result} 外层）——
+      // 测试按**手机端同一契约**断言，否则测的就不是手机真正拿到的东西。
+      return { status: r.status, result: body.result }
+    })
+
+  const mp = cmd.createProduct(mpdb, { sku_code: 'MP-1', category: '其他', brand: '手机牌', model: '拍照款', cost_price: 500 })
+  const phoneJpeg = Buffer.from('phone-jpeg-bytes')
+  // ① 第一步：存图（photo:save 只落盘、不动数据库 —— 与桌面端同一口径）
+  const savedMp = await call('photo:save', { productId: mp.id, base64: phoneJpeg.toString('base64'), ext: 'jpg' })
+  ok(
+    '手机端 photo:save 返回相对文件名',
+    savedMp.status === 200 && !!savedMp.result && savedMp.result.ok === true && savedMp.result.path === `${mp.id}.jpg`,
+  )
+  const mpImg = path.join(mpDir, 'images', `${mp.id}.jpg`)
+  ok('手机端 photo:save 图片落到账本机器的 images/', fs.existsSync(mpImg) && fs.readFileSync(mpImg).equals(phoneJpeg))
+  // ② 第二步：把文件名挂到商品上
+  const linkedMp = await call('product:update', { id: mp.id, photo_path: `${mp.id}.jpg` })
+  ok(
+    '手机端 product:update 挂上 photo_path',
+    linkedMp.status === 200 && mpdb.prepare('SELECT photo_path FROM products WHERE id = ?').get(mp.id).photo_path === `${mp.id}.jpg`,
+  )
+  // ③ 挂上后，手机与电脑走同一个取图出口
+  const gotImg = await fetch(`${mpBase}/api/photo?path=${mp.id}.jpg&token=${mpToken}`)
+  ok(
+    '挂图后 /api/photo 取得到（两端同一出口）',
+    gotImg.status === 200 && gotImg.headers.get('content-type') === 'image/jpeg' && (await gotImg.text()) === 'phone-jpeg-bytes',
+  )
+  const invMp = await (await fetch(`${mpBase}/api/inventory?q=${encodeURIComponent('拍照款')}&token=${mpToken}`)).json()
+  ok('库存接口带回 photoPath（列表出缩略图）', invMp.length > 0 && invMp[0].photoPath === `${mp.id}.jpg`)
+  // ④ 删图：文件与库字段一起清（与桌面端同一条命令层路径）
+  await call('photo:delete', { productId: mp.id })
+  ok('删图同时清文件与 photo_path', !fs.existsSync(mpImg) && mpdb.prepare('SELECT photo_path FROM products WHERE id = ?').get(mp.id).photo_path === null)
+  await srvMP.stop()
+  mpdb.close()
+}
+
 // 37. 批量修改商品（batchUpdateProducts）：打折/统一价/状态/audit 埋点/档次价同步/原子回滚
 {
   const bdb = openDatabase(path.join(tmp, 'batch.db'))
