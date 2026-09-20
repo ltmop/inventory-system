@@ -667,7 +667,7 @@ async function decodeBarcode(img) {
 
 // 首屏按需加载：只预载 4 个高频页（开单/入库/库存/今日），其余首次进入时才注入脚本，
 // 缩短启动白屏；离线也能用 —— sw.js 的预缓存里已经包含全部页面脚本。
-const LAZY_PAGES = { ai: 1, restock: 1, expiring: 1, waste: 1, kits: 1, customers: 1, expenses: 1, suppliers: 1, stocktake: 1, parts: 1, product: 1 }
+const LAZY_PAGES = { ai: 1, restock: 1, expiring: 1, waste: 1, kits: 1, customers: 1, expenses: 1, suppliers: 1, stocktake: 1, parts: 1, product: 1, customer: 1, receipts: 1 }
 const lazyLoading = {}
 function loadPageScript(name) {
   if (pages[name] || !LAZY_PAGES[name]) return Promise.resolve(!!pages[name])
@@ -703,7 +703,7 @@ page('more', (app) => {
     ['👤 客户欠款', '赊账查询与收款', () => navigate('customers')],
     ['💸 支出记账', '记一笔房租/水电/进货', () => navigate('expenses')],
     ['🏭 供应商', '进货对账', () => navigate('suppliers')],
-    ['💳 收款登记', '微信/支付宝/现金实收登记 + 日结对账', () => openReceiptPanel()],
+    ['💳 收款登记', '实收登记流水（谁/何时登的）+ 和营业额对账', () => navigate('receipts')],
     ['📋 核对货架', '每天核对一片区域', () => navigate('stocktake')],
   ]
   items.forEach(([t, d, fn]) => {

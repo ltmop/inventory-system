@@ -7,8 +7,8 @@ const ASSETS = [
   BASE + 'pages/pos.js', BASE + 'pages/inbound.js', BASE + 'pages/stock.js', BASE + 'pages/today.js',
   BASE + 'pages/expiring.js', BASE + 'pages/waste.js', BASE + 'pages/parts.js', BASE + 'pages/kits.js', BASE + 'pages/restock.js',
   BASE + 'pages/customers.js', BASE + 'pages/suppliers.js', BASE + 'pages/expenses.js', BASE + 'pages/stocktake.js', BASE + 'pages/ai.js',
-  BASE + 'pages/product.js',
-  BASE + 'lib/photo.js', BASE + 'lib/zxing.min.js',
+  BASE + 'pages/product.js', BASE + 'pages/customer.js', BASE + 'pages/receipts.js',
+  BASE + 'lib/photo.js', BASE + 'lib/customer.js', BASE + 'lib/zxing.min.js',
 ]
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())) })
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))).then(() => self.clients.claim()))) })
