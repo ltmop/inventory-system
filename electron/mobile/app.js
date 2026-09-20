@@ -254,6 +254,92 @@ function parseConnectInput(raw) {
   out.token = sanitizeToken(s)
   return out
 }
+// ========== 账号密码登录（与桌面端同一套账号）==========
+// 电脑端登录走的是 POST https://sync.junchengzn.com/api/device/bind（用户名+密码 → 设备令牌），
+// 再用设备令牌换中心库地址+连接码（/api/cockpit/central-config）。手机端走同一条路，
+// 所以「手机上登录」和「电脑上登录」是同一个账号、同一本账，不用再手抄连接码。
+const CLOUD_LOGIN = 'https://sync.junchengzn.com'
+function savedAccount() { try { return localStorage.getItem('fi-account') || '' } catch (e) { return '' } }
+function savedServer() { try { return localStorage.getItem('fi-server') || '' } catch (e) { return '' } }
+
+function cfFetch(url, opt, ms) {
+  return new Promise(function (resolve, reject) {
+    var ctrl = new AbortController()
+    var t = setTimeout(function () { ctrl.abort() }, ms || 15000)
+    fetch(url, Object.assign({ signal: ctrl.signal }, opt || {}))
+      .then(function (r) { clearTimeout(t); resolve(r) })
+      .catch(function (e) { clearTimeout(t); reject(e) })
+  })
+}
+
+function openLoginPanel(firstRun) {
+  const old = document.getElementById('lg-panel'); if (old) old.remove()
+  const ov = document.createElement('div')
+  ov.id = 'lg-panel'
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(10,22,40,.97);z-index:300;padding:22px;color:#e6edf5;overflow:auto'
+  const inpCss = 'width:100%;height:58px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);border-radius:12px;color:#fff;font-size:17px;padding:0 14px;outline:none;margin-bottom:10px'
+  ov.innerHTML =
+    '<div style="font-size:22px;font-weight:800;margin-bottom:6px">登录店铺账本</div>' +
+    '<div style="font-size:14px;color:#8fa3c0;line-height:1.75;margin-bottom:16px">用电脑上那个<b style="color:#d4af37">账号 + 密码</b>登录，和桌面端同一套账号、同一本账。' +
+    (firstRun ? '<br><br>登录后开单、入库、查库存、看今天赚多少都能用。' : '') + '</div>' +
+    '<input id="lg-user" placeholder="账号" autocomplete="username" spellcheck="false" style="' + inpCss + '">' +
+    '<input id="lg-pass" type="password" placeholder="密码" autocomplete="current-password" style="' + inpCss + '">' +
+    '<div id="lg-msg" style="font-size:13px;color:#ffb4b4;min-height:20px;margin:2px 0 12px;line-height:1.6"></div>' +
+    '<button id="lg-go" style="width:100%;height:60px;border-radius:14px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:19px;font-weight:800">登录并进入</button>' +
+    '<button id="lg-forgot" style="width:100%;height:46px;margin-top:10px;border-radius:12px;border:none;background:rgba(255,255,255,.08);color:#b9c8dd;font-size:15px">忘记密码？</button>' +
+    '<div style="display:flex;align-items:center;gap:10px;margin:18px 0 14px;color:#5d708c;font-size:12px"><div style="flex:1;height:1px;background:rgba(255,255,255,.15)"></div>或者<div style="flex:1;height:1px;background:rgba(255,255,255,.15)"></div></div>' +
+    '<button id="lg-code" style="width:100%;height:50px;border-radius:12px;border:none;background:rgba(255,255,255,.12);color:#e6edf5;font-size:16px;font-weight:700">用连接码 / 扫码接入</button>' +
+    (savedServer() ? '<div style="font-size:12px;color:#8fa3c0;margin-top:12px">上次连的账本：' + escHtml(savedServer()) + '</div>' : '')
+  document.body.appendChild(ov)
+  const u = ov.querySelector('#lg-user'), p = ov.querySelector('#lg-pass'), msg = ov.querySelector('#lg-msg'), go = ov.querySelector('#lg-go')
+  try { u.value = savedAccount() } catch (e) {}
+  function say(t, color) { msg.style.color = color || '#ffb4b4'; msg.textContent = t || '' }
+  function connect(payload, deviceName) {
+    say('正在登录…', '#8fa3c0'); go.disabled = true
+    cfFetch(CLOUD_LOGIN + '/api/device/bind', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: payload.username, password: payload.password, deviceName: deviceName }),
+    }, 20000).then(function (r) {
+      return r.json().catch(function () { return {} }).then(function (j) { return { status: r.status, j: j } })
+    }).then(function (res) {
+      const j = res.j || {}
+      if (res.status === 429) throw new Error(j.error || '试得太多次了，过 15 分钟再试')
+      if (!j.ok || !j.uploadToken) throw new Error(j.error || (res.status === 401 ? '账号或密码不对' : '登录失败（' + res.status + '）'))
+      return cfFetch(CLOUD_LOGIN + '/api/cockpit/central-config', {
+        headers: { 'x-user-id': String(j.userId), 'x-token': String(j.uploadToken) },
+      }, 20000).then(function (r2) { return r2.json().catch(function () { return {} }) }).then(function (c) {
+        if (!c || !c.ok || !c.token) throw new Error((c && c.error) || '账号没问题，但没取到账本地址，请联系维护')
+        try {
+          localStorage.setItem('fi-mobile-token', String(c.token))
+          localStorage.setItem('fi-server', String(c.url || CLOUD_LOGIN))
+          localStorage.setItem('fi-account', String(j.username || payload.username))
+        } catch (e) {}
+        say('登录成功，正在打开…', '#8ce0a8')
+        setTimeout(function () { location.reload() }, 400)
+      })
+    }).catch(function (e) {
+      go.disabled = false
+      const m = String((e && e.message) || e)
+      say(/abort|Failed to fetch|NetworkError|Load failed/i.test(m) ? '连不上账号服务器，检查手机网络后重试' : m)
+    })
+  }
+  function submit() {
+    const username = (u.value || '').trim(), password = p.value || ''
+    if (!username) { say('请填账号'); u.focus(); return }
+    if (!password) { say('请填密码'); p.focus(); return }
+    const dev = '手机 ' + (navigator.userAgent.indexOf('Android') >= 0 ? '安卓' : '')
+    connect({ username: username, password: password }, dev)
+  }
+  go.onclick = submit
+  p.onkeydown = function (e) { if (e.key === 'Enter') submit() }
+  u.onkeydown = function (e) { if (e.key === 'Enter') p.focus() }
+  ov.querySelector('#lg-forgot').onclick = function () {
+    alert('忘记密码：\n\n· 短信找回还没开通（要接短信网关，后面加）；\n· 现在请找店主，在电脑上用管理员重置密码，重置后用新密码登录。\n\n你也可以先用「连接码 / 扫码」接入。')
+  }
+  ov.querySelector('#lg-code').onclick = function () { ov.remove(); openConnectPanel(firstRun) }
+  setTimeout(function () { (u.value ? p : u).focus() }, 150)
+}
+
 function openConnectPanel(firstRun) {
   const old = document.getElementById('cn-panel'); if (old) old.remove()
   const ov = document.createElement('div')
@@ -328,7 +414,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setTimeout(function () { checkUpdate(true) }, 3000)
   // 没有连接码：用页内面板（可粘整条链接 / 扫码），不再用系统弹窗 —— 店主不会打长串；
   // 官网 / 局域网 /m/ 也一样走这里（粘连接码即可，SERVER 留空=同源）。
-  if (!TOKEN) { openConnectPanel(true); return }
+  if (!TOKEN) { openLoginPanel(true); return }   // 没登录：先给账号密码登录（连接码/扫码在面板里作为备选）
   document.getElementById('dateEl').textContent = new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })
   renderPage()
   flushOffline() // 开机先把上次离线攒下的单据重传一遍
@@ -648,10 +734,32 @@ page('more', (app) => {
       app.appendChild(backCard)
     }
   }
+  // 账号卡：显示「登录的是哪个账号、连的是哪个账本」——多设备/多店最容易搞混的就是这个
+  const acc = savedAccount()
+  const accCard = document.createElement('div')
+  accCard.className = 'card'
+  accCard.innerHTML = '<div class="font-bold">🪪 登录账号</div>' +
+    '<div class="text-sm text-muted mt-sm">' + (acc ? escHtml(acc) : '（用连接码接入，没走账号登录）') + '</div>' +
+    '<div class="text-sm text-muted mt-sm">账本：' + escHtml(savedServer() || SERVER || '本机') + '</div>'
+  app.appendChild(accCard)
   const connCard = document.createElement('div')
   connCard.className = 'card'; connCard.style.cursor = 'pointer'; connCard.onclick = function () { openConnectPanel() }
-  connCard.innerHTML = '<div class="font-bold">🔗 连接设置</div><div class="text-sm text-muted mt-sm">' + (TOKEN ? '已连接店铺账本' : '还没连接') + ' · 换店铺或重新输入连接码' + '</div>'
+  connCard.innerHTML = '<div class="font-bold">🔗 连接设置</div><div class="text-sm text-muted mt-sm">' + (TOKEN ? '已连接店铺账本' : '还没连接') + ' · 换店铺、粘连接码或扫码' + '</div>'
   app.appendChild(connCard)
+  const logoutCard = document.createElement('div')
+  logoutCard.className = 'card'; logoutCard.style.cursor = 'pointer'
+  logoutCard.onclick = function () {
+    if (!confirm('退出登录？\n\n退出后这台手机就看不到账本了，下次要用账号密码重新登录（离线攒着还没上传的单据也会一起清掉，请先确认没有待上传）。')) return
+    try {
+      localStorage.removeItem('fi-mobile-token')
+      localStorage.removeItem('fi-server')
+      localStorage.removeItem('fi-account')
+    } catch (e) {}
+    toast('已退出，正在返回登录页…')
+    setTimeout(function () { location.reload() }, 500)
+  }
+  logoutCard.innerHTML = '<div class="font-bold" style="color:var(--red)">🚪 退出登录</div><div class="text-sm text-muted mt-sm">换人或换店铺时用；退出不会动账本里的数据</div>'
+  app.appendChild(logoutCard)
   const note = document.createElement('div')
   note.className = 'text-center text-sm text-muted'; note.style.padding = '20px'
   note.textContent = '采购订货、经营报表、批量导入、设置请在电脑上操作'

@@ -128,7 +128,7 @@
 | 桌面项目（本仓库） | C:\Users\Administrator\Desktop\库存管理\AI智能管理进销存系统 |
 | 桌面运行库 | %APPDATA%\fishing-inventory\data.db |
 | 手机版 | D:\mobile-app-ading |
-| 通用进销存（cloud-server + 驾驶舱 desktop-app） | D:\通用进销存 |
+| 通用进销存（cloud-server + 驾驶舱 desktop-app） | D:\B6-通用进销存 |
 | 驾驶舱 | D:\B5-COE驾驶舱 |
 | 知识库 | D:\A1-AI知识库（进销存文档在 70-进销存系统项目） |
 
