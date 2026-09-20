@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Moon, Sun, Search, Settings, PanelLeftClose, PanelLeftOpen, AlertTriangle, UserCircle2, LogOut, CloudUpload } from 'lucide-react'
+import { Moon, Sun, Search, Settings, PanelLeftClose, PanelLeftOpen, AlertTriangle, UserCircle2, LogOut, CloudUpload, RefreshCw, Check } from 'lucide-react'
 import { useAppStore } from '@/store/appStore'
 import { OfflineChip } from './OfflineBanner'
 import { getCentralConfig } from '@/lib/api'
@@ -49,6 +49,36 @@ export function TopBar({
   // 云账号（多设备同步用）
   const cloud = useAppStore((s) => s.cloud)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+
+  // 「刷新界面」（2026-09-20 owner：「加一个刷新界面的按钮在右上角，不然没错的数据同步都得重启一遍」）
+  //
+  // 为什么需要它：数据在别处已经同步好了（中心库 / 另一台机器），但本机界面还是旧的 ——
+  //   本机只在启动时 loadAll 一次，之后除非自己改数据（改完各处都会 loadAll），否则不会重拉。
+  //   所以以前只能重启软件。
+  //
+  // ⚠️ 这里**只做软刷新**：把数据重新拉进 store，让界面跟着重渲染。
+  //    绝不重挂载页面、绝不调 location.reload() ——
+  //    开单页的购物车是**页面局部 state**（OutboundPage 的 useState<CartItem[]>），
+  //    重挂载会把还没结的单清空；收银机上误触一下就丢单，那不是刷新是事故。
+  const loadAll = useAppStore((s) => s.loadAll)
+  const loadCustomers = useAppStore((s) => s.loadCustomers)
+  const [refreshing, setRefreshing] = useState(false)
+  const [justRefreshed, setJustRefreshed] = useState(false)
+
+  const doRefresh = async () => {
+    if (refreshing) return
+    setRefreshing(true)
+    setJustRefreshed(false)
+    try {
+      await loadAll()
+      // 客户是单独拉的（loadAll 不含客户）—— 它失败不该让整次刷新算失败
+      await loadCustomers().catch(() => {})
+      setJustRefreshed(true)
+      window.setTimeout(() => setJustRefreshed(false), 2000)
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   // 角色中文标签
   const roleLabel = currentUser?.role === 'owner' ? '老板' : currentUser?.role === 'manager' ? '高管' : '店员'
@@ -130,6 +160,28 @@ export function TopBar({
 
       {/* 离线/待上传（A3 离线层）：断网时店主能看见「单子在本地排队」，不会以为没记上 */}
       <OfflineChip />
+
+      {/* 刷新界面：重新拉数据进 store，让「别处已同步、本机界面还是旧的」这种情况不用重启软件。
+          只刷新数据、不重挂载页面 —— 理由见上面 doRefresh 的注释（会丢开单）。 */}
+      <button
+        onClick={() => void doRefresh()}
+        disabled={refreshing}
+        className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-60 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200 cursor-pointer"
+        title={
+          refreshing
+            ? '正在刷新数据…'
+            : justRefreshed
+              ? '已刷新'
+              : '刷新界面（重新拉取数据，不用重启软件；不影响正在开的单）'
+        }
+        aria-label="刷新界面"
+      >
+        {justRefreshed ? (
+          <Check className="size-5 text-emerald-500" />
+        ) : (
+          <RefreshCw className={refreshing ? 'size-5 animate-spin' : 'size-5'} />
+        )}
+      </button>
 
       {/* 明暗切换 */}
       <button

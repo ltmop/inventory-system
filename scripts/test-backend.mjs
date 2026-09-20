@@ -3117,5 +3117,28 @@ ok('preload 白名单含 expense 三通道',
     /try \{\s*\n\s*seedDatabase\(db\)\s*\n\s*\} catch/.test(dbSrc2))
 }
 
+// ============ 界面：「刷新界面」按钮（2026-09-20 owner 要求）============
+// owner 原话：「加一个刷新界面的按钮在右上角，不然没错的数据同步都得重启一遍」。
+// 要害不是"有没有这个按钮"，而是**它只能是软刷新**：
+//   开单页的购物车是页面局部 state（OutboundPage 的 useState<CartItem[]>），
+//   谁哪天把刷新改成 location.reload() 或重挂载页面，收银机误触一下就把没结的单丢了 ——
+//   那不是刷新，是事故。所以那条负向守卫比正向的还重要。
+{
+  const topbar = fs.readFileSync(path.resolve('src/components/layout/TopBar.tsx'), 'utf8')
+  ok('刷新按钮：顶栏有它（右上角，带 aria-label）', /aria-label="刷新界面"/.test(topbar))
+  ok('刷新按钮：真的重拉数据（调 loadAll）', /await loadAll\(\)/.test(topbar))
+  ok('刷新按钮：顺带重拉客户列表（loadAll 不含客户）', /loadCustomers\(\)/.test(topbar))
+  // 判"有没有整页 reload"之前**必须先去注释**：注释里写着
+  // 「绝不调 location.reload()」是文档，不是调用；不去注释就会把文档判成事故。
+  const topbarCode = topbar
+    .replace(/\/\*[\s\S]*?\*\//g, '') // 块注释
+    .replace(/^\s*\/\/.*$/gm, '') // 整行注释（只去整行的，避免误伤字符串里的 https://）
+  ok('刷新按钮：是软刷新，不整页 reload（否则会丢正在开的单）',
+    !/location\.reload|location\.href\s*=/.test(topbarCode))
+  ok('刷新按钮：防重复点击（refreshing 期间不重入）', /if \(refreshing\) return/.test(topbar))
+  ok('刷新按钮：有进行中/已完成反馈（转圈 + 打勾）',
+    /animate-spin/.test(topbar) && /justRefreshed/.test(topbar))
+}
+
 fs.rmSync(tmp, { recursive: true, force: true })
 console.log(`\n全部 ${passed} 项断言通过`)
