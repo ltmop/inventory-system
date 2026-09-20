@@ -1,7 +1,7 @@
 // 商品图片（渲染端）：选图 → canvas 压缩 → base64 经 photo:save IPC 落盘；
 // 读图走主进程注册的 fi-img:// 自定义协议（file:// 页面直接引用 %APPDATA% 绝对路径会被拦，
 // data URL 图片一多内存吃不消，故不采用）
-import { backend, backendKind, lanToken } from '@/lib/api'
+import { backend, backendKind, getCentralConfig, lanToken } from '@/lib/api'
 
 // 压缩参数（以后要调就改这两个）：最长边 800px、JPEG 质量 0.85
 // 800px 对 48px 缩略图和弹窗大图预览都够用，一张压完一般 <300KB
@@ -21,9 +21,17 @@ export function productPhotoUrl(
   if (photoPath.startsWith('data:')) return photoPath
   if (!backend) return null
   const v = version != null && version !== '' ? `&v=${encodeURIComponent(String(version))}` : ''
-  // 局域网整机共享：图片走主机 HTTP 接口（带 token）；桌面端走 fi-img:// 自定义协议
+  // 局域网整机共享 / 中心库：图片走主机 HTTP 接口（带 token）。
+  // ⚠️ 桌面端（Electron）页面是 file:// 加载的（main.js loadFile）：相对地址 `/api/photo?…`
+  //    会被浏览器解析成 file:///api/photo?…，永远取不到图 —— 2026-09-21 修。
+  //    所以桌面端必须用**绝对地址 + 中心库令牌**；手机看店页 / 局域网浏览器页与图片同源，
+  //    仍用相对地址 + 局域网令牌（保持原行为不变）。
   if (backendKind === 'http') {
-    return `/api/photo?path=${encodeURIComponent(photoPath)}&token=${encodeURIComponent(lanToken ?? '')}${v}`
+    const cfg = getCentralConfig()
+    const desktop = typeof window !== 'undefined' && !!window.fi && !!cfg.url
+    const base = desktop ? cfg.url.replace(/\/+$/, '') : ''
+    const token = desktop ? cfg.token : (lanToken ?? '')
+    return `${base}/api/photo?path=${encodeURIComponent(photoPath)}&token=${encodeURIComponent(token)}${v}`
   }
   const sep = version != null && version !== '' ? `?v=${encodeURIComponent(String(version))}` : ''
   return `fi-img://photo/${encodeURIComponent(photoPath)}${sep}`
