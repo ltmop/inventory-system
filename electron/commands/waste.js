@@ -2,6 +2,7 @@
 // 报损 = 从批次扣库存（优先最早到期批次，临期先处理）+ 记 waste_logs（带该批次的进价，供成本报表按批算）
 //      + 写一条 type='waste' 流水，让报损像出入库一样能在"商品进出记录"里翻到（哪天、谁、报损了啥）。
 import { assertQuantity, inTransaction, now, productLabel, logAudit } from './helpers.js'
+import { pushUndo } from './undo.js'
 
 /** 登记报损：减少批次库存 + 记损耗 + 写报损流水。数量必须 ≥1，库存不足直接拒绝 */
 export function createWaste(db, { productId, quantity: rawQuantity, reason, operator }) {
@@ -37,19 +38,31 @@ export function createWaste(db, { productId, quantity: rawQuantity, reason, oper
       `INSERT INTO transactions (product_id, batch_id, type, quantity, unit_price, selling_price, timestamp, operator, notes, customer_id, paid_amount, pay_method)
        VALUES (?, ?, 'waste', ?, ?, NULL, ?, ?, ?, NULL, NULL, NULL)`,
     )
+    const logIds = []
+    const txIds = []
     for (const b of batches) {
       if (remaining <= 0) break
       const deduct = Math.min(b.quantity, remaining)
       updBatch.run(deduct, b.id)
       // 每扣一个批次记一条损耗：cost_price = 该批次进价（哪批报损按哪批的成本算）
-      insLog.run(productId, b.id, deduct, b.cost_price, reasonText, operator ?? null, ts)
+      const lr = insLog.run(productId, b.id, deduct, b.cost_price, reasonText, operator ?? null, ts)
       // 同时写一条 type='waste' 流水，进出记录里能查到
-      insTx.run(productId, b.id, deduct, b.cost_price, ts, operator ?? null, reasonText)
+      const tr = insTx.run(productId, b.id, deduct, b.cost_price, ts, operator ?? null, reasonText)
+      logIds.push(Number(lr.lastInsertRowid))
+      txIds.push(Number(tr.lastInsertRowid))
       allocations.push({ batchId: b.id, quantity: deduct, costPrice: b.cost_price })
       remaining -= deduct
     }
     logAudit(db, '报损', `${productLabel(prod)} x${quantity}`,
       { quantity, reason: reasonText, costPrice: prod.cost_price }, operator)
+    // 可撤回快照：把扣掉的量加回原批次 + 删掉这次的损耗与流水
+    pushUndo(db, {
+      channel: 'waste:create',
+      label: `${productLabel(prod)} x${quantity}`,
+      detail: reasonText ? ('报损（' + reasonText + '）') : '报损',
+      undo: { kind: 'waste', entries: allocations, logIds, txIds },
+      operator,
+    })
     return { ok: true, allocations }
   })
 }

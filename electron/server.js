@@ -733,6 +733,7 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
   // 「服务重启」比 15 分钟窗口更常发生（每次部署/崩溃），重复单据会真的落两次。
   // 现改为**落库**（表 idem），并把默认窗口放宽到 7 天（离线单据可能躺数天才重放）；
   // 可用 FI_IDEM_TTL_MS 覆盖。建表失败则退回内存 Map —— 绝不因幂等层把服务打挂。
+  try { cmds.ensureUndoTable(db) } catch (e) { console.error('[server] 撤回表不可用:', e && e.message) }
   const IDEM_TTL = Number(process.env.FI_IDEM_TTL_MS || 7 * 24 * 3600 * 1000)
   let idemReady = false
   const idemFallback = new Map()
@@ -857,6 +858,8 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     'stocktake:create','stocktake:updateItem','stocktake:complete','stocktake:submit','import:batch',
     // 库位调拨是写操作（改批次库位）—— 漏在这里等于只读令牌也能调拨
     'stock:transfer',
+    // 撤回是写操作（会改库存/流水/商品表）—— 必须算写通道，否则只读令牌也能撤回
+    'undo:apply',
     'customer:create','customer:update','customer:delete','payment:record',
     'expense:create','expense:update','expense:delete','waste:create',
     // 注：receipt:reconcile 是纯查询（commands/receipt.js 里只有 SELECT），原来误放在写通道，
@@ -1106,6 +1109,10 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     // 所以营业额/毛利/库存金额都不受影响（详见 commands/stock.js 头部）。中心库模式下必须能用。
     'stock:transfer': (d, p) => cmds.transferStock(d, p),
     'stock:byLocation': (d, p) => cmds.stockByLocation(d, p?.productId),
+    // 撤回（2026-09-20）：删商品/报损/入库留了可逆快照，误操作能一键还原。
+    // 桌面端与手机端共用这两个通道（中心库模式下都走这里）。
+    'undo:list': (d, p) => cmds.listUndo(d, p),
+    'undo:apply': (d, p) => cmds.applyUndo(d, p?.id, p?.operator),
     'customer:create': (d, p) => cmds.createCustomer(d, p),
     'customer:update': (d, p) => cmds.updateCustomer(d, p),
     'customer:delete': (d, p) => cmds.deleteCustomer(d, p),
@@ -1216,6 +1223,41 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       }
     },
     'report:lowStock': (d) => cmds.lowStockProducts(d),
+    // 收银台首页「快捷货架」：有销量 → 按销量排（真热销）；没有销量数据（新账/刚重开）→
+    // 退回「有货的常用货」，把台面铺满，别让收银员对着空屏一个个搜。
+    // 返回 { basis: 'sales'|'mixed'|'stock', items:[...] }，界面据此说实话（是热销还是只是有货）。
+    'report:posQuickPicks': (d, p) => {
+      const days = Math.min(Math.max(parseInt(p?.days, 10) || 30, 1), 90)
+      const limit = Math.min(Math.max(parseInt(p?.limit, 10) || 9, 3), 24)
+      const cols = 'p.id, p.brand, p.model, p.sku_code, p.suggest_price, p.photo_path, p.unit, p.category'
+      const hot = d.prepare(
+        `SELECT ${cols}, SUM(t.quantity) AS qty, SUM(t.selling_price * t.quantity) AS revenue
+         FROM transactions t JOIN products p ON p.id = t.product_id
+         WHERE t.type = 'out' AND date(t.timestamp,'localtime') >= date('now','localtime',?)
+         GROUP BY t.product_id ORDER BY qty DESC LIMIT ?`,
+      ).all(`-${days} days`, limit)
+      if (hot.length >= limit) return { basis: 'sales', items: hot }
+      const skip = new Set(hot.map((h) => h.id))
+      const want = limit - hot.length
+      // 常卖品类优先（渔具店：蚯蚓/饵料/冻饵/配件…），同品类内按「有货多少」排
+      const pref = ['蚯蚓', '冻饵', '饵料', '配件', '鱼钩', '鱼线', '浮漂', '铅坠', '路亚', '假饵']
+      const rest = d.prepare(
+        `SELECT ${cols}, COALESCE(SUM(b.quantity),0) AS total_stock
+         FROM products p LEFT JOIN inventory_batches b ON b.product_id = p.id AND b.quantity > 0
+         WHERE p.status != '停产'
+         GROUP BY p.id HAVING total_stock > 0`,
+      ).all()
+        .filter((r) => !skip.has(r.id))
+        .map((r) => {
+          const text = (r.category || '') + ' ' + (r.model || '') + ' ' + (r.brand || '') + ' ' + (r.sku_code || '')
+          const idx = pref.findIndex((k) => text.includes(k))
+          return { r, rank: idx < 0 ? 99 : idx }
+        })
+        .sort((a, b) => (a.rank - b.rank) || ((b.r.total_stock || 0) - (a.r.total_stock || 0)))
+        .slice(0, want)
+        .map((x) => x.r)
+      return { basis: hot.length ? 'mixed' : 'stock', items: hot.concat(rest) }
+    },
     'report:hotSellers': (d, p) => {
       const days = Math.min(Math.max(parseInt(p?.days, 10) || 30, 1), 90)
       return d.prepare(

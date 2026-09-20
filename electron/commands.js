@@ -31,3 +31,5 @@ export * from './commands/pricing.js'
 export * from './commands/briefing.js'
 // 库位调拨（2026-09-15）：备货出库不该记成"销售出库"—— 它只改批次库位，不写 transactions。
 export * from './commands/stock.js'
+// 撤回（2026-09-20）：删商品/报损/入库留可逆快照，误操作一键还原。
+export * from './commands/undo.js'

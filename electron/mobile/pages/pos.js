@@ -9,11 +9,20 @@ page('pos', function (app) {
 
   loadHot()
 
+  // 首页快捷货架：有销量 → 按销量排（真热销）；还没有销量数据（新账/刚重开）→
+  // 服务端退回「有货的常用货」（蚯蚓/饵料/冻饵/配件… 优先），保证台面不空 ——
+  // 导入进来的真实库存常常既没卖过、也没设建议售价，老逻辑会把它滤成一个空屏。
+  let hotBasis = 'sales'
   async function loadHot() {
     try {
-      hotProducts = await api('report:hotSellers', { days: 30 })
-      // 没设建议售价的货不上热销榜——否则按进价卖会倒贴钱
-      hotProducts = (hotProducts || []).filter((p) => p.suggest_price > 0)
+      const r = await api('report:posQuickPicks', { days: 30, limit: 9 })
+      hotBasis = (r && r.basis) || 'sales'
+      hotProducts = (r && r.items) || []
+      if (hotProducts.length === 0) {
+        const all = await api('product:list', { keyword: '', limit: 9 }).catch(() => [])
+        hotProducts = (all || []).slice(0, 9)
+        hotBasis = 'stock'
+      }
     } catch { hotProducts = [] }
     render()
   }
@@ -60,7 +69,9 @@ page('pos', function (app) {
     // 热销榜
     if (hotProducts.length > 0) {
       const title = document.createElement('div'); title.className = 'sectitle'
-      title.innerHTML = '<span class="tag">本店热销</span><span>近30天卖得最多 · 点图加单</span>'
+      title.innerHTML = hotBasis === 'sales'
+        ? '<span class="tag">本店热销</span><span>近30天卖得最多 · 点图加单</span>'
+        : '<span class="tag">常用货</span><span>' + (hotBasis === 'mixed' ? '有销量的在前 · 其余按常卖品类' : '还没销量数据 · 按常卖品类铺台面（卖一单后自动变热销榜）') + '</span>'
       app.appendChild(title)
       const grid = document.createElement('div'); grid.className = 'grid'
       hotProducts.forEach(p => {

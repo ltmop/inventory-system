@@ -9,6 +9,7 @@ import {
   productLabel,
   logAudit,
 } from './helpers.js'
+import { pushUndo } from './undo.js'
 
 /** 新建入库单（进货入库）。 */
 export function createInbound(db, { productId, quantity, costPrice, location, supplierId, operator, expiryDate }) {
@@ -34,7 +35,7 @@ export function createInbound(db, { productId, quantity, costPrice, location, su
       .run(productId, batchNo, qty, costPrice, location ?? null, today(), supplierId ?? null, expiry)
     const batchId = Number(batchInfo.lastInsertRowid)
 
-    db.prepare(
+    const txInfo = db.prepare(
       `INSERT INTO transactions (product_id, batch_id, type, quantity, unit_price, selling_price, timestamp, operator, notes)
        VALUES (?, ?, 'in', ?, ?, NULL, ?, ?, NULL)`,
     ).run(productId, batchId, qty, costPrice, ts, operator ?? null)
@@ -48,6 +49,14 @@ export function createInbound(db, { productId, quantity, costPrice, location, su
     const prod = db.prepare('SELECT * FROM products WHERE id = ?').get(productId)
     logAudit(db, '入库', `${prod ? productLabel(prod) : `#${productId}`} x${qty}`,
       { batchNo, quantity: qty, costPrice, supplierId: supplierId ?? null }, operator)
+    // 可撤回快照：整批撤回（这批只要被卖过/报损过就会被拒，见 undo.js）
+    pushUndo(db, {
+      channel: 'inbound:create',
+      label: `${prod ? productLabel(prod) : '#' + productId} x${qty}`,
+      detail: '入库 ' + batchNo,
+      undo: { kind: 'inbound', batchId, txId: Number(txInfo.lastInsertRowid), quantity: qty },
+      operator,
+    })
     return { batchId, batchNo }
   })
 }

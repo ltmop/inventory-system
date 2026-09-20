@@ -13,6 +13,7 @@ import {
 } from './helpers.js'
 import { enforceSkuQuota } from '../license.js'
 import { assertOwnerAction } from './users.js'
+import { pushUndo } from './undo.js'
 import { ensureUnit } from './units.js'
 import { ensureCategory } from './categories.js'
 
@@ -115,7 +116,17 @@ export function deleteProduct(db, id, operator = null) {
   return inTransaction(db, () => {
     const cur = db.prepare('SELECT * FROM products WHERE id = ?').get(id)
     db.prepare('DELETE FROM products WHERE id = ?').run(id)
-    if (cur) logAudit(db, '删商品', productLabel(cur), { sku: cur.sku_code }, operator)
+    if (cur) {
+      logAudit(db, '删商品', productLabel(cur), { sku: cur.sku_code }, operator)
+      // 留一份可撤回快照：删错了能一键恢复（连原 id 一起恢复，条码/引用不断链）
+      pushUndo(db, {
+        channel: 'product:delete',
+        label: productLabel(cur),
+        detail: '删除商品 ' + (cur.sku_code || ('#' + cur.id)),
+        undo: { kind: 'product', row: cur },
+        operator,
+      })
+    }
     return { ok: true }
   })
 }

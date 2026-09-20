@@ -108,8 +108,8 @@ async function invokeRaw(channel, payload) {
     if (netDown && r.ok) { netDown = false; hideNetBanner() }
     if (r.status === 401) {
       // 中心库换过连接码就会 401：重输旧码没用。
-      // ① 有设备令牌 → **自动**换成当前有效的新码并重连（用户无感）；
-      // ② 没有（当初是用连接码接入的）→ 引导用账号密码登录，登录后也会存下设备令牌，以后同样自动恢复。
+      // ① 有设备令牌 → 自动换当前有效的新码并重连（用户无感）；
+      // ② 没有（当初用连接码接入的）→ 引导用账号密码登录，登录后也会存下设备令牌，以后同样自动恢复。
       tokenFailed = true
       if (!selfHealTried) {
         selfHealTried = true
@@ -274,9 +274,8 @@ const CLOUD_LOGIN = 'https://sync.junchengzn.com'
 function savedAccount() { try { return localStorage.getItem('fi-account') || '' } catch (e) { return '' } }
 function savedServer() { try { return localStorage.getItem('fi-server') || '' } catch (e) { return '' } }
 
-// 4001 自救：中心库换过连接码时，用**设备令牌**去云端换当前有效的新码 —— 用户什么都不用做。
-// 为什么要存设备令牌：账号密码登录时拿到过 uploadToken，它不像连接码那样会被轮换；
-// 有了它，换码后手机能自己恢复（不用再让用户重输密码/连接码）。
+// 401 自救：中心库换过连接码时，用**设备令牌**去云端换当前有效的新码 —— 用户什么都不用做。
+// 设备令牌（uploadToken）不像连接码那样会被轮换，所以它是"换码后还能自己恢复"的关键。
 let selfHealTried = false
 function refreshCentralToken() {
   let uid = '', tk = ''
@@ -288,7 +287,7 @@ function refreshCentralToken() {
       if (!c || !c.ok || !c.token) return false
       let cur = ''
       try { cur = localStorage.getItem('fi-mobile-token') || '' } catch (e) {}
-      if (String(c.token) === cur) return false          // 码没变 → 是真别的问题，别乱动
+      if (String(c.token) === cur) return false          // 码没变 → 是别的问题，别乱动
       try {
         localStorage.setItem('fi-mobile-token', String(c.token))
         localStorage.setItem('fi-server', String(c.url || CLOUD_LOGIN))
@@ -397,7 +396,7 @@ function openConnectPanel(firstRun) {
     '</div>' +
     '<button id="cn-go" style="width:100%;height:60px;border-radius:14px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:19px;font-weight:800">连接</button>' +
     '<button id="cn-off" style="width:100%;height:50px;margin-top:12px;border-radius:12px;border:none;background:rgba(248,113,113,.18);color:#ffd9d9;font-size:15px">断开本机连接</button>' +
-    '<div style="font-size:12px;color:#8fa3c0;margin-top:14px;line-height:1.8">当前：' + (TOKEN ? '已连接' : '还没连接') + '<br>连接码在店主那台电脑上，或让店主发你一条链接。<br><b style="color:#d4af37">店里换过连接码的话，旧码会直接失效——这时请改用账号密码登录</b>（上面按钮里可以切回去）。' +
+    '<div style="font-size:12px;color:#8fa3c0;margin-top:14px;line-height:1.8">当前：' + (TOKEN ? '已连接' : '还没连接') + '<br>连接码在店主那台电脑上，或让店主发你一条链接。' +
     (firstRun ? '<br><br>连上以后，开单、查库存、看今天赚多少都能用。' : '') + '</div>' +
     (SERVER ? '<button id="cn-up" style="width:100%;height:44px;margin-top:12px;border-radius:12px;border:none;background:rgba(255,255,255,.08);color:#b9c8dd;font-size:14px">🔄 检查更新（当前 ' + APP_VERSION + '）</button>' : '')
   document.body.appendChild(ov)
@@ -708,7 +707,7 @@ async function decodeBarcode(img) {
 
 // 首屏按需加载：只预载 4 个高频页（开单/入库/库存/今日），其余首次进入时才注入脚本，
 // 缩短启动白屏；离线也能用 —— sw.js 的预缓存里已经包含全部页面脚本。
-const LAZY_PAGES = { ai: 1, restock: 1, expiring: 1, waste: 1, kits: 1, customers: 1, expenses: 1, suppliers: 1, stocktake: 1, parts: 1 }
+const LAZY_PAGES = { ai: 1, restock: 1, expiring: 1, waste: 1, kits: 1, customers: 1, expenses: 1, suppliers: 1, stocktake: 1, parts: 1, product: 1, customer: 1, receipts: 1 }
 const lazyLoading = {}
 function loadPageScript(name) {
   if (pages[name] || !LAZY_PAGES[name]) return Promise.resolve(!!pages[name])
@@ -727,6 +726,61 @@ function loadPageScript(name) {
 const pages = {}
 function page(name, fn) { pages[name] = fn }
 
+
+// ========== 撤回误操作（删商品 / 报损 / 入库）==========
+// 服务端在这三类写操作前留了可逆快照（undo_log），这里只负责列出来 + 一键还原。
+// 出库请用「退货」（会计口径正确）；盘点请重新盘点（本来就有差异记录）。
+function openUndoPanel() {
+  const old = document.getElementById('undo-panel'); if (old) old.remove()
+  const ov = document.createElement('div')
+  ov.id = 'undo-panel'
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(10,22,40,.97);z-index:310;padding:20px;color:#e6edf5;overflow:auto'
+  ov.innerHTML =
+    '<div style="font-size:21px;font-weight:800;margin-bottom:6px">↩︎ 撤回误操作</div>' +
+    '<div style="font-size:13px;color:#8fa3c0;line-height:1.7;margin-bottom:14px">最近做过的「删商品 / 报损 / 入库」都在这里，点错了可以一键还原。<br>卖出去的单子请用「退货」（账才对得上）。</div>' +
+    '<div id="undo-list" style="font-size:14px;color:#8fa3c0">加载中…</div>' +
+    '<button id="undo-close" style="width:100%;height:50px;margin-top:16px;border-radius:12px;border:none;background:rgba(255,255,255,.12);color:#e6edf5;font-size:16px;font-weight:700">关闭</button>'
+  document.body.appendChild(ov)
+  const list = ov.querySelector('#undo-list')
+  ov.querySelector('#undo-close').onclick = function () { ov.remove() }
+
+  function fmtTime(s) { try { return new Date(s).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch (e) { return s } }
+  function load() {
+    list.textContent = '加载中…'
+    api('undo:list', { limit: 20 }).then(function (rows) {
+      rows = rows || []
+      if (!rows.length) { list.innerHTML = '<div style="padding:18px 0">最近没有可撤回的操作。<br><span style="font-size:12px">（删商品/报损/入库都会自动留一条）</span></div>'; return }
+      list.innerHTML = ''
+      rows.forEach(function (r) {
+        const card = document.createElement('div')
+        card.style.cssText = 'background:rgba(255,255,255,.07);border-radius:12px;padding:12px;margin-bottom:10px'
+        const done = !!r.undone_at
+        card.innerHTML =
+          '<div style="font-weight:800;font-size:15px;' + (done ? 'color:#7d8ba0;text-decoration:line-through' : '') + '">' + escHtml(r.label || '') + '</div>' +
+          '<div style="font-size:12px;color:#8fa3c0;margin-top:3px">' + escHtml(r.detail || r.channel || '') + ' · ' + escHtml(fmtTime(r.at)) + (r.operator ? ' · ' + escHtml(r.operator) : '') + '</div>' +
+          '<div style="margin-top:8px">' + (done
+            ? '<span style="font-size:12px;color:#8ce0a8">已撤回</span>'
+            : '<button data-undo="' + r.id + '" style="height:38px;padding:0 16px;border-radius:9px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:15px;font-weight:800">撤回这一步</button>') +
+          '</div>'
+        list.appendChild(card)
+      })
+      list.querySelectorAll('[data-undo]').forEach(function (b) {
+        b.onclick = function () {
+          const id = Number(b.getAttribute('data-undo'))
+          if (!confirm('撤回这一步？会把这一步改动的库存/流水还原回去。')) return
+          b.disabled = true; b.textContent = '撤回中…'
+          api('undo:apply', { id: id, operator: getOperator() }).then(function () {
+            toast('已撤回'); load()
+          }).catch(function (e) { toast('撤回失败：' + (e.message || '')); load() })
+        }
+      })
+    }).catch(function (e) {
+      list.innerHTML = '<div style="color:#ffb4b4">读不到记录：' + escHtml(e.message || '') + '</div>'
+    })
+  }
+  load()
+}
+
 page('more', (app) => {
   app.innerHTML = ''
   // 当前操作员：放最上面，换人点一下 —— 多人共用一台手机时这是每天都会用到的
@@ -744,7 +798,7 @@ page('more', (app) => {
     ['👤 客户欠款', '赊账查询与收款', () => navigate('customers')],
     ['💸 支出记账', '记一笔房租/水电/进货', () => navigate('expenses')],
     ['🏭 供应商', '进货对账', () => navigate('suppliers')],
-    ['💳 收款登记', '微信/支付宝/现金实收登记 + 日结对账', () => openReceiptPanel()],
+    ['💳 收款登记', '实收登记流水（谁/何时登的）+ 和营业额对账', () => navigate('receipts')],
     ['📋 核对货架', '每天核对一片区域', () => navigate('stocktake')],
   ]
   items.forEach(([t, d, fn]) => {
@@ -783,6 +837,11 @@ page('more', (app) => {
     '<div class="text-sm text-muted mt-sm">' + (acc ? escHtml(acc) : '（用连接码接入，没走账号登录）') + '</div>' +
     '<div class="text-sm text-muted mt-sm">账本：' + escHtml(savedServer() || SERVER || '本机') + '</div>'
   app.appendChild(accCard)
+  // 撤回入口：误删商品 / 误报损 / 误入库 都能一键还原（服务端留了快照）
+  const undoCard = document.createElement('div')
+  undoCard.className = 'card'; undoCard.style.cursor = 'pointer'; undoCard.onclick = function () { openUndoPanel() }
+  undoCard.innerHTML = '<div class="font-bold">↩︎ 撤回误操作</div><div class="text-sm text-muted mt-sm">删商品 / 报损 / 入库点错了，可以一键还原</div>'
+  app.appendChild(undoCard)
   const connCard = document.createElement('div')
   connCard.className = 'card'; connCard.style.cursor = 'pointer'; connCard.onclick = function () { openConnectPanel() }
   connCard.innerHTML = '<div class="font-bold">🔗 连接设置</div><div class="text-sm text-muted mt-sm">' + (TOKEN ? '已连接店铺账本' : '还没连接') + ' · 换店铺、粘连接码或扫码' + '</div>'
@@ -795,8 +854,6 @@ page('more', (app) => {
       localStorage.removeItem('fi-mobile-token')
       localStorage.removeItem('fi-server')
       localStorage.removeItem('fi-account')
-      localStorage.removeItem('fi-device-userid')
-      localStorage.removeItem('fi-device-token')
     } catch (e) {}
     toast('已退出，正在返回登录页…')
     setTimeout(function () { location.reload() }, 500)
