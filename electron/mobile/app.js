@@ -627,10 +627,36 @@ function checkUpdate(silent) {
 // ========== 扫码 ==========
 let scanCallback = null
 
-// 扫码面板：手动输入 + 拍照识别双入口。
-// 手动输入是主路径（准确），拍照识别是快捷辅助（条码清晰时可用）。
-// 不依赖 getUserMedia（局域网 HTTP 非安全环境会禁用摄像头扫码）。
+// 真·扫码：装了 APP 的走**原生条码扫描**（摄像头实时识别，对准就出结果，不用拍照）；
+// 浏览器页面没有这个插件，自动退回「拍照识别 / 手输条码」，两条路都在面板上，不会死胡同。
+function nativeBarcodeScanner() {
+  try { return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BarcodeScanner) || null } catch (e) { return null }
+}
+// 返回 'ok'（扫到了）/ 'handled'（跑完但没扫到）/ 'unavailable'（没有原生插件）
+async function nativeScanOnce(cb) {
+  const BS = nativeBarcodeScanner()
+  if (!BS) return 'unavailable'
+  try {
+    if (BS.checkPermission) {
+      const p = await BS.checkPermission({ force: true })
+      if (p && p.camera && p.camera !== 'granted') { toast('需要相机权限才能扫码'); return 'handled' }
+    }
+    if (BS.hideBackground) await BS.hideBackground()   // 让 WebView 透明，露出相机画面
+    const r = await BS.startScan({ targetedFormats: ['EAN_13', 'EAN_8', 'UPC_A', 'UPC_E', 'CODE_128', 'CODE_39', 'ITF', 'QR_CODE'] })
+    if (BS.showBackground) await BS.showBackground()
+    if (r && r.hasContent && r.content) { cb(String(r.content).trim()); return 'ok' }
+    toast('没扫到，把条码对准框里再试')
+    return 'handled'
+  } catch (e) {
+    try { if (BS.showBackground) await BS.showBackground() } catch (e2) { /* 忽略 */ }
+    toast('扫码没成功：' + ((e && e.message) || '请重试'))
+    return 'handled'
+  }
+}
+
+// 扫码面板：原生实时扫码（装了 APP）+ 手动输入 + 拍照识别三个入口。
 function openScanner(cb, hint) {
+  const hasNative = !!nativeBarcodeScanner()
   scanCallback = cb
   const overlay = document.createElement('div')
   overlay.id = 'scan-overlay'
@@ -638,6 +664,10 @@ function openScanner(cb, hint) {
   overlay.innerHTML =
     '<div style="font-size:18px;font-weight:700;margin-bottom:8px">扫码 / 输条码</div>' +
     '<div style="font-size:13px;color:#8fa3c0;margin-bottom:14px">' + (hint || '扫描或输入商品条码') + '</div>' +
+    (hasNative
+      ? '<button id="scan-live" style="width:100%;height:74px;border-radius:14px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:19px;font-weight:800;margin-bottom:12px">📷 开始扫描（把条码对准框里）</button>' +
+        '<div id="scan-live-tip" style="font-size:12px;color:#8fa3c0;margin-bottom:14px">摄像头实时识别，扫到自动填。也可以用下面的方式。</div>'
+      : '') +
     '<input id="scan-input" type="text" placeholder="输入条码数字" style="height:56px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);border-radius:12px;color:#fff;font-size:20px;padding:0 14px;margin-bottom:12px;width:100%;outline:none">' +
     '<div style="display:flex;gap:10px">' +
       '<button id="scan-ok" style="flex:1;height:54px;border-radius:12px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:17px;font-weight:800">确认</button>' +
@@ -683,8 +713,20 @@ function openScanner(cb, hint) {
     input.click()
   }
 
-  // 自动聚焦手动输入框
-  setTimeout(() => { const i = document.getElementById('scan-input'); if (i) i.focus() }, 100)
+  // 原生实时扫码：打开面板就自动起一次（收银员不用多点一下），按钮还能再扫
+  const liveBtn = document.getElementById('scan-live')
+  if (liveBtn) {
+    liveBtn.onclick = async () => {
+      liveBtn.disabled = true; liveBtn.textContent = '正在打开摄像头…'
+      try { await nativeScanOnce(submitCode) } finally {
+        liveBtn.disabled = false; liveBtn.textContent = '📷 再扫一次'
+      }
+    }
+    setTimeout(() => { liveBtn.click() }, 250)
+  } else {
+    // 浏览器页面没有原生插件：聚焦手输框
+    setTimeout(() => { const i = document.getElementById('scan-input'); if (i) i.focus() }, 100)
+  }
 }
 
 async function decodeBarcode(img) {

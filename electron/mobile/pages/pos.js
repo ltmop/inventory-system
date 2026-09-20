@@ -121,7 +121,7 @@ page('pos', function (app) {
           '<div class="ph" style="background:' + phColor(c.product) + '">' + phChar(c.product) + '</div>' +
           '<div class="info"><div class="n">' + name + '</div><div class="p">' + fmt(c.selling_price) + (isMeter ? '/米' : '/件') + '</div></div>' +
           '<div class="qty"><button onclick="void(0)">−</button><span class="n" data-edit="1" style="cursor:pointer">' + c.qty + unitLabel + '</span><button onclick="void(0)">+</button></div>' +
-          '<button data-del="1" title="移除" style="border:none;background:transparent;color:var(--sub);font-size:20px;margin-left:2px;cursor:pointer">✕</button>'
+          '<button class="del" data-del="1" title="从购物车移除这一行">✕ 删</button>'
         // 点数量弹输入框精确改：米商品能填小数（15.5 米），件商品整数
         line.querySelector('[data-edit]').onclick = () => editQty(c)
         line.querySelectorAll('button')[0].onclick = () => {
@@ -181,7 +181,7 @@ page('pos', function (app) {
     if (existing) {
       // 米商品步进 0.5，件商品步进 1
       existing.qty = isMeter ? Math.round((existing.qty + 0.5) * 10) / 10 : existing.qty + 1
-      render(); return
+      render(); seeCart(prodName(p) + ' ×' + existing.qty); return
     }
     let price = p.suggest_price
     // 没设售价的货必须现场填售价，不按进价兜底卖（不然倒贴钱）
@@ -200,6 +200,16 @@ page('pos', function (app) {
     }
     cart.push({ product_id: p.id, product: p, qty, selling_price: price })
     render()
+    seeCart(prodName(p) + ' ×' + qty)
+  }
+
+  // 加进购物车后，把「购物清单」滚进视野并提示一句 —— 否则加了看不见，用户以为没加上
+  function seeCart(msg) {
+    try {
+      const el = document.querySelector('.cart')
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    } catch (e) { /* 忽略 */ }
+    if (msg) toast('已加入购物车：' + msg)
   }
 
   async function handleScan(code) {

@@ -28,7 +28,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 /* #app 的直接子块默认不参与伸缩：长列表照内容排布，不会被压扁 */
 #app>*{flex:0 0 auto}
 /* 开单页的购物车吃掉剩余高度（内容少就把结账键顶到最底部，内容多就自己滚） */
-#app>.cart{flex:1 1 auto;min-height:0}
+#app>.cart{flex:1 1 auto;min-height:170px}   /* 别把购物清单挤成 0 高：内容多时它自己滚，内容少时它撑住结账栏 */
 
 .scanrow{display:flex;gap:10px;padding:14px 16px 4px}
 .scanbtn{flex:1.15;height:60px;border:3px solid var(--ink);border-radius:12px;background:var(--ink);color:var(--paper);font-size:19px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:3px 3px 0 rgba(43,38,32,.25);cursor:pointer}
@@ -50,15 +50,16 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 .cart{flex:1;background:var(--card);border-top:3px solid var(--ink);padding:10px 16px 6px;overflow-y:auto}
 .cart h3{font-size:14px;color:var(--sub);font-weight:700;margin-bottom:6px;border-bottom:1px dashed var(--line);padding-bottom:6px}
 .empty{color:#b8ad97;font-size:14px;text-align:center;padding:22px 0}
-.line{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px dashed var(--line)}
+.line{display:flex;align-items:center;gap:8px;padding:11px 0;border-bottom:1px dashed var(--line)}
+.line .del{flex:none;width:44px;height:40px;border-radius:10px;border:2px solid var(--red);background:#fff;color:var(--red);font-size:16px;font-weight:800}
 .line .ph{width:46px;height:46px;border-radius:8px;border:2px solid var(--ink);flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:18px;font-weight:800}
 .line .info{flex:1;min-width:0}
 .line .info .n{font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .line .info .p{font-size:13px;color:var(--sub)}
 .qty{display:flex;align-items:center;gap:2px}
-.qty button{width:34px;height:34px;border-radius:8px;border:2px solid var(--ink);background:var(--card);font-size:18px;font-weight:800;cursor:pointer}
+.qty button{width:40px;height:40px;border-radius:10px;border:2px solid var(--ink);background:var(--card);font-size:22px;font-weight:800;cursor:pointer}
 .qty button:active{background:var(--paper)}
-.qty .n{width:30px;text-align:center;font-size:16px;font-weight:800}
+.qty .n{min-width:38px;text-align:center;font-size:17px;font-weight:800}
 
 .checkout{background:var(--card);border-top:3px solid var(--ink);padding:14px 16px calc(12px + env(safe-area-inset-bottom));position:sticky;bottom:0;z-index:6}
 .total{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px}
