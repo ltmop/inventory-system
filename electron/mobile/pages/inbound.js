@@ -46,6 +46,7 @@ page('inbound', function (app) {
         '<div class="fld"><label>分类</label><select id="f-cat"><option>其他</option></select></div>' +
         '<div class="fld"><label>进价（元）</label><input id="f-cost" type="number" step="0.01" placeholder="0.00"></div>' +
       '</div>' +
+      '<div class="fld"><label>售价（元）</label><input id="f-price" type="number" step="0.01" placeholder="卖多少钱？填了开单点一下就卖"></div>' +
       '<div class="fldrow">' +
         '<div class="fld"><label>计量单位</label><select id="f-unit"><option value="件">件</option><option value="米">米</option></select></div>' +
         '<div class="fld"><label>数量</label><input id="f-qty" type="number" step="0.1" placeholder="多少个 / 多少米？"></div>' +
@@ -53,7 +54,7 @@ page('inbound', function (app) {
       '<div class="fld"><label id="f-expiry-label">到期日（可选）</label><input id="f-expiry" type="date" placeholder="2026-12-31"></div>' +
       '<div class="fld"><label>商品照片（可选）</label>' +
         '<div style="display:flex;align-items:center;gap:10px">' +
-          '<img id="f-photo-prev" alt="" style="display:none;width:56px;height:56px;object-fit:cover;border-radius:8px;border:2px solid var(--ink);flex:none">' +
+          '<img id="f-photo-prev" alt="商品照片" style="display:none;width:110px;height:110px;object-fit:cover;border-radius:10px;border:2px solid var(--ink);flex:none">' +
           '<button type="button" id="f-photo-btn" style="flex:1;height:46px;border-radius:10px;border:2px dashed var(--ink);background:var(--card);color:var(--ink);font-size:15px;font-weight:800">📷 拍一张 / 从相册选</button>' +
         '</div>' +
       '</div>' +
@@ -81,8 +82,7 @@ page('inbound', function (app) {
           const b64 = await FiPhoto.pickPhoto()
           if (!b64) return
           pendingPhoto = b64
-          if (photoPrev) { photoPrev.src = 'data:image/jpeg;base64,' + b64; photoPrev.style.display = '' }
-          photoBtn.textContent = '✅ 已选好（点一下可重选）'
+          setPhotoPreview(b64)
         } catch (e) { toast('选图失败: ' + (e.message || '')) }
       }
     }
@@ -184,7 +184,9 @@ page('inbound', function (app) {
     document.getElementById('f-name').value = aiResult ? (aiResult.brand || '') + ' ' + (aiResult.model || '') : ''
     document.getElementById('f-cat').value = aiResult ? aiResult.category || '其他' : '其他'
     document.getElementById('f-cost').value = aiResult ? (aiResult.cost_price_yuan || '') : ''
-    document.getElementById('f-qty').value = ''
+    const priceEl0 = document.getElementById('f-price')
+    if (priceEl0) priceEl0.value = aiResult ? (aiResult.selling_price_yuan || '') : ''
+    document.getElementById('f-qty').value = aiResult && aiResult.quantity ? aiResult.quantity : ''
     // 到期日字段重置：清空上次的值
     const expiryEl = document.getElementById('f-expiry')
     if (expiryEl) expiryEl.value = ''
@@ -266,26 +268,60 @@ page('inbound', function (app) {
     })
   }
 
-  // 进货单批量入库：拍照 → AI 识别全部商品行 → 逐行核对数量/价格 → 一次入库
+  /** 把照片挂到建档表单上（大图预览）—— 拍照是为了"确认商品 + 留图"，所以必须先看得见图 */
+  function setPhotoPreview(b64) {
+    const prev = document.getElementById('f-photo-prev')
+    if (prev && b64) { prev.src = 'data:image/jpeg;base64,' + b64; prev.style.display = '' }
+    const b = document.getElementById('f-photo-btn')
+    if (b) b.textContent = '✅ 已拍好（点一下可重拍）'
+  }
+
+  /** 认出多行（整张进货单）时给个可选入口：点了才走批量核对，不强制 */
+  function showBatchEntry(items) {
+    const form = document.getElementById('inbound-form')
+    const okBtn = document.getElementById('f-ok')
+    if (!form || !okBtn || document.getElementById('f-batch')) return
+    const b = document.createElement('button')
+    b.id = 'f-batch'; b.type = 'button'
+    b.style.cssText = 'width:100%;height:46px;margin-top:8px;border-radius:10px;border:2px solid var(--ink);background:var(--gold);color:#fff;font-size:15px;font-weight:800'
+    b.textContent = '📋 这是进货单（' + items.length + ' 行）→ 逐行核对入库'
+    b.onclick = function () { showBatchReview(items) }
+    okBtn.parentNode.insertBefore(b, okBtn)
+  }
+
+  // 拍照 → **先把照片显示出来并开出建档表单**（不依赖网络），再让 AI 帮你预填名称/进价/售价/分类。
+  // 用户拍这张照就是为了确认商品、并给商品留张图；所以任何情况下图都不能丢。
   async function photoFlow() {
     const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*'; input.capture = 'environment'
     input.onchange = async function () {
       if (!input.files || !input.files[0]) return
       const file = input.files[0]
-      toast('AI 识别进货单中…')
+      let base64 = ''
+      try { base64 = await compressPhoto(file) } catch (e) { toast('图片读取失败，重拍一张'); return }
+      // ① 建档表单 + 照片预览（离线也能走到这一步）
+      showCreateForm('', null)
+      pendingPhoto = base64          // 注意：要放在 showCreateForm 之后（它会重置 pendingPhoto）
+      setPhotoPreview(base64)
+      // ② AI 只做"帮你先填"
+      toast('AI 正在识别…')
       try {
-        const base64 = await compressPhoto(file)
         const r = await api('ai:photoDraft', { imageBase64: base64, mimeType: 'image/jpeg' })
-        if (!r || !r.ok || !r.items || r.items.length === 0) {
-          showCreateForm('', null)
-          toast(r?.detail || 'AI 没识别出商品，手动填吧')
-          return
+        const items = (r && r.ok && Array.isArray(r.items)) ? r.items : []
+        if (items.length > 0) {
+          const it = items[0]
+          const setV = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') el.value = v }
+          setV('f-name', (((it.brand || '') + ' ' + (it.model || '')).trim()) || it.name || '')
+          if (it.category) setV('f-cat', it.category)
+          setV('f-cost', it.cost_price_yuan)
+          setV('f-price', it.selling_price_yuan)
+          if (it.quantity) setV('f-qty', it.quantity)
+          const tag = document.getElementById('ai-tag'); if (tag) tag.classList.add('show')
+          toast(items.length > 1 ? ('AI 认出 ' + items.length + ' 行，已填好第一行；整张进货单请点下面的按钮') : 'AI 已帮你填好，核对后点完成入库')
+          if (items.length > 1) showBatchEntry(items)
+        } else {
+          toast('AI 没认出商品，手填就好（照片已挂上）')
         }
-        showBatchReview(r.items)
-      } catch {
-        showCreateForm('', null)
-        toast('AI 不可用，手动填吧')
-      }
+      } catch (e) { toast('AI 连不上，手填就好（照片已挂上）') }
     }
     input.click()
   }
@@ -351,6 +387,10 @@ page('inbound', function (app) {
     if (!name) { toast('填个商品名就能入库了'); return }
     if (!(qty > 0)) { toast('填个数量'); return }
     const cost = costStr ? Math.round(parseFloat(costStr) * 100) : 0
+    // 售价（可选）：填了以后手机开单点一下就卖，不用每次输价；留空就还是开单时现场填
+    const priceStr = (document.getElementById('f-price') || {}).value || ''
+    const price = priceStr ? Math.round(parseFloat(priceStr) * 100) : 0
+    if (priceStr && !(price > 0)) { toast('售价填个大于 0 的数（元）'); return }
     const code = form.getAttribute('data-code') || ''
     // 保质期商品（饵料/小药/活饵/路亚假饵）必须填到期日，与电脑端 requiresExpiry 同口径
     if (EXPIRY_REQUIRED_CATEGORIES.includes(cat)) {
@@ -366,7 +406,7 @@ page('inbound', function (app) {
     try {
       const r = await api('product:create', {
         sku_code: code, barcode: code, category: cat, brand: '', model: name,
-        cost_price: cost, suggest_price: 0, status: '待盘点', unit: unit,
+        cost_price: cost, suggest_price: price || 0, status: '待盘点', unit: unit,
       })
       await api('inbound:create', { productId: r.id, quantity: qty, costPrice: cost, location: '', operator: getOperator(), expiryDate: expiry })
       // 商品照片：建档拿到 id 后再挂（photo:save 只落盘，photo_path 要单独更新一次）。
@@ -379,7 +419,7 @@ page('inbound', function (app) {
       showStamp('已入库', name + ' × ' + qty + (unit === '米' ? '米' : ''), true)
       form.classList.remove('show')
       document.getElementById('ai-tag').classList.remove('show')
-      ;['f-name', 'f-cost', 'f-qty'].forEach(id => document.getElementById(id).value = '')
+      ;['f-name', 'f-cost', 'f-qty', 'f-price'].forEach(id => { const el = document.getElementById(id); if (el) el.value = '' })
       const prevAfter = document.getElementById('f-photo-prev')
       if (prevAfter) { prevAfter.removeAttribute('src'); prevAfter.style.display = 'none' }
       const btnAfter = document.getElementById('f-photo-btn')
