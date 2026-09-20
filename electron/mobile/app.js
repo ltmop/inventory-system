@@ -333,6 +333,14 @@ function parseConnectInput(raw) {
 const CLOUD_LOGIN = 'https://sync.junchengzn.com'
 function savedAccount() { try { return localStorage.getItem('fi-account') || '' } catch (e) { return '' } }
 function savedServer() { try { return localStorage.getItem('fi-server') || '' } catch (e) { return '' } }
+// 这台手机到底是怎么登录进来的：走过账号密码 → 存了 fi-account；
+// 只粘过连接码 → 没账号，换码就得重新粘（这也是老板老觉得"还是链接加 token"的根源）。
+function loginMethod() {
+  const account = savedAccount()
+  let deviceToken = false
+  try { deviceToken = !!localStorage.getItem('fi-device-token') } catch (e) { deviceToken = false }
+  return { account, byAccount: !!account, deviceToken }
+}
 
 // 401 自救：中心库换过连接码时，用**设备令牌**去云端换当前有效的新码 —— 用户什么都不用做。
 // 设备令牌（uploadToken）不像连接码那样会被轮换，所以它是"换码后还能自己恢复"的关键。
@@ -377,6 +385,8 @@ function openLoginPanel(firstRun, reason) {
     '<div style="font-size:22px;font-weight:800;margin-bottom:6px">登录店铺账本</div>' +
     (reason === 'stale'
       ? '<div style="font-size:14px;line-height:1.8;color:#ffd9a8;background:rgba(212,175,55,.14);border-radius:10px;padding:12px;margin-bottom:14px">店里换过连接码了，旧的连接码已经作废（所以刚才一直提示失效）。<br>用<b>账号密码</b>登录就行 —— 登录会自动拿到当前有效的新码。</div>'
+      : reason === 'bind'
+        ? '<div style="font-size:14px;line-height:1.8;color:#ffd9a8;background:rgba(212,175,55,.14);border-radius:10px;padding:12px;margin-bottom:14px">这台手机现在是<b>用连接码接入</b>的（没有走过账号密码）。<br>用账号密码登录一次，以后店里换连接码手机能自己恢复，忘了密码也能找回来。</div>'
       : '<div style="font-size:14px;color:#8fa3c0;line-height:1.75;margin-bottom:16px">用电脑上那个<b style="color:#d4af37">账号 + 密码</b>登录，和桌面端同一套账号、同一本账。</div>') +
     (firstRun ? '<div style="font-size:14px;color:#8fa3c0;line-height:1.75;margin-bottom:16px">登录后开单、入库、查库存、看今天赚多少都能用。</div>' : '') +
     '<input id="lg-user" placeholder="账号" autocomplete="username" spellcheck="false" style="' + inpCss + '">' +
@@ -446,15 +456,22 @@ function openConnectPanel(firstRun) {
   ov.id = 'cn-panel'
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(10,22,40,.97);z-index:300;padding:22px;color:#e6edf5;overflow:auto'
   ov.innerHTML =
-    '<div style="font-size:22px;font-weight:800;margin-bottom:6px">连接店铺账本</div>' +
-    '<div style="font-size:14px;color:#8fa3c0;line-height:1.75;margin-bottom:16px">把店主发给你的<b style="color:#d4af37">连接码</b>粘进来就行。<br>整条链接（https://…）直接粘进来也能认。</div>' +
+    '<div style="font-size:22px;font-weight:800;margin-bottom:6px">账号与连接</div>' +
+    '<div style="font-size:14px;color:#8fa3c0;line-height:1.75;margin-bottom:14px">当前登录方式：<b style="color:#e6edf5">' + (loginMethod().byAccount ? ('账号密码（' + escHtml(loginMethod().account) + '）') : '连接码接入（没走账号密码）') + '</b></div>' +
+    (loginMethod().byAccount ? '' :
+      '<div style="font-size:13px;line-height:1.7;color:#ffd9a8;background:rgba(212,175,55,.14);border-radius:10px;padding:11px;margin-bottom:12px">建议改成账号密码登录：店里换过连接码时手机能自动恢复，忘了密码也能找回。</div>' +
+      '<button id="cn-acct" style="width:100%;height:56px;border-radius:14px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:17px;font-weight:800;margin-bottom:10px">用账号密码登录一次</button>') +
+    '<button id="cn-adv" style="width:100%;height:46px;border-radius:12px;border:none;background:rgba(255,255,255,.08);color:#b9c8dd;font-size:14px;font-weight:700;margin-bottom:10px">高级：用连接码 / 扫码接入</button>' +
+    '<div id="cn-advbox" style="display:none">' +
+    '<div style="font-size:13px;color:#8fa3c0;line-height:1.7;margin-bottom:10px">把店主发给你的<b style="color:#d4af37">连接码</b>粘进来就行；整条链接（https://…）直接粘进来也能认。</div>' +
     '<input id="cn-in" placeholder="在这里粘贴连接码" autocomplete="off" spellcheck="false" style="width:100%;height:60px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);border-radius:12px;color:#fff;font-size:17px;padding:0 14px;outline:none">' +
     '<div id="cn-echo" style="font-size:13px;color:#8fa3c0;margin:8px 0 14px;min-height:18px"></div>' +
     '<div style="display:flex;gap:10px;margin-bottom:12px">' +
       '<button id="cn-paste" style="flex:1;height:52px;border-radius:12px;border:none;background:rgba(255,255,255,.12);color:#e6edf5;font-size:16px;font-weight:700">粘贴</button>' +
       '<button id="cn-scan" style="flex:1;height:52px;border-radius:12px;border:none;background:rgba(255,255,255,.12);color:#e6edf5;font-size:16px;font-weight:700">扫码</button>' +
     '</div>' +
-    '<button id="cn-go" style="width:100%;height:60px;border-radius:14px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:19px;font-weight:800">连接</button>' +
+    '<button id="cn-go" style="width:100%;height:56px;border-radius:14px;border:none;background:rgba(255,255,255,.92);color:#0a1628;font-size:17px;font-weight:800">用连接码连接</button>' +
+    '</div>' +
     '<button id="cn-off" style="width:100%;height:50px;margin-top:12px;border-radius:12px;border:none;background:rgba(248,113,113,.18);color:#ffd9d9;font-size:15px">断开本机连接</button>' +
     '<div style="font-size:12px;color:#8fa3c0;margin-top:14px;line-height:1.8">当前：' + (TOKEN ? '已连接' : '还没连接') + '<br>连接码在店主那台电脑上，或让店主发你一条链接。' +
     (firstRun ? '<br><br>连上以后，开单、查库存、看今天赚多少都能用。' : '') + '</div>' +
@@ -489,6 +506,15 @@ function openConnectPanel(firstRun) {
     openScanner(function (code) { if (code) { inp.value = code; refresh() } }, '扫描店主给的二维码')
   }
   ov.querySelector('#cn-go').onclick = connect
+  const acctBtn = ov.querySelector('#cn-acct')
+  if (acctBtn) acctBtn.onclick = function () { ov.remove(); openLoginPanel(false, 'bind') }
+  ov.querySelector('#cn-adv').onclick = function () {
+    const box = ov.querySelector('#cn-advbox')
+    const open = box.style.display === 'none'
+    box.style.display = open ? 'block' : 'none'
+    ov.querySelector('#cn-adv').textContent = open ? '收起连接码输入' : '高级：用连接码 / 扫码接入'
+    if (open) { const i = ov.querySelector('#cn-in'); if (i) i.focus() }
+  }
   const upBtn = ov.querySelector('#cn-up')   // 还没连上时的更新入口（1.1.2 起；浏览器页面没有这个按钮）
   if (upBtn) upBtn.onclick = function () { checkAllUpdates(false) }
   ov.querySelector('#cn-off').onclick = function () {
@@ -1018,6 +1044,28 @@ page('more', (app) => {
   app.appendChild(head)
   head.querySelector('#op-switch').onclick = openOperatorPanel
 
+  // 登录方式：老板最在意的一句话 —— 到底是"账号密码登录"还是"粘了个连接码"
+  const lm = loginMethod()
+  if (lm.byAccount) {
+    const m = document.createElement('div')
+    m.className = 'card'
+    m.innerHTML = '<div class="flex" style="align-items:center;gap:11px">' +
+      '<div style="width:34px;height:34px;border-radius:11px;background:var(--blue-l);color:var(--blue);display:flex;align-items:center;justify-content:center;flex:none">' + FiIcon('check', 18) + '</div>' +
+      '<div style="flex:1;min-width:0"><div class="font-bold" style="font-size:13.5px">账号密码登录</div>' +
+      '<div class="text-xs text-muted" style="margin-top:3px">' + escHtml(lm.account) + (lm.deviceToken ? ' · 店里换连接码会自动恢复' : '') + '</div></div></div>'
+    app.appendChild(m)
+  } else {
+    const m = document.createElement('div')
+    m.className = 'card'
+    m.style.borderColor = '#f0dfb8'
+    m.style.background = 'var(--warn-l)'
+    m.innerHTML = '<div class="font-bold" style="font-size:13.5px;color:#8a6400">现在是用连接码接入的</div>' +
+      '<div class="text-xs" style="margin-top:4px;color:#8a6400;line-height:1.6">没有走过账号密码。改成账号密码登录后：店里换过连接码手机能自动恢复，忘了密码还能找回。</div>' +
+      '<button id="bind-acct" class="okbtn" style="margin-top:10px;height:42px;font-size:14px">用账号密码登录一次</button>'
+    app.appendChild(m)
+    m.querySelector('#bind-acct').onclick = function () { openLoginPanel(false, 'bind') }
+  }
+
   // 分组渲染：一屏能扫完，不用在几十个入口里找
   function block(title, rows) {
     const g = document.createElement('div')
@@ -1075,7 +1123,7 @@ page('more', (app) => {
       } })
     }
   }
-  sys.push({ icon: 'link', t: '连接设置', d: (TOKEN ? '已连接店铺账本' : '还没连接') + ' · 换店铺 / 粘连接码 / 扫码', fn: () => openConnectPanel() })
+  sys.push({ icon: 'link', t: '账号与连接', d: loginMethod().byAccount ? ('账号密码登录 · ' + loginMethod().account) : '连接码接入 · 可改成账号密码', fn: () => openConnectPanel() })
   block('系统', sys)
 
   const out = document.createElement('div')
