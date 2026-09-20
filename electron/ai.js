@@ -4,7 +4,16 @@
 // 1. 没 Key / 断网 / 超时 → 返回 { ok:false }，调用方静默降级，绝不影响主流程
 // 2. 库存与经营数字必须来自本地 SQLite 工具查询，AI 不碰数据库连接以外的任何状态
 // 3. 写操作只产草稿（draft_*），由前端确认卡确认后才走既有 commands 落库
-import { safeStorage } from 'electron'
+import { createRequire } from 'node:module'
+// safeStorage 只在 Electron 里有。中心库服务器是纯 Node（没有 Electron），
+// 原来这里写死 import 'electron' → 服务器一加载就挂，所以 AI 从来没在中心库上跑起来过。
+// 改成惰性获取：桌面端照旧用系统钥匙串加密；中心库取不到就用明文兜底（内部服务、文件权限可控）。
+let _safeStorage
+function getSafeStorage() {
+  if (_safeStorage !== undefined) return _safeStorage
+  try { _safeStorage = createRequire(import.meta.url)('electron')?.safeStorage ?? null } catch { _safeStorage = null }
+  return _safeStorage
+}
 import fs from 'node:fs'
 import path from 'node:path'
 import { saveAiMessage, listAiMessages, saveInsight, listInsights, searchInsights, buildInsightsContext } from './db.js'
@@ -142,8 +151,9 @@ export function setApiKey(key) {
   if (p.keyPrefix && !trimmed.startsWith(p.keyPrefix)) throw new Error(`Key 格式看起来不对（应以 ${p.keyPrefix} 开头）`)
   let payload
   try {
-    payload = safeStorage.isEncryptionAvailable()
-      ? safeStorage.encryptString(trimmed).toString('base64')
+    const ss = getSafeStorage()
+    payload = (ss && ss.isEncryptionAvailable())
+      ? ss.encryptString(trimmed).toString('base64')
       : `plain:${Buffer.from(trimmed, 'utf8').toString('base64')}`
   } catch {
     payload = `plain:${Buffer.from(trimmed, 'utf8').toString('base64')}`
@@ -169,7 +179,9 @@ function readApiKey() {
       if (f && fs.existsSync(f) && fs.statSync(f).size > 0) {
         const raw = fs.readFileSync(f, 'utf8')
         if (raw.startsWith('plain:')) return Buffer.from(raw.slice(6), 'base64').toString('utf8')
-        return safeStorage.decryptString(Buffer.from(raw, 'base64'))
+        const ss = getSafeStorage()
+        if (!ss) return p.builtinToken   // 没有 Electron（中心库）→ 用内置连接码
+        return ss.decryptString(Buffer.from(raw, 'base64'))
       }
     } catch { /* 读文件失败回退内置码 */ }
     return p.builtinToken
@@ -179,7 +191,9 @@ function readApiKey() {
   try {
     const raw = fs.readFileSync(f, 'utf8')
     if (raw.startsWith('plain:')) return Buffer.from(raw.slice(6), 'base64').toString('utf8')
-    return safeStorage.decryptString(Buffer.from(raw, 'base64'))
+    const ss = getSafeStorage()
+    if (!ss) return null
+    return ss.decryptString(Buffer.from(raw, 'base64'))
   } catch {
     return null
   }
@@ -293,7 +307,11 @@ export async function dailySummary(stats) {
         content:
           '你是进销存店的账房先生。根据今日经营数据写一段打烊日报，80字以内，说人话，' +
           '禁止FIFO、批次、SKU等术语。先讲今天赚了多少，再点一句卖得好的货，最后提醒该补的货。' +
-          '语气温和务实，不要emoji，不要标题，不要分点。',
+          '语气温和务实，不要emoji，不要标题，不要分点。' +
+          // 2026-09-21：喂空数据时模型会自己编商品名（实测编出"洗衣液、抽纸"这种渔具店根本没有的货），
+          // 老板最反感"它瞎说"。这里明确禁止：数据里没出现过的货名一个字都不许编。
+          '铁律：只能用「今日经营数据」里出现过的商品名，数据里没提过的货一律不许编（宁可只讲数字）；' +
+          '今天没有销售数据就直说今天没开张，别硬凑卖点。',
       },
       { role: 'user', content: lines.join('\n') },
     ],

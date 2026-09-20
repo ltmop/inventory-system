@@ -10,7 +10,16 @@
 // - 客户端侧所有失败静默降级（返回 {ok:false}），绝不影响主流程
 //   （与网关侧"宁可误断不可漏计"相反，是故意区分）
 // ============================================================
-import { safeStorage } from 'electron'
+import { createRequire } from 'node:module'
+// safeStorage 只在 Electron 里有。中心库服务器是纯 Node（没有 Electron），
+// 原来这里写死 import 'electron' → 服务器一加载就挂，所以 AI 从来没在中心库上跑起来过。
+// 改成惰性获取：桌面端照旧用系统钥匙串加密；中心库取不到就用明文兜底（内部服务、文件权限可控）。
+let _safeStorage
+function getSafeStorage() {
+  if (_safeStorage !== undefined) return _safeStorage
+  try { _safeStorage = createRequire(import.meta.url)('electron')?.safeStorage ?? null } catch { _safeStorage = null }
+  return _safeStorage
+}
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -47,8 +56,9 @@ function writeEnc(file, plain) {
   try {
     let payload
     try {
-      payload = safeStorage.isEncryptionAvailable()
-        ? safeStorage.encryptString(plain).toString('base64')
+      const ss = getSafeStorage()
+      payload = (ss && ss.isEncryptionAvailable())
+        ? ss.encryptString(plain).toString('base64')
         : `plain:${Buffer.from(plain, 'utf8').toString('base64')}`
     } catch {
       payload = `plain:${Buffer.from(plain, 'utf8').toString('base64')}`
@@ -67,7 +77,9 @@ function readEnc(file) {
     if (!fs.existsSync(f) || fs.statSync(f).size === 0) return null
     const raw = fs.readFileSync(f, 'utf8')
     if (raw.startsWith('plain:')) return Buffer.from(raw.slice(6), 'base64').toString('utf8')
-    return safeStorage.decryptString(Buffer.from(raw, 'base64'))
+    const ss = getSafeStorage()
+    if (!ss) return null
+    return ss.decryptString(Buffer.from(raw, 'base64'))
   } catch {
     return null
   }
