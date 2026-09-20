@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Download, QrCode } from 'lucide-react'
+import { ArrowLeft, Download, QrCode } from 'lucide-react'
 import { useAppStore } from '@/store/appStore'
 import { backend } from '@/lib/api'
 import { PriceLabelDialog } from '@/components/PriceLabel'
@@ -8,7 +8,7 @@ import { SellQrLabelDialog } from '@/components/SellQrLabel'
 import { productName, csvCell } from '@/lib/formatters'
 import { computeExpiring } from '@/lib/expiry'
 import { subCategoryOptions } from '@/lib/subCategories'
-import { countLowStock } from '@/lib/stockVitals'
+import { countLowStock, isLowStock } from '@/lib/stockVitals'
 import {
   SPEC_FIELDS, collectSpecs, specsToForm, type SpecField,
 } from '@/lib/productSpecs'
@@ -19,12 +19,16 @@ import { DeleteProductDialog } from './inventory/DeleteProductDialog'
 import { EditProductDialog, type EditProductForm } from './inventory/EditProductDialog'
 import { InventoryFilterBar } from './inventory/InventoryFilterBar'
 import { InventoryTable, LOW_STOCK_THRESHOLD } from './inventory/InventoryTable'
+import { BrandGroupList, type BrandGroup } from './inventory/BrandGroupList'
 import { BatchActionBar } from './inventory/BatchActionBar'
 import { BatchPriceDialog } from './inventory/BatchPriceDialog'
 import { BatchStatusDialog } from './inventory/BatchStatusDialog'
 import { ProductHistoryDialog } from './inventory/ProductHistoryDialog'
 import type { BatchPriceMode } from '@/store/appStore'
 import { MetricStrip } from '@/components/layout/MetricStrip'
+
+/** 「没填品牌」那一组的哨兵键：brand 为空/null 的商品要能进得去，不能被这个新视图藏起来 */
+const NO_BRAND = '__no_brand__'
 
 const ALL = '__all__'
 
@@ -60,6 +64,13 @@ export function InventoryPage() {
   // 150 个值经逐条核对是真实渔具子类（伊势尼/纺车轮/中通竿…），不是脏数据，
   // 详见 src/lib/subCategories.ts 顶部说明。
   const [subCategory, setSubCategory] = useState(ALL)
+
+  // 「先进品牌、再进规格」两级视图（2026-09-20 owner 要求）：
+  //   原话「在库存里不能一进去就看到某个规格，而是子品牌，我想看有哪些规格的时候，
+  //   再点击进去看规格，规格又分别有哪些数量…一下子把（一个品牌的）所有规格全部摆在明面上，太多了」。
+  //   openBrand === null → 第一层（品牌卡片列表）；开了某个品牌 → 第二层（该品牌的规格明细表）。
+  //   量过：一行就是一个独立规格（商品数 == 不同 SKU 数），324 行平铺才是"太乱"的根源。
+  const [openBrand, setOpenBrand] = useState<string | null>(null)
   const [stockMin, setStockMin] = useState('')
   const [stockMax, setStockMax] = useState('')
   const [searchParams] = useSearchParams()
@@ -423,11 +434,39 @@ export function InventoryPage() {
     })
   }, [filtered, stockSort, totalStockOf])
 
+  // 第一层：按品牌把**当前筛选结果**分组。
+  // 注意它是从 filtered 算的 —— 所以上面的搜索/分类/状态/只看缺货 全部照旧生效，
+  // 筛选完再看品牌，剩下几个品牌一目了然。
+  const brandGroups = useMemo<BrandGroup[]>(() => {
+    const m = new Map<string, BrandGroup>()
+    for (const p of filtered) {
+      const raw = (p.brand ?? '').trim()
+      const key = raw || NO_BRAND
+      const g = m.get(key) ?? { key, name: raw || '没填品牌', count: 0, stock: 0, lowCount: 0 }
+      g.count += 1
+      const total = totalStockOf(p.id)
+      g.stock += total
+      // 缺货判据走 lib/stockVitals 的唯一判据，不在这里重新发明一个
+      if (isLowStock(total, p.min_stock)) g.lowCount += 1
+      m.set(key, g)
+    }
+    // 规格多的排前面（老板最常翻的就是那几个大牌），同数量按名字
+    return [...m.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh'))
+  }, [filtered, totalStockOf])
+
+  // 屏幕上**真正看得见的**那批规格：
+  //   第一层（品牌列表）→ 就是筛选结果本身；第二层（某个品牌）→ 只有这个品牌的规格。
+  // 导出 CSV / 打开单码 都跟着它走 —— 否则"进了老鬼却导出全店"会很怪。
+  const visibleProducts = useMemo(() => {
+    if (openBrand === null) return sorted
+    return sorted.filter((p) => ((p.brand ?? '').trim() || NO_BRAND) === openBrand)
+  }, [sorted, openBrand])
+
   // csvCell 已从 @/lib/formatters 导入（含逗号/引号/换行的字段包引号、引号双写）
 
   const exportCsv = () => {
     const header = 'SKU,条码,品类,子类,品牌,型号,状态,总库存,货位,最近进价(元),长度,调性,硬度,线号,钩号,颜色,材质,保质期'
-    const rows = filtered.map((p) =>
+    const rows = visibleProducts.map((p) =>
       [
         p.sku_code,
         p.barcode ?? '',
@@ -485,11 +524,11 @@ export function InventoryPage() {
         subtitle="按商品、批次、货位多维度查询当前库存"
         action={
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => void openQrSheet()} disabled={filtered.length === 0}>
+            <Button variant="outline" onClick={() => void openQrSheet()} disabled={visibleProducts.length === 0}>
               <QrCode className="size-4" />
               打印开单码
             </Button>
-            <Button variant="outline" onClick={exportCsv} disabled={filtered.length === 0}>
+            <Button variant="outline" onClick={exportCsv} disabled={visibleProducts.length === 0}>
               <Download className="size-4" />
               导出CSV
             </Button>
@@ -551,27 +590,56 @@ export function InventoryPage() {
         />
       )}
 
-      {/* 库存表格 */}
-      <InventoryTable
-        products={sorted}
-        allEmpty={products.length === 0}
-        totalStockOf={totalStockOf}
-        batchesOf={batchesOf}
-        suppliers={suppliers}
-        expiringMap={expiringMap}
-        stockSort={stockSort}
-        onToggleStockSort={() => setStockSort((d) => cycleDir(d))}
-        onLabel={setLabeling}
-        onEdit={openEdit}
-        onDelete={(p) => {
-          setPageError('')
-          setDeleting(p)
-        }}
-        onHistory={setHistoryProduct}
-        selectedIds={selectedIds}
-        onToggleSelect={toggleSelect}
-        onTogglePage={togglePage}
-      />
+      {/* 两级视图（2026-09-20 owner 要求）：
+            第一层 = 品牌卡片（每个品牌多少规格 / 共多少件 / 几个缺货）
+            第二层 = 点进去之后，该品牌的规格明细（就是原来那张表）
+          为什么必须有第一层：一行就是一个独立规格（商品数 == 不同 SKU 数），
+          平铺出来直接 324 行；而渔具这行一个品牌下动辄几十个规格、品牌又多。
+          ⚠️ 第一层用 `filtered.length` 报总数：品牌是从**筛选结果**分出来的，
+             所以搜索/分类/状态/只看缺货 在两级里都照旧生效。 */}
+      {openBrand === null && brandGroups.length > 0 ? (
+        <BrandGroupList groups={brandGroups} total={filtered.length} onOpen={setOpenBrand} />
+      ) : (
+        <div className="space-y-3">
+          {/* 返回键只在"确实进了某个品牌"时才出现。
+              ⚠️ 条件里那句 `brandGroups.length > 0` 不是为了好看：
+              没商品、或筛选后一条不剩时，品牌分组是空数组，BrandGroupList 会返回 null ——
+              那时如果还停在第一层分支，整页就是一片空白（连"还没有商品"都没有）。
+              所以空的时候落回表格，由它自带空态去说话。 */}
+          {openBrand !== null && (
+            <button
+              onClick={() => setOpenBrand(null)}
+              className="flex cursor-pointer items-center gap-1.5 text-sm font-medium text-brand-700 hover:text-brand-900"
+            >
+              <ArrowLeft className="size-4" />
+              返回品牌列表
+              <span className="ml-1 font-normal text-muted-foreground">
+                （当前：{brandGroups.find((g) => g.key === openBrand)?.name ?? '—'} · {visibleProducts.length} 个规格）
+              </span>
+            </button>
+          )}
+          <InventoryTable
+            products={visibleProducts}
+            allEmpty={products.length === 0}
+            totalStockOf={totalStockOf}
+            batchesOf={batchesOf}
+            suppliers={suppliers}
+            expiringMap={expiringMap}
+            stockSort={stockSort}
+            onToggleStockSort={() => setStockSort((d) => cycleDir(d))}
+            onLabel={setLabeling}
+            onEdit={openEdit}
+            onDelete={(p) => {
+              setPageError('')
+              setDeleting(p)
+            }}
+            onHistory={setHistoryProduct}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
+            onTogglePage={togglePage}
+          />
+        </div>
+      )}
 
       {/* 编辑商品 Dialog：SKU 创建后不可改 */}
       <EditProductDialog
@@ -598,7 +666,7 @@ export function InventoryPage() {
       <SellQrLabelDialog
         open={qrSheetOpen}
         onOpenChange={setQrSheetOpen}
-        products={filtered}
+        products={visibleProducts}
         serverUrl={qrServerUrl}
       />
 

@@ -3140,5 +3140,33 @@ ok('preload 白名单含 expense 三通道',
     /animate-spin/.test(topbar) && /justRefreshed/.test(topbar))
 }
 
+// ============ 界面：库存页「先品牌、再规格」两级视图（2026-09-20 owner 要求）============
+// owner 原话：「在库存里不能一进去就看到某个规格，而是子品牌，我想看有哪些规格的时候，
+//   再点击进去看规格，规格又分别有哪些数量…一下子把（一个品牌的）所有规格全部摆在明面上，
+//   太多了，渔具这行业的规格又多，而且鱼竿品牌又多」。
+// 量过（清空前的 324 个商品）：一行就是一个独立规格（商品数 == 不同 SKU 数 == 324），
+//   按品牌分是 58 组（最大「没填品牌」125 个规格）—— 平铺 324 行才是"太乱"的根源。
+{
+  const inv = fs.readFileSync(path.resolve('src/pages/InventoryPage.tsx'), 'utf8')
+  const grp = fs.readFileSync(path.resolve('src/pages/inventory/BrandGroupList.tsx'), 'utf8')
+  ok('库存两级：有第一层的品牌分组组件（BrandGroupList）', /export function BrandGroupList/.test(grp))
+  ok('库存两级：第一层说的是"多少个规格 + 共多少件"（老板要的就是这两个数）',
+    /个规格/.test(grp) && /共 \{g\.stock\.toLocaleString\(\)\} 件/.test(grp))
+  // 这条是要害：分组若从 products（全量）算，搜索/分类/只看缺货 在这些分组上就会失效
+  ok('库存两级：分组从**筛选结果**算（搜索/分类/只看缺货 在两级里都照旧生效）',
+    /const brandGroups = useMemo<BrandGroup\[\]>\(\(\) => \{[\s\S]*?for \(const p of filtered\)/.test(inv))
+  ok('库存两级：点进品牌才看规格明细（openBrand 控制 + 表格吃 visibleProducts）',
+    /const \[openBrand, setOpenBrand\] = useState<string \| null>\(null\)/.test(inv) &&
+      /products=\{visibleProducts\}/.test(inv))
+  ok('库存两级：「没填品牌」不被这个新视图藏起来（有哨兵键 + 有中文名）',
+    /const NO_BRAND = '__no_brand__'/.test(inv) && /没填品牌/.test(inv))
+  ok('库存两级：导出/开单码跟着"看得见的那批"，不是全量（否则进了老鬼却导出全店）',
+    /const rows = visibleProducts\.map/.test(inv) && /products=\{visibleProducts\}\s*\n\s*serverUrl/.test(inv))
+  // 空库（0 商品）或筛空时，品牌分组是空数组、BrandGroupList 返回 null ——
+  // 若还停第一层分支就是一片白屏。所以必须回落到表格，让它自带空态去说话。
+  ok('库存两级：没商品/筛空时不落成白屏（分组空就回落表格的空态）',
+    /openBrand === null && brandGroups\.length > 0/.test(inv))
+}
+
 fs.rmSync(tmp, { recursive: true, force: true })
 console.log(`\n全部 ${passed} 项断言通过`)
