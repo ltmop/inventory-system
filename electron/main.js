@@ -38,6 +38,18 @@ import { initCloud, pairWithCloud, syncSnapshot, uploadBackup, listCloudBackups,
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+// stdout 断了不该把主进程带崩（2026-09-21 查 crash.log 时补）：
+// 从终端启动后终端被关掉、或被别的东西当子进程启动时，console 往一个已关闭的管道写会抛
+// EPIPE —— 它会被下面的 uncaughtException 记成一条"崩溃"，把真正的崩溃淹掉。
+// 实测证据：crash.log 里 9 条有 4 条是 electron-updater 内部 console.info 抛的 EPIPE。
+// 这里把 console 包一层 try/catch：日志写不出去就算了，绝不能变成 uncaughtException。
+for (const level of ['log', 'info', 'warn', 'error', 'debug']) {
+  const orig = console[level].bind(console)
+  console[level] = (...args) => {
+    try { orig(...args) } catch { /* stdout 已关闭：丢弃这条日志 */ }
+  }
+}
+
 // 商品图片走自定义协议 fi-img://photo/<文件名>：file:// 页面直接 <img src> 指 %APPDATA% 绝对路径会被
 // file 协议拦；data URL 图片一多内存吃不消。standard+secure 让它能像 https 一样当图片源用。
 // 必须在 app ready 之前注册特权（模块顶层即可）
@@ -704,6 +716,9 @@ async function runWebCheck({ manual = false } = {}) {
   return r
 }
 
+// 渲染进程崩溃重载节流：跨窗口重建也要记住，所以放模块级（见 createWindow 里的处理）
+let recentRendererCrashes = []
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -732,9 +747,21 @@ function createWindow() {
     const isLocal = url.startsWith('file://') || (devUrl && url.startsWith(devUrl))
     if (!isLocal) event.preventDefault()
   })
-  // 渲染进程崩溃兜底：检测到崩溃/白屏 → 写日志 + 自动重载页面恢复，不让用户手动重启
+  // 渲染进程崩溃兜底：检测到崩溃/白屏 → 写日志 + 自动重载页面恢复，不让用户手动重启。
+  // 但**不能无限重载**：要是加载的这版前端一进来就崩（显卡驱动抽风、资源损坏），
+  // 会变成不停闪屏，比停下来更糟。所以 60 秒内最多自动重载 3 次，超了停手留痕（2026-09-21 补）。
   mainWindow.webContents.on('render-process-gone', (_e, details) => {
     logCrash('render-process-gone', new Error(`reason=${details?.reason} exitCode=${details?.exitCode}`))
+    const now = Date.now()
+    recentRendererCrashes = recentRendererCrashes.filter((t) => now - t < 60_000)
+    if (recentRendererCrashes.length >= 3) {
+      logCrash(
+        'render-process-gone-storm',
+        new Error(`60 秒内第 ${recentRendererCrashes.length + 1} 次崩溃，已停止自动重载以免无限闪屏；请手动重启软件`),
+      )
+      return
+    }
+    recentRendererCrashes.push(now)
     // 自动重新加载页面（内存不足/进程被杀等场景恢复）
     setTimeout(() => {
       try {
