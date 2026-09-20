@@ -12,10 +12,99 @@ page('inbound', function (app) {
     render()
   }
 
+  // ===== 进货单整单入库（老板要的：有单据就该按单据一次入完）=====
+  async function noteFlow() {
+    if (!window.FiPhoto) { toast('这一版没有拍照模块，更新后再试'); return }
+    let b64 = null
+    try { b64 = await FiPhoto.pickPhoto() } catch (e) { toast('读图失败：' + ((e && e.message) || '')); return }
+    if (!b64) return
+    toast('正在识别单据…（约 5-15 秒）')
+    let r = null
+    try { r = await api('ai:parseInboundNote', { imageBase64: b64, mimeType: 'image/jpeg' }) } catch (e) { toast('识别失败：' + ((e && e.message) || '')); return }
+    if (!r || !r.ok || !Array.isArray(r.items) || !r.items.length) {
+      const why = !r ? '没回应' : (r.reason === 'no-vision' ? '服务器没配视觉模型（找维护）' : r.reason === 'parse-failed' ? '单据没看清，换张更清晰、别反光的' : (r.reason || '没识别出商品行'))
+      toast('识别失败：' + why)
+      return
+    }
+    openNoteReview(r.items)
+  }
+
+  // 识别结果核对表：数量/进价可改、认错的行可删；确认后走 inbound:fromNote 一次入库
+  function openNoteReview(items) {
+    const rows = items.map(function (it) {
+      return {
+        product_id: it.product_id ? Number(it.product_id) : null,
+        matched: !!it.product_id,
+        matched_name: it.matched_name || '',
+        brand: it.brand || '', model: it.model || '',
+        category: it.category || '其他',
+        unit: it.unit || '件',
+        quantity: Number(it.quantity) > 0 ? Number(it.quantity) : 1,
+        // 服务端 ai.js 给的是「分」：cost_price_fen（兼容旧字段 cost_price_yuan）
+        cost_price: Math.max(0, Math.round(Number(it.cost_price_fen != null ? it.cost_price_fen : Number(it.cost_price_yuan || 0) * 100))),
+      }
+    })
+    const ov = sheet('核对进货单（' + rows.length + ' 行）',
+      '<div class="text-sm text-muted" style="margin-bottom:10px">AI 认出来的行。数量 / 进价可以改，认错的行点右边叉删掉；核对完点最下面「全部入库」。</div>' +
+      '<div id="nt-rows"></div>' +
+      '<div class="text-xs text-muted" id="nt-sum" style="margin:10px 0"></div>' +
+      '<button id="nt-go" class="okbtn">全部入库</button>')
+    const box = ov.querySelector('#nt-rows'), sumEl = ov.querySelector('#nt-sum')
+    function draw() {
+      box.innerHTML = ''
+      rows.forEach(function (r, i) {
+        const el = document.createElement('div')
+        el.className = 'card'
+        el.style.cssText = 'margin:0 0 8px;padding:10px'
+        el.innerHTML =
+          '<div class="flex" style="align-items:center;gap:8px">' +
+            '<div style="flex:1;min-width:0">' +
+              '<div class="font-bold" style="font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml((r.brand + ' ' + r.model).trim() || '（没认出名）') + '</div>' +
+              '<div class="text-xs text-muted" style="margin-top:2px">' + escHtml(r.category) + ' · ' + (r.matched ? ('已有商品' + (r.matched_name ? '：' + escHtml(r.matched_name) : '')) : '新商品，会建档（售价按 进价×2）') + '</div>' +
+            '</div>' +
+            '<button data-x="' + i + '" style="flex:none;width:30px;height:30px;border-radius:50%;border:none;background:var(--danger-l);color:var(--danger);display:flex;align-items:center;justify-content:center">' + FiIcon('close', 14) + '</button>' +
+          '</div>' +
+          '<div class="flex" style="gap:8px;margin-top:8px">' +
+            '<label style="flex:1"><span class="text-xs text-muted">数量</span><input data-q="' + i + '" type="number" step="0.1" value="' + r.quantity + '" style="width:100%;height:38px;border:1px solid var(--line);border-radius:9px;padding:0 9px;font-size:14px"></label>' +
+            '<label style="flex:1"><span class="text-xs text-muted">进价（元）</span><input data-c="' + i + '" type="number" step="0.01" value="' + (r.cost_price / 100).toFixed(2) + '" style="width:100%;height:38px;border:1px solid var(--line);border-radius:9px;padding:0 9px;font-size:14px"></label>' +
+          '</div>'
+        box.appendChild(el)
+      })
+      box.querySelectorAll('[data-x]').forEach(function (b) { b.onclick = function () { rows.splice(Number(b.getAttribute('data-x')), 1); draw() } })
+      box.querySelectorAll('[data-q]').forEach(function (inp) { inp.onchange = function () { rows[Number(inp.getAttribute('data-q'))].quantity = parseFloat(inp.value) || 0; draw() } })
+      box.querySelectorAll('[data-c]').forEach(function (inp) { inp.onchange = function () { rows[Number(inp.getAttribute('data-c'))].cost_price = Math.round((parseFloat(inp.value) || 0) * 100); draw() } })
+      const total = rows.reduce(function (s, r) { return s + r.cost_price * r.quantity }, 0)
+      const news = rows.filter(function (r) { return !r.matched }).length
+      sumEl.textContent = rows.length ? ('共 ' + rows.length + ' 行 · 进货金额 ' + fmt(total) + (news ? '（' + news + ' 行是新商品）' : '')) : '没有行了'
+    }
+    draw()
+    ov.querySelector('#nt-go').onclick = async function () {
+      const list = rows.filter(function (r) { return r.quantity > 0 }).map(function (r) {
+        return { product_id: r.product_id, brand: r.brand, model: r.model, category: r.category, unit: r.unit, quantity: r.quantity, cost_price: r.cost_price }
+      })
+      if (!list.length) { toast('没有可入库的行'); return }
+      const btn = ov.querySelector('#nt-go'); btn.disabled = true; btn.textContent = '正在入库…'
+      try {
+        const res = await api('inbound:fromNote', { items: list, operator: getOperator() })
+        ov.remove()
+        const msg = '入库 ' + (res.done || 0) + ' 行' + (res.created ? '（新建 ' + res.created + ' 个商品）' : '')
+        toast(msg)
+        showStamp('已入库', msg, true)
+        if (res.failed && res.failed.length) {
+          alert('这些行没入库成功：\n' + res.failed.map(function (f) { return '· ' + (f.brand || '') + ' ' + (f.model || '') + '：' + f.reason }).join('\n'))
+        }
+        loadRecents()
+      } catch (e) {
+        btn.disabled = false; btn.textContent = '全部入库'
+        toast('入库失败：' + ((e && e.message) || ''))
+      }
+    }
+  }
+
   function render() {
     app.innerHTML = ''
 
-    // 三个入口：AI拍照建档 / 手动建档 / 扫码入库
+    // 四个入口：AI拍照建档 / 手动建档 / 扫码入库 / 进货单整单入库
     const row = document.createElement('div'); row.className = 'bigrow'
     const photo = document.createElement('button'); photo.className = 'big photo'
     photo.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="26" height="26"><path d="M4 8h3l2-3h6l2 3h3v12H4z"/><circle cx="12" cy="13" r="3.5"/></svg>AI 拍照建档'
@@ -27,7 +116,12 @@ page('inbound', function (app) {
     const scan = document.createElement('button'); scan.className = 'big'
     scan.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="26" height="26"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M4 12h16"/></svg>扫码入库'
     scan.onclick = () => openScanner(onScan, '扫条码入库')
-    row.appendChild(photo); row.appendChild(manual); row.appendChild(scan)
+    // 进货单整单入库：拍一张单据 → AI 逐行识别 → 核对数量/进价 → 一次入库
+    const note = document.createElement('button'); note.className = 'big'
+    note.style.borderColor = 'var(--blue)'; note.style.color = 'var(--blue)'
+    note.innerHTML = FiIcon('clipboard', 22) + '进货单入库'
+    note.onclick = noteFlow
+    row.appendChild(photo); row.appendChild(manual); row.appendChild(scan); row.appendChild(note)
     // 固定顶栏：入库入口与搜索钉在顶部，翻看最近入库时也能一键操作
     const sticky = document.createElement('div'); sticky.className = 'sticky-bar'
     sticky.appendChild(row)

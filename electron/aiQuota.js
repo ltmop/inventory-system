@@ -40,7 +40,8 @@ export const FEATURES = Object.freeze({
 /** 余额不足统一错误码（全系统唯一口径） */
 export const ERR_INSUFFICIENT = 402
 
-const TIMEOUT_MS = 45_000
+// 45 秒对文字问答够用；但视觉（拍单据识别）关掉思考链前后都可能偏慢，留足 150 秒兜底
+const TIMEOUT_MS = Number(process.env.FI_AI_TIMEOUT_MS || 150000)
 const DEVICE_TOKEN_FILE = 'device-token.enc'
 const LICENSE_CODE_FILE = 'license-code.enc'
 

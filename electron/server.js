@@ -853,7 +853,7 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
   // 写通道（只读 token 禁止调用）；其余通道视为只读
   const WRITE_CHANNELS = new Set([
     'product:create','product:update','product:batchUpdate','product:delete','product:mark','product:priceFromCost',
-    'inbound:create','outbound:confirm','outbound:checkout','outbound:return','outbound:exchange',
+    'inbound:create','inbound:fromNote','outbound:confirm','outbound:checkout','outbound:return','outbound:exchange',
     'supplier:create','supplier:update','supplier:delete','supplier:pay',
     'stocktake:create','stocktake:updateItem','stocktake:complete','stocktake:submit','import:batch',
     // 库位调拨是写操作（改批次库位）—— 漏在这里等于只读令牌也能调拨
@@ -1091,6 +1091,93 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     'category:setParent': (d, p) => cmds.setCategoryParent(d, p.id, p),
     'unit:list': (d) => cmds.listUnits(d),
     'inbound:create': (d, p) => cmds.createInbound(d, p),
+    // 进货单整单入库（2026-09-21）：AI 识别出的单据行，逐行入库。
+    // 已有商品走 createInbound；识别不到的老货先建档（售价默认 成本×2，老板可再改），再入库。
+    // 单行失败只记这一行（与 Excel 导入同样取舍），返回逐行结果让手机如实展示。
+    'inbound:fromNote': (d, p) => {
+      const items = Array.isArray(p?.items) ? p.items.slice(0, 60) : []
+      if (!items.length) return { ok: false, reason: 'no-items' }
+      const operator = p?.operator ?? null
+      const out = { ok: true, done: 0, created: 0, failed: [], totalCost: 0 }
+      for (const it of items) {
+        try {
+          const qty = Number(it.quantity)
+          if (!(qty > 0)) throw new Error('数量要大于 0')
+          const cost = Math.max(1, Math.round(Number(it.cost_price) || 0))
+          let productId = Number(it.product_id) || null
+          let created = false
+          if (!productId) {
+            const row = cmds.createProduct(d, {
+              barcode: it.barcode || undefined,
+              category: it.category || '其他',
+              brand: it.brand || '',
+              model: it.model || '',
+              cost_price: cost,
+              // 没给售价就按老板定的规矩 成本×2（开单页还能单件改）
+              suggest_price: Math.max(1, Math.round(Number(it.suggest_price) || cost * 2)),
+              unit: it.unit || '件',
+              status: '待盘点',
+              operator,
+            })
+            productId = row.id
+            created = true
+          }
+          cmds.createInbound(d, { productId, quantity: qty, costPrice: cost, location: it.location || '', operator, expiryDate: it.expiry_date || undefined })
+          out.done++
+          if (created) out.created++
+          out.totalCost += Math.round(cost * qty)
+        } catch (e) {
+          out.failed.push({ brand: it.brand || '', model: it.model || '', reason: String(e?.message ?? e) })
+        }
+      }
+      return out
+    },
+    // 拍进货单 → AI 逐行识别（不落库；手机端核对后再调 inbound:fromNote）
+    'ai:parseInboundNote': async (d, p) => {
+      if (!aiRef) return { ok: false, reason: 'ai-not-ready' }
+      if (!p?.imageBase64) return { ok: false, reason: 'no-image' }
+      const r = await aiRef.parseInboundNote({ imageBase64: p.imageBase64, mimeType: p.mimeType || 'image/jpeg' })
+      if (!r || !r.ok || !Array.isArray(r.items)) return r
+      // AI 没匹配上的行，再做一次**本地兜底匹配**：按 品牌+型号 / 型号 / 品牌+型号连写 归一化比对。
+      // 不匹配就给店里建新商品 —— 那会造出一堆和已有货重复的档案（老板最怕库乱）。
+      const norm = (s) => String(s ?? '').toLowerCase().replace(/[\s\-_（）()【】\[\]·、,，.。/]/g, '')
+      let all = []
+      try { all = d.prepare('SELECT id, brand, model, sku_code, barcode FROM products').all() } catch (e) { all = [] }
+      const byFull = new Map(), byModel = new Map(), byJoined = new Map()
+      all.forEach((x) => {
+        const b = norm(x.brand), m = norm(x.model)
+        if (!m) return
+        if (!byModel.has(m)) byModel.set(m, x)
+        const joined = norm((x.brand || '') + (x.model || ''))
+        if (joined && !byJoined.has(joined)) byJoined.set(joined, x)
+        if (b && !byFull.has(b + '|' + m)) byFull.set(b + '|' + m, x)
+      })
+      const items = r.items.map((it) => {
+        if (it.product_id) return Object.assign({}, it, { matched_by: 'ai' })
+        const b = norm(it.brand), m = norm(it.model)
+        let hit = (b && m && byFull.get(b + '|' + m)) || (m && byModel.get(m)) || (b && m && byJoined.get(b + m)) || null
+        // 再放宽一档：品牌相同 + 型号互相包含 / 有 ≥3 字连续重叠 → 认成同一件货
+        // （单子上写"伊势尼5号 有刺"，店里档案叫"伊势尼钩 有刺"，不给匹配就会建出重复档案）
+        if (!hit && b) {
+          const cands = all.filter((x) => norm(x.brand) === b)
+          hit = cands.find((x) => { const mm = norm(x.model); return !!mm && !!m && (mm.includes(m) || m.includes(mm)) })
+          if (!hit) {
+            hit = cands.find((x) => {
+              const mm = norm(x.model)
+              if (!mm || !m) return false
+              for (let i = 0; i + 3 <= m.length; i++) if (mm.includes(m.slice(i, i + 3))) return true
+              return false
+            })
+          }
+        }
+        if (!hit) return Object.assign({}, it, { matched_by: null })
+        return Object.assign({}, it, {
+          product_id: hit.id, matched_by: 'local',
+          matched_name: [hit.brand, hit.model].filter(Boolean).join(' ') || hit.sku_code,
+        })
+      })
+      return Object.assign({}, r, { items })
+    },
     'outbound:confirm': (d, p) => cmds.confirmOutbound(d, p),
     'outbound:checkout': (d, p) => cmds.confirmCheckout(d, p),
     'outbound:return': (d, p) => cmds.createReturn(d, p),

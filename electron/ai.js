@@ -34,7 +34,9 @@ const OFFICIAL_GATEWAY_TOKEN = 'adu-desktop-0.1'
 const PROVIDERS = {
   gateway: {
     name: '阿东官方AI', baseUrl: OFFICIAL_GATEWAY_URL, model: 'doubao-seed-2-1-turbo-260628',
-    vision: null, keyFile: 'gateway-token.enc', keyPrefix: '', keyPage: '',
+    // 视觉：网关自己按内容路由到视觉模型（VISION_MODEL），所以这里给个标记值即可。
+    // 原来写 null → 拍进货单/送货单识别永远走不进视觉分支（老板反馈"单据没法入库"的根因之一）。
+    vision: 'vision', keyFile: 'gateway-token.enc', keyPrefix: '', keyPage: '',
     chatPath: '/v1/chat/completions', authHeader: 'x-token', builtinToken: OFFICIAL_GATEWAY_TOKEN,
   },
   kimi: {

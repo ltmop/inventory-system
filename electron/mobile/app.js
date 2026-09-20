@@ -92,6 +92,9 @@ const COLORS = ["#0e9f6e","#b7791f","#1677ff","#7c3aed","#d64545","#0e7490","#be
 // 普通网络抖动（断网/超时）不锁死，让单次请求失败后可以重试——否则 WiFi 一抖手机端就全瘫
 let tokenFailed = false
 const READ_TIMEOUT_MS = 8000  // 读操作：8 秒足够，再久用户就以为卡死了
+// 少数「慢读」通道要单独放宽：拍单据识别视觉模型要 3~60 秒，8 秒会必超时。
+// 这些通道也不进离线缓存（结果是一次性的识别，不是可复用的账本数据）。
+const SLOW_CHANNELS = { 'ai:parseInboundNote': 150000 }
 const WRITE_TIMEOUT_MS = 15000 // 写操作：给足时间；重发有幂等键兜底，不会重复记账
 
 // 顶部连接横幅：断网/连接失败时大白话提醒，连上后自动隐藏
@@ -127,7 +130,7 @@ function hideNetBanner() {
 // 断网重试 / 双击 / 超时重发都不会重复扣库存、重复记账。
 const WRITE_CHANNELS = {
   'product:create': 1, 'product:update': 1, 'product:batchUpdate': 1, 'product:delete': 1, 'product:mark': 1,
-  'inbound:create': 1, 'outbound:confirm': 1, 'outbound:checkout': 1, 'outbound:return': 1, 'outbound:exchange': 1,
+  'inbound:create': 1, 'inbound:fromNote': 1, 'outbound:confirm': 1, 'outbound:checkout': 1, 'outbound:return': 1, 'outbound:exchange': 1,
   'supplier:create': 1, 'supplier:update': 1, 'supplier:delete': 1, 'supplier:pay': 1,
   'stocktake:create': 1, 'stocktake:updateItem': 1, 'stocktake:complete': 1, 'stocktake:submit': 1, 'import:batch': 1,
   'customer:create': 1, 'customer:update': 1, 'customer:delete': 1, 'payment:record': 1,
@@ -146,7 +149,7 @@ async function invokeRaw(channel, payload) {
   let lastErr = null
   for (let attempt = 0; attempt < 3; attempt++) {
     const controller = new AbortController()
-    const timer = setTimeout(function () { controller.abort() }, WRITE_CHANNELS[channel] ? WRITE_TIMEOUT_MS : READ_TIMEOUT_MS)
+    const timer = setTimeout(function () { controller.abort() }, SLOW_CHANNELS[channel] || (WRITE_CHANNELS[channel] ? WRITE_TIMEOUT_MS : READ_TIMEOUT_MS))
     let r
     try {
       r = await fetch(SERVER + '/api/invoke?token=' + TOKEN, {
@@ -191,7 +194,7 @@ async function invokeRaw(channel, payload) {
 
 // 离线层接线：写通道断网进队列、读通道断网用上次缓存，联网后按序幂等重放。
 const NO_QUEUE = { 'stocktake:create': 1, 'stocktake:submit': 1, 'stocktake:complete': 1, 'import:batch': 1, 'photo:save': 1, 'photo:delete': 1 }
-const NO_CACHE = { 'ai:chat': 1, 'ai:dailySummary': 1, 'ai:photoDraft': 1, 'payment:getQr': 1 }
+const NO_CACHE = { 'ai:chat': 1, 'ai:dailySummary': 1, 'ai:photoDraft': 1, 'ai:parseInboundNote': 1, 'payment:getQr': 1 }
 function updateOfflineBanner(pending, failed) {
   const n = pending === undefined ? Offline.pendingCount() : pending
   const f = failed === undefined ? Offline.failedCount() : failed
@@ -536,6 +539,8 @@ let renderGen = 0 // 页面代次：切页后旧请求的续写一律丢弃，�
 function navigate(hash) { location.hash = hash }
 window.addEventListener('hashchange', () => renderPage())
 document.addEventListener('DOMContentLoaded', () => {
+  // ⓪ 顶部安全区：先把状态栏那一段垫出来，再渲染页面（否则第一帧标题会被盖住）
+  initSafeArea()
   // ① 网页层热更：报心跳 + 顺手查新版（只对装了 APP 的机器生效；不依赖是否已连店铺）
   initWebUpdate()
   // ② 原生壳检查（只有壳变了才有内容），同样不依赖「是否已连上」
@@ -1030,6 +1035,25 @@ function openSizeSheet() {
 
 // ========== 右上角「登录账号」（顶栏一直挂着）==========
 // 老板要的：谁登录的一眼看到。点一下能看登录方式、换账号、切换操作员、退出。
+// ========== 顶部安全区（手机状态栏）==========
+// 安卓 15+ 强制 edge-to-edge：网页会直接顶到状态栏下面，标题被盖住。
+// 先问系统要（env(safe-area-inset-top)）；真机上拿不到就退到常见状态栏高度（宁多一点白，别挡标题）。
+function initSafeArea() {
+  let top = 0
+  try {
+    const probe = document.createElement('div')
+    probe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:env(safe-area-inset-top,0px);pointer-events:none'
+    document.body.appendChild(probe)
+    top = Math.round(probe.getBoundingClientRect().height || 0)
+    probe.remove()
+  } catch (e) { top = 0 }
+  if (!top) {
+    const native = !!(window.Capacitor && (window.Capacitor.isNativePlatform ? window.Capacitor.isNativePlatform() : !!window.Capacitor.Plugins))
+    if (native) top = 28
+  }
+  try { document.documentElement.style.setProperty('--safe-top', top + 'px') } catch (e) {}
+}
+
 function renderAccountChip() {
   const el = document.getElementById('acctChip')
   if (!el) return
