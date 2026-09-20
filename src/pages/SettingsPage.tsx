@@ -20,6 +20,7 @@ import { CentralModeCard } from './settings/CentralModeCard'
 import { IndustryTemplateCard } from './settings/IndustryTemplateCard'
 import { WallpaperCard } from './settings/WallpaperCard'
 import { PreferenceRow } from './settings/PreferenceRow'
+import { AiModelCard } from './settings/AiModelCard'
 
 // 设置页分类（2026-09-01 重构：10 个区块按 4 组归类，顶部导航条点击定位）
 const SETTINGS_SECTIONS = [
@@ -582,7 +583,9 @@ export function SettingsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-slate-600">
-          <div>AI 智能进销存系统 v{APP_VERSION}</div>
+          <AiModelCard />
+
+        <div>AI 智能进销存系统 v{APP_VERSION}</div>
           <div className="text-xs text-muted-foreground">
             Electron + React + SQLite（WAL）· {deployLabel} · 断电不丢数据
           </div>

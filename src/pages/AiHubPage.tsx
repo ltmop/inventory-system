@@ -22,6 +22,9 @@ export default function AiHubPage() {
   const [aiMessage, setAiMessage] = useState<{ ok: boolean; text: string } | null>(null)
   const [providers, setProviders] = useState<{ key: string; name: string; model: string; keyPage: string; configured: boolean; official?: boolean }[]>([])
   const [currentProvider, setCurrentProvider] = useState('kimi')
+  // 自定义 API 地址 / 模型（接入自建或中转的 DeepSeek 等）
+  const [endpointInput, setEndpointInput] = useState('')
+  const [modelInput, setModelInput] = useState('')
 
   // 语音识别模型状态（本地 sherpa-onnx 离线识别）
   const voice = useVoiceModel()
@@ -58,20 +61,57 @@ export default function AiHubPage() {
     }
   }, [])
 
+  /** 把配置同步到中心库：手机端「小渔」用同一份配置（不是中心库模式就如实说明） */
+  const syncToCentral = async (): Promise<string> => {
+    if (!backend) return ''
+    try {
+      const s = await backend.invoke('ai:syncCentral')
+      if (s?.ok) return ' 已同步到中心库，手机端「小渔」也用这个模型。'
+      if (s?.reason === 'not-central') return ' （本机模式，手机端仍走官方 AI 服务）'
+      return ` 同步到手机端失败（${s?.reason ?? '未知原因'}）。`
+    } catch { return '' }
+  }
+
   const handleSaveKey = async () => {
     if (!backend) return
     setAiBusy(true)
     setAiMessage(null)
     try {
+      // 地址/模型一起保存（填了才覆盖，留空用默认）
+      if (endpointInput.trim() || modelInput.trim()) {
+        await backend.invoke('ai:setEndpoint', { provider: currentProvider, baseUrl: endpointInput.trim(), model: modelInput.trim() })
+      }
       await backend.invoke('ai:setKey', { key: keyInput })
       const t = await backend.invoke('ai:test')
       if (t?.ok) {
         setAiConfigured(true)
         setKeyInput('')
-        setAiMessage({ ok: true, text: '验证通过，AI 助手已激活。仪表盘今日经营小结会自动生成 AI 打烊日报。' })
+        const note = await syncToCentral()
+        const fresh = await backend.invoke('ai:providers').catch(() => null)
+        if (fresh) setProviders(fresh)
+        setAiMessage({ ok: true, text: '验证通过，AI 助手已激活。仪表盘今日经营小结会自动生成 AI 打烊日报。' + note })
       } else {
-        setAiMessage({ ok: false, text: `Key 已保存但验证失败（${t?.reason ?? '未知原因'}），请检查 Key 是否正确、账户是否有余额` })
+        setAiMessage({ ok: false, text: `Key 已保存但验证失败（${t?.reason ?? '未知原因'}），请检查 API 地址、Key 是否正确、账户是否有余额` })
       }
+    } catch (e) {
+      setAiMessage({ ok: false, text: e instanceof Error ? e.message : '保存失败' })
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
+  /** 只保存 API 地址 / 模型（不改 Key） */
+  const handleSaveEndpoint = async () => {
+    if (!backend) return
+    setAiBusy(true)
+    setAiMessage(null)
+    try {
+      const s = await backend.invoke('ai:setEndpoint', { provider: currentProvider, baseUrl: endpointInput.trim(), model: modelInput.trim() })
+      const fresh = await backend.invoke('ai:providers').catch(() => null)
+      if (fresh) setProviders(fresh)
+      setEndpointInput('')
+      setModelInput('')
+      setAiMessage({ ok: true, text: `已保存：${s?.baseUrl ?? ''} · ${s?.model ?? ''}。现在点「保存并验证」填 Key 就能用。` })
     } catch (e) {
       setAiMessage({ ok: false, text: e instanceof Error ? e.message : '保存失败' })
     } finally {
@@ -122,6 +162,11 @@ export default function AiHubPage() {
         onProviderChange={(p) => void handleProviderChange(p)}
         onSaveKey={handleSaveKey}
         onClearKey={handleClearKey}
+        endpointInput={endpointInput}
+        onEndpointInputChange={setEndpointInput}
+        modelInput={modelInput}
+        onModelInputChange={setModelInput}
+        onSaveEndpoint={() => void handleSaveEndpoint()}
         onOpenExternal={(url) => void backend?.invoke('app:openExternal', url)}
       />
 

@@ -71,17 +71,65 @@ let dataDir = null
 let db = null
 let currentProviderName = 'gateway' // v0.1 起默认官方 AI 服务，开箱即用
 
+// ---------- 自定义 API 地址 / 模型（2026-09-21）----------
+// 老板要的：内部支持接入 DeepSeek，只需「密钥 + API 地址」。
+// 这里按提供商存一份覆盖（dataDir/ai-config.json 的 endpoints），自建/中转/国内代理地址都能填；
+// 不填就用内置默认（如 DeepSeek 默认 https://api.deepseek.com + deepseek-chat）。
+let endpointOverrides = {}
+
+/** 取某提供商最终生效的 { baseUrl, model }（覆盖优先） */
+export function aiEndpoint(name = currentProviderName) {
+  const p = PROVIDERS[name]
+  if (!p) return { baseUrl: '', model: '' }
+  const o = endpointOverrides[name] || {}
+  return { baseUrl: o.baseUrl || p.baseUrl, model: o.model || p.model }
+}
+
+/** 保存某提供商的 API 地址 / 模型（空串 = 恢复默认）。返回该提供商的状态。 */
+export function setProviderEndpoint(name, { baseUrl, model } = {}) {
+  const target = PROVIDERS[name] ? name : currentProviderName
+  const cur = endpointOverrides[target] || {}
+  const next = { ...cur }
+  if (baseUrl !== undefined) {
+    const u = String(baseUrl || '').trim().replace(/\/+$/, '')
+    if (u && !/^https?:\/\//i.test(u)) throw new Error('API 地址要以 http:// 或 https:// 开头')
+    if (u) next.baseUrl = u
+    else delete next.baseUrl
+  }
+  if (model !== undefined) {
+    const m = String(model || '').trim()
+    if (m) next.model = m
+    else delete next.model
+  }
+  if (Object.keys(next).length) endpointOverrides[target] = next
+  else delete endpointOverrides[target]
+  saveProviderConfig()
+  return { ok: true, provider: target, ...aiEndpoint(target) }
+}
+
+/** 给中心库同步用：当前生效的提供商 + 地址 + 模型 + 密钥（只在店内自己的服务器之间流动） */
+export function aiSyncPayload() {
+  const { baseUrl, model } = aiEndpoint(currentProviderName)
+  let key = ''
+  try { key = readApiKey() || '' } catch { key = '' }
+  return { provider: currentProviderName, baseUrl, model, key }
+}
+
 /** 主进程启动时调用一次，确定数据目录 + 读取上次选的提供商 */
 export function initAi(dir) {
   dataDir = dir
   try {
     const cfg = JSON.parse(fs.readFileSync(path.join(dataDir, 'ai-config.json'), 'utf8'))
     if (cfg?.provider && PROVIDERS[cfg.provider]) currentProviderName = cfg.provider
+    if (cfg?.endpoints && typeof cfg.endpoints === 'object') endpointOverrides = cfg.endpoints
   } catch { /* 没配置过用默认 gateway（官方服务） */ }
 }
 
 function currentProvider() {
-  return PROVIDERS[currentProviderName] ?? PROVIDERS.kimi
+  const base = PROVIDERS[currentProviderName] ?? PROVIDERS.kimi
+  const o = endpointOverrides[currentProviderName] || {}
+  // 生效值 = 默认 叠加 自定义覆盖（自定义 API 地址/模型就是在这里起作用）
+  return o.baseUrl || o.model ? { ...base, baseUrl: o.baseUrl || base.baseUrl, model: o.model || base.model } : base
 }
 
 function keyFileFor(name) {
@@ -91,7 +139,7 @@ function keyFileFor(name) {
 function saveProviderConfig() {
   try {
     fs.mkdirSync(dataDir, { recursive: true })
-    fs.writeFileSync(path.join(dataDir, 'ai-config.json'), JSON.stringify({ provider: currentProviderName }), 'utf8')
+    fs.writeFileSync(path.join(dataDir, 'ai-config.json'), JSON.stringify({ provider: currentProviderName, endpoints: endpointOverrides }), 'utf8')
   } catch { /* 存不住不致命 */ }
 }
 
@@ -100,12 +148,19 @@ export function aiProviders() {
   return Object.entries(PROVIDERS).map(([key, p]) => ({
     key,
     name: p.name,
-    model: p.model,
+    model: aiEndpoint(key).model,
+    defaultModel: p.model,
+    baseUrl: aiEndpoint(key).baseUrl,
+    defaultBaseUrl: p.baseUrl,
+    /** 自己填过 API 地址/模型的，界面要显示"已自定义" */
+    customized: !!endpointOverrides[key],
     keyPage: p.keyPage,
     official: !!p.builtinToken,
     configured: p.builtinToken
       ? true // 官方服务内置连接码，永远可用
       : !!keyFileFor(key) && fs.existsSync(keyFileFor(key)) && fs.statSync(keyFileFor(key)).size > 0,
+    /** 当前密钥（只在设置页回显"是否已配"，不外传） */
+    hasKey: p.builtinToken ? true : (!!keyFileFor(key) && fs.existsSync(keyFileFor(key)) && fs.statSync(keyFileFor(key)).size > 0),
   }))
 }
 
@@ -134,6 +189,7 @@ export function aiStatus() {
   return {
     configured: hasApiKey(),
     model: p.model,
+    baseUrl: p.baseUrl,
     provider: p.name,
     providerKey: currentProviderName,
     official: !!p.builtinToken,

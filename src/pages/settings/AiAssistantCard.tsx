@@ -17,6 +17,11 @@ interface Provider {
   model: string
   keyPage: string
   configured: boolean
+  /** 自己填过 API 地址 / 模型 */
+  baseUrl?: string
+  defaultBaseUrl?: string
+  defaultModel?: string
+  customized?: boolean
   /** 阿东官方 AI 服务：内置连接码，不用填 Key */
   official?: boolean
 }
@@ -34,6 +39,12 @@ interface AiAssistantCardProps {
   onProviderChange: (p: string) => void
   onSaveKey: () => void
   onClearKey: () => void
+  /** 自定义 API 地址 / 模型（接入自建或中转的 DeepSeek 等） */
+  endpointInput: string
+  onEndpointInputChange: (v: string) => void
+  modelInput: string
+  onModelInputChange: (v: string) => void
+  onSaveEndpoint: () => void
   onOpenExternal: (url: string) => void
 }
 
@@ -51,7 +62,12 @@ export function AiAssistantCard({
   onProviderChange,
   onSaveKey,
   onClearKey,
+  onSaveEndpoint,
   onOpenExternal,
+  endpointInput,
+  onEndpointInputChange,
+  modelInput,
+  onModelInputChange,
 }: AiAssistantCardProps) {
   const cur = providers.find((p) => p.key === currentProvider)
   const curName = cur?.name ?? currentProvider
@@ -96,6 +112,44 @@ export function AiAssistantCard({
             </SelectContent>
           </Select>
         </div>
+
+        {/* 自定义 API 地址 / 模型：接入自建或中转的 DeepSeek，只要「API 地址 + 密钥」 */}
+        {!curOfficial && (
+          <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+            <div className="text-sm font-medium text-slate-700">
+              接入自己的大模型（DeepSeek 等，只要「API 地址 + 密钥」）
+              {cur?.customized && (
+                <span className="ml-2 rounded-full bg-brand-50 px-2 py-0.5 text-xs font-normal text-brand-700">已自定义地址</span>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="w-14 text-xs text-muted-foreground">API 地址</span>
+              <Input
+                value={endpointInput}
+                onChange={(e) => onEndpointInputChange(e.target.value)}
+                placeholder={cur?.baseUrl || 'https://api.deepseek.com'}
+                className="w-[22rem] font-mono text-xs"
+                disabled={!hasBackend}
+              />
+              <span className="text-xs text-muted-foreground">模型</span>
+              <Input
+                value={modelInput}
+                onChange={(e) => onModelInputChange(e.target.value)}
+                placeholder={cur?.model || 'deepseek-chat'}
+                className="w-44 font-mono text-xs"
+                disabled={!hasBackend}
+              />
+              <Button variant="outline" onClick={onSaveEndpoint} disabled={!hasBackend || aiBusy}>
+                保存地址 / 模型
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              OpenAI 兼容地址都行（官方、自建、中转均可）。留空恢复默认：
+              <span className="font-mono"> {cur?.defaultBaseUrl} · {cur?.defaultModel}</span>
+              。保存地址/密钥后点「同步到手机端」，手机上的「小渔」也会用这同一个模型。
+            </p>
+          </div>
+        )}
 
         {/* 填当前模型的 Key（官方服务不用填，可留空；填了则替换内置连接码） */}
         <div className="flex flex-wrap items-center gap-3">

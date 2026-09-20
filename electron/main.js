@@ -377,9 +377,33 @@ function registerIpc() {
     return { ok: true }
   })
   // AI 助手（BYOK，Kimi）：密钥管理与一句话日报，全部失败静默降级
+  // 把本机 AI 配置（提供商 / API 地址 / 模型 / 密钥）推给中心库 ——
+  // 手机端「小渔」用的是中心库那份配置：老板在电脑上填一次自己的 DeepSeek，手机也跟着用同一个。
+  async function pushAiConfigToCentral() {
+    try {
+      const { url, token } = getCentralConfigLocal()
+      if (!url || !token) return { ok: false, reason: 'not-central', detail: '这台电脑没连中心库（本机模式），手机端仍走官方 AI 服务' }
+      const payload = ai.aiSyncPayload()
+      const res = await fetch(url.replace(/\/+$/, '') + '/api/invoke?token=' + encodeURIComponent(token), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel: 'ai:applyConfig', payload }),
+        signal: AbortSignal.timeout(25000),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || !j || !j.result) return { ok: false, reason: (j && j.error) || ('http-' + res.status) }
+      return { ok: true, status: j.result.status || null }
+    } catch (e) {
+      return { ok: false, reason: String(e?.message ?? e) }
+    }
+  }
+
   handle('ai:status', () => ai.aiStatus())
   handle('ai:providers', () => ai.aiProviders())
   handle('ai:setProvider', (d, p) => ai.setProvider(p.provider))
+  // 自定义 API 地址 / 模型（2026-09-21）：接入自建或中转的 DeepSeek 只需填 密钥 + API 地址
+  handle('ai:setEndpoint', (d, p) => ai.setProviderEndpoint(p?.provider, { baseUrl: p?.baseUrl, model: p?.model }))
+  handle('ai:syncCentral', () => pushAiConfigToCentral())
   handle('ai:setKey', (d, p) => ai.setApiKey(p.key))
   handle('ai:clearKey', () => ai.clearApiKey())
   handle('ai:test', () => ai.testConnection())

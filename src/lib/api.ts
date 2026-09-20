@@ -272,6 +272,9 @@ export const LOCAL_ONLY_CHANNELS = [
   'ai:clearKey',
   'ai:providers',
   'ai:setProvider',
+  // 自定义 API 地址/模型 + 把 AI 配置同步给中心库（手机端共用）—— 都是本机行为
+  'ai:setEndpoint',
+  'ai:syncCentral',
   'ai:test',
   'ai:quota',
   'ai:gatewayQuota',

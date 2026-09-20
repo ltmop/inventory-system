@@ -853,6 +853,7 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
   // 写通道（只读 token 禁止调用）；其余通道视为只读
   const WRITE_CHANNELS = new Set([
     'product:create','product:update','product:batchUpdate','product:delete','product:mark','product:priceFromCost',
+  'ai:applyConfig',
     'inbound:create','inbound:fromNote','outbound:confirm','outbound:checkout','outbound:return','outbound:exchange',
     'supplier:create','supplier:update','supplier:delete','supplier:pay',
     'stocktake:create','stocktake:updateItem','stocktake:complete','stocktake:submit','import:batch',
@@ -1177,6 +1178,22 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
         })
       })
       return Object.assign({}, r, { items })
+    },
+    // 应用 AI 配置（2026-09-21）：桌面端「设置 → AI 大模型」保存后推到中心库，
+    // 手机端「小渔」用的就是这份配置（提供商 / API 地址 / 模型 / 密钥）。
+    'ai:applyConfig': (d, p) => {
+      if (!aiRef) return { ok: false, reason: 'ai-not-ready' }
+      try {
+        const provider = String(p?.provider || '').trim()
+        if (provider) aiRef.setProvider(provider)
+        if (p?.baseUrl !== undefined || p?.model !== undefined) {
+          aiRef.setProviderEndpoint(provider || undefined, { baseUrl: p?.baseUrl, model: p?.model })
+        }
+        if (p?.key) aiRef.setApiKey(String(p.key))
+        return { ok: true, status: aiRef.aiStatus() }
+      } catch (e) {
+        return { ok: false, reason: String(e?.message ?? e) }
+      }
     },
     'outbound:confirm': (d, p) => cmds.confirmOutbound(d, p),
     'outbound:checkout': (d, p) => cmds.confirmCheckout(d, p),
