@@ -1,5 +1,7 @@
 // 报表：分级库存预警 / 今日收款方式拆分 / 过期预警
 import { parseExpiryDate } from './helpers.js'
+// 欠款口径直接用 customers.js 那一份，绝不在这里再写一遍 —— 两套口径迟早对不上
+import { listCustomers } from './customers.js'
 
 // ---------- 分级库存预警 ----------
 // 口径（全站统一）：商品总库存 < COALESCE(products.min_stock, 默认阈值) 即预警；
@@ -134,4 +136,131 @@ export function expiringProducts(db, { days = 30 } = {}) {
   }
   out.sort((a, b) => a._sort - b._sort)
   return out.map(({ _sort, ...rest }) => rest)
+}
+
+
+// ================= 「今天该做的事」=================
+// 老板 2026-09-21：「软件通知这个问题，要自动」。
+//
+// 这套系统以前全是「用户想起来才打开」的工具；个体户忙起来根本不会主动打开。
+// 所以把账里**已经有的数据**算成几句人话，让 APP 和微信主动找他：
+//   ① 该补什么货（库存 ≤ 自己的预警线，缺得最狠的在前面）
+//   ② 该催谁的款（有欠款的客户，附上次来店时间）
+//   ③ 哪里不对（今天比上周同一天明显偏少 / 有单没记收款方式 / 有货待盘点 / 有货临期）
+//
+// 🔴 全部用规则算，**不调大模型**：
+//   规则算出来的结果是确定的，店主信得过；模型一旦算错一次，他就再也不看这条了。
+//   钱的账上不能出现"可能"。
+//
+// 口径说明：
+//   · 库存/预警线 → lowStockProducts（与本文件、手机端、仪表盘同一份）
+//   · 欠款       → listCustomers（customers.js 的唯一口径，本文件不重写）
+//   · 营业额     → 只算 out 售价×数量，退货按非「换货退旧」冲减（与报表/今日经营同口径）
+
+/** 某一天的营业额（本地日，单位分）。dateOffset：0=今天，-7=上周同一天 */
+function revenueOfDay(db, dateOffset) {
+  const row = db
+    .prepare(
+      `SELECT COALESCE(SUM((CASE WHEN t.type='return' THEN -1 ELSE 1 END) * t.selling_price * t.quantity), 0) AS v
+       FROM transactions t
+       WHERE COALESCE(t.notes,'') != '换货退旧'
+         AND COALESCE(t.selling_price, 0) > 0
+         AND date(t.timestamp, 'localtime') = date('now', 'localtime', ?)`,
+    )
+    .get(dateOffset + ' days')
+  return Number(row && row.v) || 0
+}
+
+/**
+ * @returns {{ date:string, restock:Array, collect:Array, anomalies:Array, counts:object, headline:string }}
+ */
+export function dailyTodo(db) {
+  // ⚠️ 实测发现（2026-09-21）：这家店 126 个商品里 121 个都低于预警线（大多数库存是 0），
+  //    所以"低于预警线"这个信号本身**没有区分度** —— 只报"补 5 样"等于每天说同一句废话。
+  //    所以这里同时给出**总数**，让标题说实话（"共 121 样低于预警线，最缺的 5 样是…"），
+  //    老板才有判断：是先补最缺的，还是这批 0 库存本来就该停售/清理。
+  const allLow = lowStockProducts(db)
+  const restockTotal = allLow.length
+  const restock = allLow
+    .slice(0, 5)
+    .map((r) => ({
+      productId: r.id,
+      name: [r.brand, r.model].filter(Boolean).join(' ') || r.sku_code || '商品',
+      sku: r.sku_code || '',
+      stock: r.stock,
+      threshold: r.threshold,
+    }))
+
+  // 欠款：直接取 customers 的唯一口径，别在这重写
+  let cust = []
+  try { cust = listCustomers(db) } catch { cust = [] }
+  const collect = cust
+    .filter((c) => Number(c.outstanding) > 0)
+    .sort((a, b) => Number(b.outstanding) - Number(a.outstanding))
+    .slice(0, 5)
+    .map((c) => ({
+      customerId: c.id,
+      name: c.name,
+      phone: c.phone || '',
+      outstanding: Number(c.outstanding),
+      lastDealAt: c.last_deal_at || null,
+    }))
+
+  const anomalies = []
+  // ① 今天 vs 上周同一天（同一星期几比才有意义）
+  const todayRev = revenueOfDay(db, 0)
+  const lastWeekRev = revenueOfDay(db, -7)
+  if (lastWeekRev >= 10000 && todayRev < lastWeekRev * 0.5) {
+    anomalies.push({
+      kind: 'revenue-drop',
+      text: '今天营业额 ' + (todayRev / 100).toFixed(0) + ' 元，上周同一天是 ' + (lastWeekRev / 100).toFixed(0) + ' 元，差得有点多——是下雨没人，还是有单没记？',
+    })
+  }
+  // ② 有单没记收款方式（对账会对不上）
+  try {
+    const r = db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM transactions
+         WHERE type='out' AND date(timestamp,'localtime') = date('now','localtime')
+           AND (pay_method IS NULL OR TRIM(pay_method) = '')`,
+      )
+      .get()
+    if (r && r.n > 0) anomalies.push({ kind: 'no-paymethod', text: '今天有 ' + r.n + ' 笔没记收款方式，日结对账会对不上' })
+  } catch { /* 老库没这列就跳过 */ }
+  // ③ 有货待盘点
+  try {
+    const r = db.prepare("SELECT COUNT(*) AS n FROM products WHERE status = '待盘点'").get()
+    if (r && r.n > 0) anomalies.push({ kind: 'pending-stocktake', text: '有 ' + r.n + " 个商品还是「待盘点」，盘一次账才准" })
+  } catch { /* 忽略 */ }
+  // ④ 临期（30 天内）
+  try {
+    const exp = expiringProducts(db, { days: 30 })
+    if (exp && exp.length > 0) anomalies.push({ kind: 'expiring', text: '有 ' + exp.length + ' 样货 30 天内到期，先卖临期的' })
+  } catch { /* 忽略 */ }
+
+  const d = new Date(Date.now() + 8 * 3600000)
+  const pad = (n) => (n < 10 ? '0' + n : '' + n)
+  const dateStr = d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate())
+
+  // 一句话标题（微信推送和 APP 顶部条都用它）
+  const bits = []
+  if (restockTotal) bits.push('补货 ' + restockTotal + ' 样')
+  if (collect.length) bits.push('催款 ' + collect.length + ' 位')
+  if (anomalies.length) bits.push(anomalies.length + ' 处不对')
+  const headline = bits.length ? ('今天该做的事：' + bits.join(' · ')) : '今天没有要处理的事，安心做生意'
+
+  return {
+    date: dateStr,
+    restock,
+    collect,
+    anomalies,
+    headline,
+    counts: {
+      restock: restock.length,
+      restockTotal,
+      collect: collect.length,
+      anomalies: anomalies.length,
+      pendingCollect: collect.reduce((s, c) => s + c.outstanding, 0),
+    },
+  }
 }

@@ -145,13 +145,16 @@ page('stock', function (app) {
       if (v === cur) { toast('账上本来就是 ' + cur + '，没改动'); return }
       okBtn.disabled = true
       okBtn.textContent = '正在改…'
+      const t0 = Date.now()
       try {
         const r = await api('stock:adjust', { productId: p.id, actualQty: v, reason: reason, operator: getOperator() })
         ov.remove()
+        fiTrack('stock:adjust', true, Date.now() - t0)
         const diff = (r && r.diff) || 0
         toast('已改：' + cur + ' → ' + v + ' ' + unit + '（' + (diff > 0 ? '多了 ' + diff : '少了 ' + Math.abs(diff)) + '）')
         await search(keyword)
       } catch (e) {
+        fiTrack('stock:adjust', false, Date.now() - t0)
         okBtn.disabled = false
         okBtn.textContent = '确定改成这个数'
         toast('改库存失败：' + ((e && e.message) || '请重试'))

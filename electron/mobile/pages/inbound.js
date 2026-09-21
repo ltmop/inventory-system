@@ -399,7 +399,7 @@ page('inbound', function (app) {
           loadRecents([{ brand: p.brand, model: p.model, quantity: qty, timestamp: new Date().toISOString() }])
         } catch (e) { toast('入库失败: ' + e.message) }
       }, needExpiry)
-    } catch (e) { toast('入库失败: ' + e.message) }
+    } catch (e) { fiTrack('inbound:save', false, Date.now() - t0); toast('入库失败: ' + e.message) }
   }
 
   // 到期日标签联动：选中保质期品类时显示"必填"并变红，否则"可选"
@@ -482,13 +482,15 @@ page('inbound', function (app) {
   }
 
   // 拍照 → 压缩到 1280px JPEG（减小 base64，AI 识别更快更稳）→ 调 ai:photoDraft
-  async function compressPhoto(file) {
+  async function compressPhoto(file, maxEdge) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader()
       reader.onload = () => {
         const img = new Image()
         img.onload = () => {
-          const max = 1280
+          // 单品建档走 900px：视觉模型是按图算 token 的，图小一半、钱就少一半，
+          // 认包装上的商品名 900px 完全够用（进货单那种密密麻麻的字才需要 1280）。
+          const max = maxEdge || 1280
           let w = img.width, h = img.height
           if (w > max || h > max) { const r = Math.min(max / w, max / h); w = Math.round(w * r); h = Math.round(h * r) }
           const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h
@@ -538,15 +540,17 @@ page('inbound', function (app) {
       if (!input.files || !input.files[0]) return
       const file = input.files[0]
       let base64 = ''
-      try { base64 = await compressPhoto(file) } catch (e) { toast('图片读取失败，重拍一张'); return }
+      try { base64 = await compressPhoto(file, 900) } catch (e) { toast('图片读取失败，重拍一张'); return }
       // ① 建档表单 + 照片预览（离线也能走到这一步）
       showCreateForm('', null)
       pendingPhoto = base64          // 注意：要放在 showCreateForm 之后（它会重置 pendingPhoto）
       setPhotoPreview(base64)
       // ② AI 只做"帮你先填"
       toast('AI 正在识别…')
+      const aiT0 = Date.now()
       try {
-        const r = await api('ai:photoDraft', { imageBase64: base64, mimeType: 'image/jpeg' })
+        const r = await api('ai:photoDraft', { imageBase64: base64, mimeType: 'image/jpeg', light: true })
+        fiTrack('inbound:ai', !!(r && r.ok), Date.now() - aiT0)
         const items = (r && r.ok && Array.isArray(r.items)) ? r.items : []
         if (items.length > 0) {
           const it = items[0]
@@ -623,6 +627,7 @@ page('inbound', function (app) {
   }
 
   async function finishInbound() {
+    const t0 = Date.now()
     const form = document.getElementById('inbound-form')
     const name = document.getElementById('f-name').value.trim()
     const cat = document.getElementById('f-cat').value
@@ -666,6 +671,7 @@ page('inbound', function (app) {
         catch (e) { toast('已入库，但照片没存上：' + (e.message || '')) }
         pendingPhoto = null
       }
+      fiTrack('inbound:save', true, Date.now() - t0)
       showStamp('已入库', name + ' × ' + qty + unit, true)
       form.classList.remove('show')
       document.getElementById('ai-tag').classList.remove('show')

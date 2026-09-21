@@ -371,6 +371,16 @@ body.fi-scanning #scan-overlay .scan-live-ui{display:flex!important}
 .pos-cart .cfbar .cfhold{flex:none}
 .pos-cart .cfbar .cfholds{flex:none;background:var(--warn-l);border-color:#f0dfb8;color:#8a6400}
 .pos-cart.collapsed .cfbar{display:none}
+
+/* 「今天该做的事」条：钉在开单页顶部，打开第一眼就看到 */
+#todo-bar{flex:none}
+.todorow{width:100%;display:flex;align-items:center;gap:7px;padding:8px 14px;border:none;border-bottom:1px solid var(--line);background:var(--blue-l);color:var(--blue);font-size:calc(var(--s)*12.5px);font-weight:800;text-align:left}
+.todorow.warn{background:var(--warn-l);color:#8a6400;border-bottom-color:#f0dfb8}
+.todorow .txt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.todorow .go{display:inline-flex;align-items:center;gap:2px;font-size:calc(var(--s)*11.5px);opacity:.85;flex:none}
+.todoi{display:flex;align-items:center;gap:9px;padding:11px 12px;border-radius:11px;background:var(--card2);border:1px solid var(--line);margin-bottom:7px;color:var(--sub);cursor:pointer}
+.todoi:active{transform:scale(.985)}
+body.fi-scanning #todo-bar{display:none}
 </style>
 </head>
 <body>

@@ -859,6 +859,8 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
   'ai:applyConfig',
   // 改授权档位会放开受限能力（AI 次数、SKU 上限）—— 必须算写通道，否则只读令牌也能给自己升档
   'license:applyConfig',
+  // 改每日提醒配置 = 往外面发消息，必须算写通道
+  'notify:save',
     'inbound:create','inbound:fromNote','outbound:confirm','outbound:checkout','outbound:return','outbound:exchange',
     'supplier:create','supplier:update','supplier:delete','supplier:pay',
     'stocktake:create','stocktake:updateItem','stocktake:complete','stocktake:submit','import:batch',
@@ -1393,6 +1395,39 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       }
     },
     'report:lowStock': (d) => cmds.lowStockProducts(d),
+    // 「今天该做的事」：补货/催款/异常。规则算，不调大模型（确定的结果店主才信）
+    'report:todo': (d) => cmds.dailyTodo(d),
+    // 每日提醒配置（2026-09-21）：老板自己填机器人地址，不用找我改服务器
+    'notify:config': () => {
+      try { return JSON.parse(fs.readFileSync(path.join(dataDir, 'notify.json'), 'utf8')) }
+      catch { return { enabled: false, webhook: '', hour: 7 } }
+    },
+    'notify:save': (d, p) => {
+      const cfg = {
+        enabled: !!p?.enabled,
+        webhook: String(p?.webhook ?? '').trim().slice(0, 500),
+        hour: Math.min(Math.max(parseInt(p?.hour, 10) || 7, 0), 23),
+      }
+      if (cfg.webhook && !/^https:\/\//.test(cfg.webhook)) throw new Error('机器人地址必须是 https 开头')
+      fs.writeFileSync(path.join(dataDir, 'notify.json'), JSON.stringify(cfg))
+      return cfg
+    },
+    // 发一条测试消息：让老板当场确认地址填对了（不用等到明天早上）
+    'notify:test': async () => {
+      let cfg = {}
+      try { cfg = JSON.parse(fs.readFileSync(path.join(dataDir, 'notify.json'), 'utf8')) } catch { cfg = {} }
+      const hook = String(cfg.webhook || '').trim()
+      if (!/^https:\/\//.test(hook)) throw new Error('先填机器人地址再试')
+      const todo = cmds.dailyTodo(d)
+      const text = '【测试】每天这个点会给你发「今天该做的事」。今天：' + (todo.headline || '')
+      const payload = /qyapi\.weixin\.qq\.com|dingtalk/.test(hook)
+        ? { msgtype: 'text', text: { content: text } }
+        : (/open\.feishu\.cn|larksuite/.test(hook) ? { msg_type: 'text', content: { text } } : { text })
+      const res = await fetch(hook, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(15000) })
+      const body = await res.text().catch(() => '')
+      if (!res.ok) throw new Error('发送失败 http-' + res.status + ' ' + body.slice(0, 120))
+      return { ok: true, detail: body.slice(0, 160) }
+    },
     // 收银台首页「快捷货架」：有销量 → 按销量排（真热销）；没有销量数据（新账/刚重开）→
     // 退回「有货的常用货」，把台面铺满，别让收银员对着空屏一个个搜。
     // 返回 { basis: 'sales'|'mixed'|'stock', items:[...] }，界面据此说实话（是热销还是只是有货）。

@@ -149,6 +149,11 @@ page('pos', function (app) {
   elCats = document.createElement('div'); elCats.className = 'cats'
   top.appendChild(elCats)
 
+  // 「今天该做的事」钉在开单页顶部 —— 老板打开 APP 第一眼就该看到（2026-09-21 主动触达）
+  const todoBar = document.createElement('div'); todoBar.id = 'todo-bar'
+  top.appendChild(todoBar)
+  fiRenderTodoBar(todoBar)
+
   // 操作员（老板 / 店员）：原来单独占一整行，白扔 60px；现在挂到「热销 / 货架」标题右边。
   // 老板反馈"空白页太多、中间的商品页被挤没了" —— 这一行就是主要来源之一。
   function operatorChip() {
@@ -508,6 +513,7 @@ page('pos', function (app) {
     cart.length = 0
     customer = null
     resetIdem()
+    fiTrack('pos:hold', true, 0)
     toast('已挂起 ' + list[0].cart.length + ' 种商品，可以开下一单了（点「取单」能取回来）')
     renderCart(); renderMid()
   }
@@ -539,6 +545,7 @@ page('pos', function (app) {
         ov.remove()
         collapsed = false
         renderCart(); renderMid()
+        fiTrack('pos:resume', true, 0)
         toast('取回来了：' + (h.cart || []).length + ' 种商品')
       }
     })
@@ -784,7 +791,7 @@ page('pos', function (app) {
       b.onclick = function () {
         const x = fam.find(function (y) { return y.id === Number(b.getAttribute('data-spec')) })
         ov.remove()
-        if (x) addToCart(x, { skipSpec: true })
+        if (x) { fiTrack('pos:specpick', true, 0); addToCart(x, { skipSpec: true }) }
       }
     })
   }
@@ -889,6 +896,7 @@ page('pos', function (app) {
     if (cart.length === 0 || busy) return
     busy = true; renderCart()
     const custName = customer ? customer.name : ''
+    const t0 = Date.now()
     try {
       // 选了顾客就把这一单记在他名下（付清的**不传** paidAmount → 不产生欠款）。
       // 这样「这客户买过几次、累计多少」才算得出来，开单时也才看得出谁是老客户。
@@ -896,7 +904,7 @@ page('pos', function (app) {
         items: payItems(), payMethod: method, operator: getOperator(), idempotencyKey: idemFor(),
         customerId: customer ? customer.id : undefined,
       })
-      if (r && r.ok === false) { toast('开单被拦截：' + blockMsg(r)); return }
+      if (r && r.ok === false) { fiTrack('pos:checkout', false, Date.now() - t0); toast('开单被拦截：' + blockMsg(r)); return }
       const totalFen = cartTotal()
       // 结账动画：先把清单「飞走」，再盖章 —— 老板要看得见的反馈
       try {
@@ -908,7 +916,8 @@ page('pos', function (app) {
       cart.length = 0
       customer = null
       resetIdem()
-    } catch (e) { toast('结账失败: ' + e.message) } finally { busy = false; renderCart(); renderMid() }
+      fiTrack('pos:checkout', true, Date.now() - t0)
+    } catch (e) { fiTrack('pos:checkout', false, Date.now() - t0); toast('结账失败: ' + e.message) } finally { busy = false; renderCart(); renderMid() }
   }
 
   // 赊账：必须先落到一个客户头上。这一单还没选顾客就先选（选完继续赊）
@@ -926,6 +935,7 @@ page('pos', function (app) {
   async function doCredit(cust) {
     busy = true; renderCart()
     const totalFen = cartTotal()
+    const t0 = Date.now()
     try {
       const r = await api('outbound:checkout', {
         items: payItems(), operator: getOperator(),
@@ -936,7 +946,8 @@ page('pos', function (app) {
       cart.length = 0
       customer = null
       resetIdem()
-    } catch (e) { toast('赊账失败：' + e.message) }
+      fiTrack('pos:credit', true, Date.now() - t0)
+    } catch (e) { fiTrack('pos:credit', false, Date.now() - t0); toast('赊账失败：' + e.message) }
     finally { busy = false; renderCart(); renderMid() }
   }
 

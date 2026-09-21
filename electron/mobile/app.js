@@ -940,6 +940,228 @@ function checkUpdate(silent) {
     else if (!silent) toast("已是最新版 " + APP_VERSION)
   })
 }
+// ========== 埋点与反馈（2026-09-21 反馈闭环）==========
+// 目的：在这之前，「用户用了、卡在哪一步、报了什么错」我们完全看不见 ——
+// 只能靠用户描述或者翻数据库猜。这一层让现场第一次可观测。
+//
+// 🔒 隐私边界（和网关服务端同一条，两边都挡）：
+//   只上报：动作名 / 成功失败 / 耗时 / 页面 / 安装号 / 版本 / 报错摘要
+//   绝不上报：金额、客户姓名、商品名、库存数 —— 任何经营数据
+//   所以这里的所有调用点都只传「做了什么、成没成、花了多久」。
+const FI_TELEMETRY_API = 'http://43.128.20.39:17533'   // 官方网关。只发这些统计，不走账本、不带业务数据
+const FI_ERR_KEY = 'fi-recent-errors'
+let fiTrackBuf = []
+let fiTrackTimer = null
+
+/** 安装号（只标识"同一台设备"，不含任何个人信息） */
+function fiInstallId() {
+  try {
+    let v = localStorage.getItem('fi-install-id')
+    if (!v) {
+      v = 'i' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
+      localStorage.setItem('fi-install-id', v)
+    }
+    return v
+  } catch (e) { return '' }
+}
+
+/** 记一条动作。action 用「模块:动作」命名，便于在看板上按步骤看漏斗 */
+function fiTrack(action, ok, ms) {
+  try {
+    fiTrackBuf.push({ a: String(action || '').slice(0, 40), ok: ok !== false, ms: Math.max(0, Math.round(Number(ms) || 0)) })
+    if (fiTrackBuf.length >= 8) fiTrackFlush()
+    else if (!fiTrackTimer) fiTrackTimer = setTimeout(fiTrackFlush, 8000)
+  } catch (e) { /* 埋点永远不能影响主流程 */ }
+}
+
+function fiTrackFlush() {
+  try {
+    if (fiTrackTimer) { clearTimeout(fiTrackTimer); fiTrackTimer = null }
+    if (!fiTrackBuf.length) return
+    const events = fiTrackBuf.slice(0, 50)
+    fiTrackBuf = []
+    // keepalive：切后台/关页面时才发得出去
+    fetch(FI_TELEMETRY_API + '/api/v1/app/track', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ installId: fiInstallId(), events }),
+      keepalive: true,
+    }).catch(function () { /* 上报失败不重试、不打扰 */ })
+  } catch (e) { /* 同上 */ }
+}
+try { document.addEventListener('visibilitychange', function () { if (document.hidden) fiTrackFlush() }) } catch (e) {}
+try { window.addEventListener('pagehide', fiTrackFlush) } catch (e) {}
+
+/** 最近几条报错（只留摘要，给反馈带现场用） */
+function fiRecordError(msg) {
+  try {
+    const list = JSON.parse(localStorage.getItem(FI_ERR_KEY) || '[]')
+    list.unshift(String(msg || '').slice(0, 300))
+    localStorage.setItem(FI_ERR_KEY, JSON.stringify(list.slice(0, 5)))
+  } catch (e) { /* 忽略 */ }
+}
+function fiRecentErrors() {
+  try { const v = JSON.parse(localStorage.getItem(FI_ERR_KEY) || '[]'); return Array.isArray(v) ? v : [] } catch (e) { return [] }
+}
+try {
+  window.addEventListener('error', function (e) {
+    fiRecordError((e && e.message ? e.message : 'error') + ' @' + String((e && e.filename) || '').slice(-40) + ':' + ((e && e.lineno) || ''))
+    fiTrack('js:error', false, 0)
+  })
+  window.addEventListener('unhandledrejection', function (e) {
+    fiRecordError('promise: ' + String((e && e.reason && e.reason.message) || (e && e.reason) || '').slice(0, 200))
+    fiTrack('js:promise', false, 0)
+  })
+} catch (e) { /* 忽略 */ }
+
+/** 反馈面板：一句话 + 自动带上现场（页面/版本/最近报错/待上传单数）。
+ *  老板 2026-09-21 之前完全没有反馈通道，用户只能微信找他 —— 卡在哪、哪一版坏，全是空白。 */
+function openFeedbackSheet() {
+  const page = (location.hash || '#pos').replace('#', '')
+  const errs = fiRecentErrors()
+  const pending = (function () { try { return Offline.pendingCount() } catch (e) { return 0 } })()
+  const ov = sheet('反馈给开发',
+    '<div class="text-sm text-muted" style="margin-bottom:10px;line-height:1.75">哪里不对、想加什么，直接写一句就行。<br>会自动带上：当前页面、版本、最近报错 —— <b>不会带任何账目、客户、商品信息</b>。</div>' +
+    '<textarea id="fb-text" rows="4" placeholder="例：改数量点了没反应 / 想加个打印小票" style="width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:12px;padding:12px;font-size:15px;font-family:inherit;background:var(--card2);color:var(--ink);outline:none"></textarea>' +
+    '<input id="fb-contact" placeholder="怎么联系你？（可不填）" style="width:100%;box-sizing:border-box;margin-top:8px;height:46px;border:1px solid var(--line);border-radius:12px;padding:0 12px;font-size:15px;background:var(--card2);color:var(--ink);outline:none">' +
+    '<div class="text-xs text-muted" style="margin-top:10px;line-height:1.8">将附带：页面 <b>' + escHtml(page) + '</b> · 网页层 <b>' + escHtml(WEB_VERSION_APPLIED || APP_VERSION) + '</b> · 壳 <b>' + escHtml(APP_VERSION) + '</b>' + (pending ? ' · 待上传 <b>' + pending + '</b> 单' : '') + (errs.length ? '<br>最近报错 ' + errs.length + ' 条' : '') + '</div>' +
+    '<button id="fb-send" style="width:100%;height:54px;margin-top:14px;border-radius:14px;border:none;background:var(--blue);color:#fff;font-size:17px;font-weight:800">发送</button>')
+  const btn = ov.querySelector('#fb-send')
+  btn.onclick = function () {
+    const text = String((ov.querySelector('#fb-text') || {}).value || '').trim()
+    if (!text) { toast('写一句话再发'); return }
+    btn.disabled = true; btn.textContent = '正在发送…'
+    fetch(FI_TELEMETRY_API + '/api/v1/app/feedback', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        installId: fiInstallId(), text: text, contact: String((ov.querySelector('#fb-contact') || {}).value || '').trim(),
+        page: page, webVersion: WEB_VERSION_APPLIED || '', version: APP_VERSION,
+        platform: (function () { try { return (window.Capacitor && window.Capacitor.getPlatform && window.Capacitor.getPlatform()) || 'web' } catch (e) { return 'web' } })(),
+        device: (function () { try { return (navigator.userAgent || '').slice(-60) } catch (e) { return '' } })(),
+        errors: errs, pendingWrites: pending,
+      }),
+    }).then(function (r) { return r.ok }).catch(function () { return false }).then(function (okd) {
+      ov.remove()
+      if (okd) { toast('收到了，谢谢！我们会看'); fiTrack('feedback:sent', true, 0) }
+      else { toast('没发出去，检查网络后再试（也可以直接微信找我们）'); fiTrack('feedback:sent', false, 0) }
+    })
+  }
+}
+
+/** 每日提醒设置：老板自己填机器人地址（企业微信 / 飞书群机器人），每天定时推「今天该做的事」。
+ *  为什么走机器人而不是 APP 推送：微信他一定看，APP 推送会被整屏划掉；而且这条不用重装 APK。 */
+function openNotifySheet() {
+  api('notify:config').then(function (cfg) {
+    const c = cfg || {}
+    const ov = sheet('每日提醒',
+      '<div class="text-sm text-muted" style="margin-bottom:12px;line-height:1.8">每天定时把「今天该做的事」（该补货 / 该催款 / 哪里不对）发到你的微信或飞书。<br>不用装新版本、不用开着 APP。</div>' +
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:11px 12px;border-radius:12px;background:var(--card2);border:1px solid var(--line)">' +
+        '<span style="flex:1;font-size:15px;font-weight:700">开启每日提醒</span>' +
+        '<button id="nf-on" style="width:62px;height:34px;border-radius:999px;border:none;background:' + (c.enabled ? 'var(--blue)' : 'var(--line)') + ';color:#fff;font-size:13px;font-weight:800">' + (c.enabled ? '已开' : '关闭') + '</button>' +
+      '</div>' +
+      '<div class="text-xs text-muted" style="margin-bottom:5px">机器人地址（企业微信：群设置 → 群机器人 → 添加 → 复制 Webhook 地址；飞书同理）</div>' +
+      '<input id="nf-hook" value="' + escHtml(c.webhook || '') + '" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." style="width:100%;box-sizing:border-box;height:46px;border:1px solid var(--line);border-radius:12px;padding:0 12px;font-size:13px;background:var(--card2);color:var(--ink);outline:none">' +
+      '<div class="text-xs text-muted" style="margin:10px 0 5px">每天几点发（0-23）</div>' +
+      '<input id="nf-hour" type="number" min="0" max="23" value="' + (c.hour == null ? 7 : c.hour) + '" style="width:100%;box-sizing:border-box;height:46px;border:1px solid var(--line);border-radius:12px;padding:0 12px;font-size:15px;background:var(--card2);color:var(--ink);outline:none">' +
+      '<div class="text-xs text-muted" style="margin-top:10px;line-height:1.75">内容只有「该补什么货 / 该催谁的款 / 哪里不对」，<b>不含具体金额明细和客户消费记录</b>。</div>' +
+      '<div style="display:flex;gap:8px;margin-top:14px">' +
+        '<button id="nf-test" style="flex:1;height:50px;border-radius:12px;border:1px solid var(--line);background:var(--card2);color:var(--blue);font-size:15px;font-weight:800">发一条测试</button>' +
+        '<button id="nf-save" style="flex:1.4;height:50px;border-radius:12px;border:none;background:var(--blue);color:#fff;font-size:16px;font-weight:800">保存</button>' +
+      '</div>')
+    let enabled = !!c.enabled
+    const onBtn = ov.querySelector('#nf-on')
+    onBtn.onclick = function () {
+      enabled = !enabled
+      onBtn.textContent = enabled ? '已开' : '关闭'
+      onBtn.style.background = enabled ? 'var(--blue)' : 'var(--line)'
+    }
+    const readForm = function () {
+      return { enabled: enabled, webhook: String((ov.querySelector('#nf-hook') || {}).value || '').trim(), hour: parseInt((ov.querySelector('#nf-hour') || {}).value, 10) || 7 }
+    }
+    ov.querySelector('#nf-save').onclick = function () {
+      const btn = ov.querySelector('#nf-save')
+      btn.disabled = true; btn.textContent = '保存中…'
+      api('notify:save', readForm()).then(function (r) {
+        toast(r && r.enabled ? ('已开启：每天 ' + r.hour + ' 点提醒') : '已保存（未开启）')
+        ov.remove()
+      }).catch(function (e) {
+        btn.disabled = false; btn.textContent = '保存'
+        toast('保存失败：' + ((e && e.message) || '请重试'))
+      })
+    }
+    ov.querySelector('#nf-test').onclick = function () {
+      const btn = ov.querySelector('#nf-test')
+      btn.disabled = true; btn.textContent = '发送中…'
+      api('notify:save', readForm())
+        .then(function () { return api('notify:test') })
+        .then(function () { toast('已发送，去微信/飞书看看收到没'); fiTrack('notify:test', true, 0) })
+        .catch(function (e) { toast('发送失败：' + ((e && e.message) || '检查地址')); fiTrack('notify:test', false, 0) })
+        .then(function () { btn.disabled = false; btn.textContent = '发一条测试' })
+    }
+  }).catch(function (e) { toast('读设置失败：' + ((e && e.message) || '')) })
+}
+
+// ========== 今天该做的事（2026-09-21 主动触达）==========
+// 老板：「软件通知这个问题，要自动」。
+// 这套系统以前全是"用户想起来才打开"的工具，个体户忙起来根本不会主动开。
+// 所以把账里已经有的数据算成几句话，**开机第一眼就摆在最上面**；外加服务端每天定时推微信。
+let fiTodoData = null
+function fiFetchTodo() {
+  return api('report:todo').then(function (t) { fiTodoData = t; return t }).catch(function () { return null })
+}
+/** 顶部那条待办。没数据 / 没事就不占地方（不制造噪音） */
+function fiRenderTodoBar(host) {
+  if (!host) return
+  const paint = function (t) {
+    try {
+      if (!t || !t.counts) { host.innerHTML = ''; return }
+      const n = (t.counts.restockTotal || 0) + (t.counts.collect || 0) + (t.counts.anomalies || 0)
+      if (!n) { host.innerHTML = ''; return }
+      const urgent = (t.counts.anomalies || 0) > 0 || (t.counts.collect || 0) > 0
+      host.innerHTML = '<button class="todorow' + (urgent ? ' warn' : '') + '">' +
+        FiIcon('pulse', 14) +
+        '<span class="txt">' + escHtml(String(t.headline || '').replace('今天该做的事：', '')) + '</span>' +
+        '<span class="go">看看' + FiIcon('chevron', 12) + '</span>' +
+        '</button>'
+      host.querySelector('.todorow').onclick = openTodoSheet
+    } catch (e) { /* 待办条坏了不能拖垮开单页 */ }
+  }
+  paint(fiTodoData)
+  fiFetchTodo().then(paint)
+}
+
+/** 待办详情：一条条摊开，每条都能点着去处理 */
+function openTodoSheet() {
+  const t = fiTodoData
+  if (!t) { toast('正在读今天的待办…'); fiFetchTodo().then(function () { if (fiTodoData) openTodoSheet() }); return }
+  const sec = function (title, rows, empty) {
+    return '<div class="font-bold" style="font-size:14px;margin:14px 0 6px">' + title + '</div>' +
+      (rows.length ? rows.join('') : '<div class="text-xs text-muted" style="padding:4px 0">' + empty + '</div>')
+  }
+  const item = function (main, sub, jump) {
+    return '<div class="todoi" data-jump="' + escHtml(jump || '') + '"><div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:700">' + escHtml(main) + '</div>' +
+      (sub ? '<div class="text-xs text-muted" style="margin-top:2px">' + escHtml(sub) + '</div>' : '') + '</div>' + FiIcon('chevron', 13) + '</div>'
+  }
+  const restock = (t.restock || []).map(function (r) { return item(r.name, '剩 ' + r.stock + '（预警 ' + r.threshold + '）· ' + (r.sku || ''), 'inbound') })
+  if ((t.counts.restockTotal || 0) > restock.length) {
+    restock.push('<div class="text-xs text-muted" style="padding:6px 0">…共 ' + t.counts.restockTotal + ' 样低于预警线，这里列最缺的 ' + restock.length + ' 样</div>')
+  }
+  const collect = (t.collect || []).map(function (c) {
+    return item(c.name + '　欠 ¥' + (c.outstanding / 100).toFixed(2), (c.phone || '') + (c.lastDealAt ? ' · 上次 ' + String(c.lastDealAt).slice(0, 10) : ''), 'customers')
+  })
+  const anomalies = (t.anomalies || []).map(function (a) { return item(a.text, '', 'stock') })
+
+  const ov = sheet('今天该做的事',
+    '<div class="text-xs text-muted" style="margin-bottom:4px">' + escHtml(t.date || '') + ' · 每天自动算，不用你去翻账</div>' +
+    sec('📦 该补货', restock, '库存都够') +
+    sec('💰 该催款', collect, '没有欠款') +
+    sec('⚠️ 对不上的地方', anomalies, '账目正常'))
+  ov.querySelectorAll('[data-jump]').forEach(function (el) {
+    const j = el.getAttribute('data-jump')
+    if (!j) return
+    el.onclick = function () { ov.remove(); navigate(j) }
+  })
+}
+
 // ========== 更新说明 ==========
 // 老板 2026-09-21：「自动提示有更新功能没有完善，还是需要人为去点击更新，即便是小更新也应该提示，
 //               更新优化了什么，更新说明要提出来」
@@ -1681,6 +1903,8 @@ page('more', (app) => {
     { icon: 'pulse', t: '屏幕适配自检', d: '功能栏没贴底 / 有空白时，点这里看实测尺寸', fn: openScreenDiag },
     { icon: 'camera', t: '图片同步自检', d: '这台手机拍的照片别的手机看不到时，点这里看卡在哪一环', fn: openPhotoSyncDiag },
     { icon: 'refresh', t: '更新说明', d: '当前 ' + (WEB_VERSION_APPLIED || APP_VERSION) + ' · 最近几版改了什么', fn: openUpdateHistory },
+    { icon: 'users', t: '反馈给开发', d: '哪里不对 / 想加什么，直接说；会自动带上页面和版本', fn: openFeedbackSheet },
+    { icon: 'clock', t: '每日提醒', d: '每天定时把「今天该做的事」发到你微信上', fn: openNotifySheet },
     { icon: 'undo', t: '撤回误操作', d: '删商品 / 报损 / 入库点错了能还原', fn: openUndoPanel },
   ]
   if (SERVER) {
