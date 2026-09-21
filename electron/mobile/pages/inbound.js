@@ -1,6 +1,7 @@
 // inbound.js: 入库页 —— 拍照建档 / 扫码入库 双入口 → 已入库印章
 page('inbound', function (app) {
   let recentInbounds = []
+  let lowStock = []            // 低于警戒线的货（凑成入库页下半屏的「待补货」清单）
   let justAdded = 0            // 刚入库的行数（用来做高亮）
   let pendingPhoto = null // 已选好、还没入库的商品图（base64）；入库拿到 id 后再挂到商品上
   loadRecents()
@@ -23,6 +24,62 @@ page('inbound', function (app) {
         if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center', behavior: 'smooth' })
       }, 120)
     }
+  }
+
+  // 「待补货」清单：原来这一页下面有 724px（占屏 31%）一片死白 —— 老板原话
+  // "入库下面的空白页太多了"。这里把它换成真数据：低于警戒线的货按最缺的排前面，
+  // 每行一个「补货」键，点完直接走原来的入库流程，补完就从清单里消失。
+  async function loadLowStock() {
+    try { lowStock = (await api('report:lowStock')) || [] } catch (e) { lowStock = [] }
+    renderRestock()
+  }
+
+  function renderRestock() {
+    const box = document.getElementById('inbound-restock')
+    if (!box) return
+    box.innerHTML = ''
+    const card = document.createElement('div'); card.className = 'restock'
+    if (!lowStock.length) {
+      card.innerHTML = '<div class="rh"><span class="rt">' + FiIcon('check', 15) + '库存都够卖</span>' +
+        '<span style="font-size:calc(var(--s)*11.5px);color:var(--sub)">没有低于警戒线的货</span></div>'
+      box.appendChild(card)
+      return
+    }
+    const head = document.createElement('div'); head.className = 'rh'
+    head.innerHTML = '<span class="rt">' + FiIcon('alert', 15) + '待补货<span class="rn">' + lowStock.length + ' 种</span></span>' +
+      '<span class="rm" id="rs-all">看全部' + FiIcon('chevron', 12) + '</span>'
+    card.appendChild(head)
+    const list = document.createElement('div'); list.className = 'rl'
+    lowStock.slice(0, 80).forEach(function (p) {
+      const name = ((p.brand || '') + ' ' + (p.model || '')).trim() || p.sku_code || ('商品 #' + p.id)
+      const row = document.createElement('div'); row.className = 'rr'
+      row.innerHTML = '<div class="rp">' + escHtml(name.charAt(0) || '?') + '</div>' +
+        '<div class="ri2"><div class="rn2">' + escHtml(name) + '</div>' +
+        '<div class="rd">库存 <b>' + (p.stock || 0) + '</b> · 警戒线 ' + (p.threshold || 5) + (p.location ? ' · ' + escHtml(p.location) : '') + '</div></div>' +
+        '<button class="go">' + FiIcon('plus', 13) + '补货</button>'
+      row.querySelector('.go').onclick = async function (e) {
+        e.stopPropagation()
+        // 复用扫码入库那条流程：查商品 → 填数量/进价/到期日 → 入库
+        await onScan(p.sku_code || name)
+        loadLowStock()          // 补过的货库存回线上，自己从清单里消失
+      }
+      list.appendChild(row)
+    })
+    card.appendChild(list)
+    box.appendChild(card)
+    const all = head.querySelector('#rs-all')
+    if (all) all.onclick = function () {
+      try { window.__fiStockLowOnly = true } catch (e) { /* 忽略 */ }
+      location.hash = '#stock'
+    }
+    // AI 补货建议：把"最该先进哪几样"直接说成一句话（有数据才说，没数据不编）
+    const advice = document.createElement('div')
+    advice.className = 'rs-tip'
+    advice.style.cssText = 'flex:none;padding:8px 13px 10px;border-top:1px solid var(--line2);line-height:1.7'
+    advice.innerHTML = '最缺的是 <b style="color:var(--danger)">' + escHtml(((lowStock[0].brand || '') + ' ' + (lowStock[0].model || '')).trim()) + '</b>' +
+      (lowStock.length > 1 ? '、' + escHtml(((lowStock[1].brand || '') + ' ' + (lowStock[1].model || '')).trim()) : '') +
+      '；补完点右边「补货」就进账，库存页会跟着变。'
+    card.appendChild(advice)
   }
 
   // ===== 进货单整单入库（老板要的：有单据就该按单据一次入完）=====
@@ -118,6 +175,8 @@ page('inbound', function (app) {
 
   function render() {
     app.innerHTML = ''
+    // 让「待补货」清单吃掉页面剩余高度（否则底下就是一大片空白）
+    app.classList.add('fill')
 
     // 四个入口：AI拍照建档 / 手动建档 / 扫码入库 / 进货单整单入库
     const row = document.createElement('div'); row.className = 'bigrow'
@@ -205,9 +264,10 @@ page('inbound', function (app) {
       recTitle.innerHTML = '<span class="tag" style="background:var(--ink)">今日入库</span><span>' +
         (recentInbounds.length ? ('最近 ' + recentInbounds.length + ' 条') : '还没有记录') + '</span>'
       app.appendChild(recTitle)
-      const recs = document.createElement('div'); recs.id = 'recent-inbound'; recs.style.padding = '0 16px 14px'
+      const recs = document.createElement('div'); recs.id = 'recent-inbound'; recs.style.padding = '0 14px 10px'
       if (!recentInbounds.length) {
-        recs.innerHTML = '<div class="empty">上面点「AI 拍照建档 / 手动建档 / 扫码入库 / 进货单入库」入库，<br>进来的货会一条条列在这里。</div>'
+        // 不再用 26px 内边距的 .empty 撑出 110px 空白（下面那块「待补货」才是这半屏的主角）
+        recs.innerHTML = '<div class="hint" style="padding:0">入库成功的货会一条条列在这里；今天还没进过货</div>'
       }
       recentInbounds.forEach((t, ti) => {
         const name = (t.brand || '') + ' ' + (t.model || '') || t.sku_code || '-'
@@ -221,6 +281,11 @@ page('inbound', function (app) {
       })
       app.appendChild(recs)
     }
+
+    // 待补货清单：塞满下半屏（数据是异步来的，先放容器再填）
+    const restockBox = document.createElement('div'); restockBox.id = 'inbound-restock'
+    restockBox.style.cssText = 'display:flex;flex-direction:column;min-height:0;flex:1 1 auto'
+    app.appendChild(restockBox)
   }
 
   // 保质期商品品类：饵料/小药/活饵/路亚假饵 入库必填到期日（与电脑端 requiresExpiry 一致）
@@ -545,4 +610,5 @@ page('inbound', function (app) {
   }
 
   render()
+  loadLowStock()
 })

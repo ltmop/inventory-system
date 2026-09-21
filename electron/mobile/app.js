@@ -531,6 +531,8 @@ function openConnectPanel(firstRun) {
   setTimeout(function () { inp.focus() }, 150)
 }
 // 断网自动提示 + 恢复自动隐藏（T4）
+window.addEventListener('resize', function () { applyViewportHeight() })
+try { if (window.visualViewport) window.visualViewport.addEventListener('resize', function () { applyViewportHeight() }) } catch (e) {}
 window.addEventListener('offline', () => showNetBanner('网络已断开，请检查手机网络', '#ffe9d6', () => { hideNetBanner(); renderPage(true) }))
 window.addEventListener('online', () => { hideNetBanner(); flushOffline(); renderPage(true) })
 
@@ -569,6 +571,7 @@ function renderPage(force) {
   })
   const app = document.getElementById('app')
   app.classList.remove('absorb')   // 只有开单页要三区固定，别的页恢复正常滚动
+  app.classList.remove('fill')     // 入库页会让「待补货」吃掉剩余高度；换页要还原
   renderAccountChip()              // 右上角账号一直挂着（账号/登录方式变了要跟着变）
   app.innerHTML = '<div class="text-center" style="padding:40px;color:var(--sub)">加载中...</div>'
   const fn = pages[page]
@@ -1084,6 +1087,15 @@ function openSizeSheet() {
 // ========== 顶部安全区（手机状态栏）==========
 // 安卓 15+ 强制 edge-to-edge：网页会直接顶到状态栏下面，标题被盖住。
 // 先问系统要（env(safe-area-inset-top)）；真机上拿不到就退到常见状态栏高度（宁多一点白，别挡标题）。
+/** 把「实际可见高度」写进 --vh-full（真机 100dvh 可能含系统 UI，导致整页偏高、底部被顶出去） */
+function applyViewportHeight() {
+  try {
+    const vv = window.visualViewport
+    const h = Math.round((vv && vv.height) || window.innerHeight || document.documentElement.clientHeight || 0)
+    if (h > 200) document.documentElement.style.setProperty('--vh-full', h + 'px')
+  } catch (e) { /* 拿不到就用 dvh */ }
+}
+
 function initSafeArea() {
   let top = 0
   try {
@@ -1107,6 +1119,21 @@ function initSafeArea() {
   } catch (e) { bottom = 0 }
   if (!bottom && native) bottom = 12   // 真机拿不到就给一点兜底，宁可多留白也别被系统条压住
   try { document.documentElement.style.setProperty('--safe-bottom', bottom + 'px') } catch (e) {}
+  applyViewportHeight()
+  // 排障用：把关键尺寸打到 console（adb logcat 里搜 [fi] 就能看到真机实测值）
+  try {
+    setTimeout(function () {
+      const g = function (s) { const el = document.querySelector(s); if (!el) return null; const r = el.getBoundingClientRect(); return [Math.round(r.top), Math.round(r.bottom)] }
+      console.log('[fi] viewport ' + JSON.stringify({
+        innerH: window.innerHeight, vvH: window.visualViewport ? Math.round(window.visualViewport.height) : null,
+        dvh: (function () { const d = document.createElement('div'); d.style.height = '100dvh'; document.body.appendChild(d); const h = Math.round(d.getBoundingClientRect().height); d.remove(); return h })(),
+        vhFull: getComputedStyle(document.documentElement).getPropertyValue('--vh-full').trim(),
+        safeTop: getComputedStyle(document.documentElement).getPropertyValue('--safe-top').trim(),
+        safeBottom: getComputedStyle(document.documentElement).getPropertyValue('--safe-bottom').trim(),
+        phone: g('.phone'), top: g('.pos-top'), mid: g('.pos-mid'), cart: g('.pos-cart'), tabs: g('.tabs'), docH: document.documentElement.scrollHeight,
+      }))
+    }, 1500)
+  } catch (e) {}
 }
 
 function renderAccountChip() {
@@ -1201,11 +1228,12 @@ page('more', (app) => {
 
   // 分组渲染：一屏能扫完，不用在几十个入口里找
   // 分组可折叠：点标题收起/展开，状态记在本机（老板要"分类能缩放"）
-  // 默认**全部收起**，进更多页先看到一个目录（点标题或右边「展开」就打开）
+  // 默认**全部展开**（老板反馈"进去更多时都是缩放着的" —— 收起来只剩四行标题，看着又空又小）。
+  // 想收起点右边「收起」就行，状态记在本机；key 换到 v2，让旧的"全收起"记录不再生效。
   function collapsedGroups() {
     try {
-      const raw = localStorage.getItem('fi-more-collapsed')
-      if (raw === null) return ['经营', '货品', '账务', '系统']   // 第一次进：默认收起
+      const raw = localStorage.getItem('fi-more-collapsed-v2')
+      if (raw === null) return []          // 第一次进 / 老版本升级上来：全部展开
       return JSON.parse(raw || '[]')
     } catch (e) { return [] }
   }
@@ -1213,7 +1241,7 @@ page('more', (app) => {
     try {
       const cur = collapsedGroups().filter(function (x) { return x !== name })
       if (on) cur.push(name)
-      localStorage.setItem('fi-more-collapsed', JSON.stringify(cur))
+      localStorage.setItem('fi-more-collapsed-v2', JSON.stringify(cur))
     } catch (e) { /* 存不住不致命 */ }
   }
   function block(title, rows) {

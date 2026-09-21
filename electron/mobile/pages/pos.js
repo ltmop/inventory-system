@@ -140,19 +140,21 @@ page('pos', function (app) {
   elCats = document.createElement('div'); elCats.className = 'cats'
   top.appendChild(elCats)
 
-  // 操作员 + 一句用法提示
-  const hintRow = document.createElement('div'); hintRow.className = 'hint'
-  hintRow.style.cssText = 'display:flex;align-items:center;gap:8px;padding:2px 14px 4px'
-  hintRow.innerHTML = ''
-  const opBtn = document.createElement('button')
-  opBtn.style.cssText = 'margin-left:auto;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:1px 8px;font-size:11px;font-weight:700;color:var(--ink)'
-  opBtn.innerHTML = FiIcon('user', 13) + ' ' + esc(getOperator())
-  opBtn.onclick = function () {
-    openOperatorPanel()
-    setTimeout(function () { opBtn.innerHTML = FiIcon('user', 13) + ' ' + esc(getOperator()) }, 1200)
+  // 操作员（老板 / 店员）：原来单独占一整行，白扔 60px；现在挂到「热销 / 货架」标题右边。
+  // 老板反馈"空白页太多、中间的商品页被挤没了" —— 这一行就是主要来源之一。
+  function operatorChip() {
+    const b = document.createElement('button')
+    b.className = 'acct-chip'
+    b.style.cssText = 'margin-left:auto;font-size:calc(var(--s)*11px);padding:3px 10px 3px 4px'
+    b.innerHTML = '<span class="av">' + FiIcon('user', 12) + '</span><span class="nm">' + esc(getOperator()) + '</span>'
+    b.title = '点这里换人（算谁的账）'
+    b.onclick = function (e) {
+      e.stopPropagation()
+      openOperatorPanel()
+      setTimeout(function () { renderMid(false) }, 1400)
+    }
+    return b
   }
-  hintRow.appendChild(opBtn)
-  top.appendChild(hintRow)
 
   root.appendChild(top); root.appendChild(elMid); root.appendChild(elCart)
   app.appendChild(root)
@@ -197,6 +199,7 @@ page('pos', function (app) {
   function sectionTitle(box, tag, sub) {
     const t = document.createElement('div'); t.className = 'sectitle'
     t.innerHTML = '<span class="tag">' + esc(tag) + '</span><span>' + esc(sub) + '</span>'
+    t.appendChild(operatorChip())
     box.appendChild(t)
   }
 
@@ -317,10 +320,23 @@ page('pos', function (app) {
   // ---------- 底部：购物清单（固定） ----------
   function renderCart() {
     if (!elCart) return
-    elCart.className = 'pos-cart' + (collapsed ? ' collapsed' : '')
-    elCart.innerHTML = ''
     const totalFen = cartTotal()
     const n = cart.reduce(function (s, c) { return s + c.qty }, 0)
+
+    // 空清单：只占一行（原来空着也占半屏，实测 610px、其中 254px 纯空白，
+    // 把商品货架挤到只剩一行半 —— 老板说"中间的商品页被挤没了"）。
+    elCart.className = 'pos-cart' + (cart.length ? '' : ' is-empty') + (collapsed ? ' collapsed' : '')
+    elCart.innerHTML = ''
+    if (!cart.length) {
+      const bar = document.createElement('div'); bar.className = 'chead'
+      bar.innerHTML = '<span class="t">' + FiIcon('cart', 16) + '购物清单</span>' +
+        '<span class="ehint">点上面的商品加单 · 一个字也能搜 · 也能扫码</span>' +
+        '<span class="sum">' + fmt(0) + '</span>' +
+        // 「结账」两个字一直在（老板说看不到结账按钮），加货后变成整条大按钮
+        '<button class="paybtn mini" disabled>' + FiIcon('check', 15) + '结账</button>'
+      elCart.appendChild(bar)
+      return
+    }
 
     const head = document.createElement('div'); head.className = 'chead'
     head.innerHTML = '<span class="t">' + FiIcon('cart', 16) + '购物清单' + (cart.length ? '<span class="pill">' + n + '</span>' : '') + '</span>' +

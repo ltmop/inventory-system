@@ -4,7 +4,9 @@ page('stock', function (app) {
   let keyword = ''
   let cat = ''            // 选中的分类（'' = 全部）
   let brandView = ''      // 选中的品牌（'' = 还在品牌列表这一层）
-  let lowOnly = false     // 只看低库存
+  // 从入库页「看全部」跳过来时，直接开好"只看低库存"（老板点一下就该看到缺的货）
+  let lowOnly = !!window.__fiStockLowOnly
+  try { window.__fiStockLowOnly = false } catch (e) { /* 忽略 */ }
   let all = apiCached('product:list', { keyword: '', limit: 500 }) || [] // 首帧先用上次缓存
   let results = all
   let tmr = null
