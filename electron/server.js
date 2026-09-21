@@ -859,6 +859,8 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     'stocktake:create','stocktake:updateItem','stocktake:complete','stocktake:submit','import:batch',
     // 库位调拨是写操作（改批次库位）—— 漏在这里等于只读令牌也能调拨
     'stock:transfer',
+    // 单品改库存也是写操作（直接落批次数量）—— 必须算写通道，否则只读令牌也能改库存
+    'stock:adjust',
     // 撤回是写操作（会改库存/流水/商品表）—— 必须算写通道，否则只读令牌也能撤回
     'undo:apply',
     'customer:create','customer:update','customer:delete','payment:record',
@@ -1212,6 +1214,9 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     // 库位调拨（2026-09-15）：备货出库/换库位专用 —— 只改批次库位，**不写 transactions**，
     // 所以营业额/毛利/库存金额都不受影响（详见 commands/stock.js 头部）。中心库模式下必须能用。
     'stock:transfer': (d, p) => cmds.transferStock(d, p),
+    // 单品改库存（2026-09-21）：手机端库存页「改数量」。内部就是给这一个商品开一张一行的盘点单，
+    // 走与盘点完全同一套落账逻辑（摊批次 + audit_log），不直接改批次数量。
+    'stock:adjust': (d, p) => cmds.adjustProductStock(d, p),
     'stock:byLocation': (d, p) => cmds.stockByLocation(d, p?.productId),
     // 撤回（2026-09-20）：删商品/报损/入库留了可逆快照，误操作能一键还原。
     // 桌面端与手机端共用这两个通道（中心库模式下都走这里）。

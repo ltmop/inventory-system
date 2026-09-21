@@ -85,6 +85,80 @@ page('stock', function (app) {
     } catch (e) { toast('图片保存失败：' + (e.message || '')) }
   }
 
+  // 改库存数量（老板 2026-09-21：「库存里无法改数量」）。
+  // 走服务端 stock:adjust —— 它内部是给这个商品开一张一行的盘点单，
+  // 所以差异 / 原因 / 经手人都留在盘点记录里，事后查得到；不是偷偷把数字改掉。
+  let unitDecCache = null
+  async function unitAllowsDecimal(u) {
+    if (!unitDecCache) { try { unitDecCache = await api('unit:list') } catch (e) { unitDecCache = [] } }
+    const row = (unitDecCache || []).find(function (x) { return x.name === u })
+    return !!(row && row.allow_decimal)
+  }
+
+  async function openAdjustSheet(p) {
+    const name = prodName(p)
+    const cur = Number(p.total_stock || 0)
+    const unit = p.unit || '件'
+    const dec = await unitAllowsDecimal(unit)
+    const step = dec ? 0.1 : 1
+    const reasons = ['盘少了', '盘多了', '卖漏了', '记错了', '其他']
+    const stepBtn = 'width:58px;height:58px;border-radius:14px;border:1px solid var(--line);background:var(--card2);font-size:28px;font-weight:800;line-height:1'
+    const ov = sheet('改库存数量',
+      '<div class="text-sm text-muted" style="margin-bottom:10px;line-height:1.75">' + escHtml(name) + '<br>账上现在是 <b style="color:var(--ink);font-size:17px">' + cur + ' ' + escHtml(unit) + '</b>，你数出来是多少？</div>' +
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">' +
+        '<button data-step="-1" style="' + stepBtn + '">&minus;</button>' +
+        '<input id="adj-qty" inputmode="decimal" value="' + cur + '" style="flex:1;min-width:0;height:58px;text-align:center;font-size:27px;font-weight:800;border:2px solid var(--blue);border-radius:14px;background:#fff;color:var(--ink)">' +
+        '<button data-step="1" style="' + stepBtn + '">+</button>' +
+      '</div>' +
+      '<div class="text-xs text-muted" style="margin-bottom:6px">为什么对不上？（会记进盘点记录，方便以后回查）</div>' +
+      '<div class="gap wrap" style="margin-bottom:14px">' +
+        reasons.map(function (r, i) { return '<button data-reason="' + escHtml(r) + '" class="tag" style="height:36px;padding:0 13px;font-size:13.5px;font-weight:700;' + (i === 0 ? 'background:var(--blue);color:#fff;border-color:var(--blue)' : '') + '">' + escHtml(r) + '</button>' }).join('') +
+      '</div>' +
+      '<button id="adj-ok" style="width:100%;height:56px;border-radius:14px;border:none;background:var(--blue);color:#fff;font-size:18px;font-weight:800">确定改成这个数</button>' +
+      '<div class="text-xs text-muted" style="margin-top:10px;line-height:1.75">改完会生成一张盘点单（电脑端「盘点管理」能回看）。不是直接把数字改掉 —— 库存是账，得留下差异记录。</div>')
+
+    const input = ov.querySelector('#adj-qty')
+    let reason = reasons[0]
+    ov.querySelectorAll('[data-step]').forEach(function (b) {
+      b.onclick = function () {
+        const d = Number(b.getAttribute('data-step')) * step
+        const v = Math.max(0, Math.round(((parseFloat(input.value) || 0) + d) * 10) / 10)
+        input.value = String(v)
+      }
+    })
+    ov.querySelectorAll('[data-reason]').forEach(function (b) {
+      b.onclick = function () {
+        reason = b.getAttribute('data-reason')
+        ov.querySelectorAll('[data-reason]').forEach(function (x) {
+          const on = x === b
+          x.style.background = on ? 'var(--blue)' : ''
+          x.style.color = on ? '#fff' : ''
+          x.style.borderColor = on ? 'var(--blue)' : ''
+        })
+      }
+    })
+    const okBtn = ov.querySelector('#adj-ok')
+    okBtn.onclick = async function () {
+      const v = parseFloat(input.value)
+      if (!isFinite(v) || v < 0) { toast('数量要填 0 或更大的数'); return }
+      if (!dec && !Number.isInteger(v)) { toast('「' + unit + '」只能填整数'); return }
+      if (v === cur) { toast('账上本来就是 ' + cur + '，没改动'); return }
+      okBtn.disabled = true
+      okBtn.textContent = '正在改…'
+      try {
+        const r = await api('stock:adjust', { productId: p.id, actualQty: v, reason: reason, operator: getOperator() })
+        ov.remove()
+        const diff = (r && r.diff) || 0
+        toast('已改：' + cur + ' → ' + v + ' ' + unit + '（' + (diff > 0 ? '多了 ' + diff : '少了 ' + Math.abs(diff)) + '）')
+        await search(keyword)
+      } catch (e) {
+        okBtn.disabled = false
+        okBtn.textContent = '确定改成这个数'
+        toast('改库存失败：' + ((e && e.message) || '请重试'))
+      }
+    }
+  }
+
   function render() {
     app.innerHTML = ''
     // 固定顶栏：搜索/筛选/统计钉在最上面，往下翻也能随时搜（老板反馈"划下去就搜不了"）
@@ -241,7 +315,10 @@ page('stock', function (app) {
               '<div class="text-sm" style="color:var(--sub)">' + (p.suggest_price ? fmt(p.suggest_price) : '未定价') + '</div>' +
             '</div>' +
           '</div>' +
-          '<button data-detail style="width:100%;height:38px;margin-top:8px;border-radius:10px;border:1px solid var(--line);background:var(--card2);color:var(--blue);font-size:14px;font-weight:800">' + FiIcon('clipboard', 15) + ' 详情 / 改价 · 改单位 · 换图</button>' +
+          '<div style="display:flex;gap:8px;margin-top:8px">' +
+            '<button data-adj style="flex:1;height:42px;border-radius:10px;border:none;background:var(--blue);color:#fff;font-size:15px;font-weight:800">' + FiIcon('pulse', 15) + ' 改数量</button>' +
+            '<button data-detail style="flex:1.5;height:42px;border-radius:10px;border:1px solid var(--line);background:var(--card2);color:var(--blue);font-size:14px;font-weight:800">' + FiIcon('clipboard', 15) + ' 详情 / 改价 · 换图</button>' +
+          '</div>' +
           '<div style="display:flex;gap:8px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)">' +
             '<button data-hot style="flex:1;height:36px;border-radius:10px;border:1px solid var(--line);background:var(--card2);font-size:13px;font-weight:800;background:' + (isHot ? '#ff6b6b' : 'var(--card)') + ';color:' + (isHot ? '#fff' : 'var(--ink)') + '">' + FiIcon('bolt', 12) + ' 热销</button>' +
             '<button data-clear style="flex:1;height:36px;border-radius:10px;border:1px solid var(--line);background:var(--card2);font-size:13px;font-weight:800;background:' + (isClear ? '#f59e0b' : 'var(--card)') + ';color:' + (isClear ? '#fff' : 'var(--ink)') + '">' + FiIcon('tag', 12) + ' 处理货</button>' +
@@ -252,10 +329,12 @@ page('stock', function (app) {
         const hotBtn = card.querySelector('[data-hot]')
         const clearBtn = card.querySelector('[data-clear]')
         const detailBtn = card.querySelector('[data-detail]')
+        const adjBtn = card.querySelector('[data-adj]')
         const picBtn = card.querySelector('[data-pic]')
         const picThumb = card.querySelector('[data-photo-img]')
         const delBtn = card.querySelector('[data-del]')
         if (detailBtn) detailBtn.onclick = (e) => { e.stopPropagation(); openDetail(p) }
+        if (adjBtn) adjBtn.onclick = (e) => { e.stopPropagation(); openAdjustSheet(p) }
         if (hotBtn) hotBtn.onclick = async (e) => { e.stopPropagation(); await toggleMark(p.id, 'is_hot', !isHot) }
         if (clearBtn) clearBtn.onclick = async (e) => { e.stopPropagation(); await toggleMark(p.id, 'is_clearance', !isClear) }
         if (picBtn) picBtn.onclick = async (e) => { e.stopPropagation(); await pickProductPhoto(p) }

@@ -19,6 +19,15 @@ page('pos', function (app) {
 
   let elMid = null, elCart = null, elCats = null, elInput = null
 
+  // ---------- 顾客（老客户识别）与挂单 ----------
+  // 老板 2026-09-21 两个问题：
+  //   「人多时来不及录单怎么办？」→ 挂单：这一单先挂起，立刻开下一单，回头一键取回来结。
+  //   「老客户的单怎么在开单时确认这个人是老客户？」→ 整单都带着顾客：选完立刻看到
+  //     买过几次 / 累计多少 / 欠多少 / 上次什么时候来，并且这一单记在他名下。
+  let customer = null            // 当前这一单的顾客（null = 散客）
+  let tierCache = {}             // productId -> { tier: 价格分 }（客户价格档用）
+  const HOLDS_KEY = 'fi-pos-holds'
+
   // ---------- 小工具 ----------
   function inCartQty(id) { let s = 0; cart.forEach(c => { if (c.product_id === id) s += c.qty }); return s }
   function cartTotal() { return cart.reduce((s, c) => s + c.selling_price * c.qty, 0) }
@@ -329,6 +338,231 @@ page('pos', function (app) {
   }
 
   // ---------- 底部：购物清单（固定） ----------
+  // ---------- 顾客：老客户识别 ----------
+  // 「老客户」判据：有过成交（last_deal_at 有值）或确实买过东西（spent > 0）。
+  // 不能只看欠款 —— 天天来但每次付清的才是最好的老主顾，欠款是 0。
+  function isOldCustomer(c) { return !!(c && (c.last_deal_at || (c.spent || 0) > 0)) }
+  function custLabel() { return customer ? (customer.name + (isOldCustomer(customer) ? ' · 老客户' : ' · 新客户')) : '散客' }
+  function priceLevelName(lv) {
+    return ({ retail: '零售价', regular: '常客价', VIP: 'VIP 价', wholesale: '批发价', promo: '促销价' })[lv] || lv
+  }
+  function daysAgo(ts) {
+    if (!ts) return ''
+    const d = new Date(ts)
+    if (isNaN(d.getTime())) return ''
+    const n = Math.floor((Date.now() - d.getTime()) / 86400000)
+    if (n <= 0) return '今天来过'
+    if (n === 1) return '昨天来过'
+    if (n < 30) return n + ' 天前来过'
+    return Math.floor(n / 30) + ' 个月前来的'
+  }
+  // 按客户的价格档取价（price_tiers）；没设这档价返回 null → 退回建议零售价
+  async function tierPriceFor(p) {
+    const lv = customer && customer.price_level
+    if (!lv || !p || p.id == null) return null
+    try {
+      if (!tierCache[p.id]) {
+        const rows = await api('priceTier:list', { productId: p.id })
+        const m = {}
+        ;(rows || []).forEach(function (r) { m[r.tier] = r.price })
+        tierCache[p.id] = m
+      }
+      const price = tierCache[p.id][lv]
+      return price > 0 ? price : null
+    } catch (e) { return null }
+  }
+  async function pickCustomer() {
+    let list = []
+    try { list = (await api('customer:list')) || [] } catch (e) { toast('加载客户失败：' + e.message); return }
+    openCustomerPanel(list)
+  }
+  // 选中顾客：如果他带价格档，把清单里没手动改过价的行按档重算
+  async function applyCustomer(c) {
+    customer = c
+    if (!c) { toast('已设为散客'); renderCart(); return }
+    toast(isOldCustomer(c)
+      ? ('老客户 ' + c.name + '：买过 ' + (c.orders || 0) + ' 次 · 累计 ' + fmt(c.spent || 0) + (c.outstanding > 0 ? ' · 欠 ' + fmt(c.outstanding) : ''))
+      : ('新客户 ' + c.name + '（第一次来）'))
+    if (c.price_level && cart.length) {
+      for (const line of cart) {
+        if (line.price_changed) continue
+        const tp = await tierPriceFor(line.product)
+        if (tp) { line.selling_price = tp; line.orig_price = tp }
+      }
+    }
+    renderCart()
+  }
+
+  // 顾客面板：搜姓名 / 手机号 / 会员号；老客户置顶（按最近成交），一行说清他是谁。
+  // onPick 可选 —— 赊账流程要拿到"选中的是谁"再继续，就传它；不传则直接设为当前顾客。
+  function openCustomerPanel(list, onPick) {
+    const ov = document.createElement('div')
+    ov.id = 'cust-panel'
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(10,22,40,.96);z-index:320;display:flex;flex-direction:column;padding:18px;color:#e6edf5'
+    ov.innerHTML =
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">' +
+        '<div style="font-size:19px;font-weight:800;flex:1">这单卖给谁？</div>' +
+        '<button id="cust-close" style="width:40px;height:40px;border-radius:20px;background:rgba(255,255,255,.12);color:#fff;border:none;font-size:19px">' + FiIcon('close', 16) + '</button>' +
+      '</div>' +
+      '<input id="cust-q" placeholder="打名字 / 手机号 / 会员号，或直接挑" style="height:50px;border-radius:12px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.1);color:#fff;font-size:17px;padding:0 14px;margin-bottom:10px;outline:none">' +
+      '<div id="cust-list" style="flex:1;overflow:auto"></div>' +
+      '<div style="display:flex;gap:8px;margin-top:10px">' +
+        '<button id="cust-none" style="flex:1;height:50px;border-radius:12px;border:1px solid rgba(255,255,255,.25);background:transparent;color:#c7d2e0;font-size:15px;font-weight:700">不选（散客）</button>' +
+        '<button id="cust-new" style="flex:1;height:50px;border-radius:12px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:15px;font-weight:800">' + FiIcon('plus', 14) + ' 新建客户</button>' +
+      '</div>'
+    document.body.appendChild(ov)
+    const box = ov.querySelector('#cust-list')
+    const q = ov.querySelector('#cust-q')
+
+    function cardHtml(c) {
+      const bits = ['买过 ' + (c.orders || 0) + ' 次']
+      if (c.spent > 0) bits.push('累计 ' + fmt(c.spent))
+      if (c.outstanding > 0) bits.push('欠 ' + fmt(c.outstanding))
+      const ago = daysAgo(c.last_deal_at)
+      if (ago) bits.push(ago)
+      if (c.phone) bits.push(c.phone)
+      const tag = isOldCustomer(c)
+        ? '<span style="background:#22c55e;color:#fff;border-radius:999px;padding:1px 9px;font-size:11.5px;font-weight:800">老客户</span>'
+        : '<span style="background:rgba(255,255,255,.16);color:#c7d2e0;border-radius:999px;padding:1px 9px;font-size:11.5px;font-weight:800">第一次来</span>'
+      const lv = (c.price_level && c.price_level !== 'retail')
+        ? '<span style="margin-left:auto;color:#d4af37;font-size:12px;font-weight:700">' + esc(priceLevelName(c.price_level)) + '</span>' : ''
+      return '<div data-cust="' + c.id + '" style="padding:12px 14px;border-radius:12px;background:rgba(255,255,255,.08);margin-bottom:8px">' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span style="font-size:17px;font-weight:800">' + esc(c.name) + '</span>' + tag + lv +
+        '</div>' +
+        '<div style="font-size:12.5px;color:#8fa3c0;margin-top:4px">' + esc(bits.join(' · ')) + '</div>' +
+      '</div>'
+    }
+    function paint() {
+      const kw = String(q.value || '').trim().toLowerCase()
+      let rows = list.slice()
+      // 老客户、最近成交的排前面 —— 忙的时候不用翻
+      rows.sort(function (a, b) {
+        const ao = isOldCustomer(a) ? 0 : 1, bo = isOldCustomer(b) ? 0 : 1
+        if (ao !== bo) return ao - bo
+        return String(b.last_deal_at || '').localeCompare(String(a.last_deal_at || ''))
+      })
+      if (kw) {
+        rows = rows.filter(function (c) {
+          return String(c.name || '').toLowerCase().indexOf(kw) >= 0 ||
+            String(c.phone || '').indexOf(kw) >= 0 ||
+            String(c.member_no || '').toLowerCase().indexOf(kw) >= 0
+        })
+      }
+      // 一个客户都没建过 / 没搜到时，把「怎么办」直接写在界面上 —— 老板现在库里是 0 个客户，
+      // 不告诉他这一步，功能再全也认不出老客户。
+      box.innerHTML = rows.length ? rows.map(cardHtml).join('')
+        : (list.length === 0
+          ? '<div style="padding:14px;color:#8fa3c0;line-height:1.85">还没建过客户。<br>第一次来的顾客，点下面「新建客户」记个名字 + 手机号；<br>以后结账时打手机号<b style="color:#d4af37">后 4 位</b>就能认出来，谁买过多少、欠多少一目了然。</div>'
+          : '<div style="padding:14px;color:#8fa3c0;line-height:1.85">没找到「' + esc(q.value) + '」。<br>手机号打后 4 位就能匹配；确实没建过，点下面「新建客户」。<br><span style="font-size:12px">（建过一次以后，他一进门你就知道是老客户了）</span></div>')
+      box.querySelectorAll('[data-cust]').forEach(function (el) {
+        el.onclick = function () {
+          const c = rows.find(function (x) { return x.id === Number(el.getAttribute('data-cust')) })
+          if (!c) return
+          ov.remove()
+          if (onPick) onPick(c)
+          else applyCustomer(c)
+        }
+      })
+    }
+    q.oninput = paint
+    paint()
+    ov.querySelector('#cust-close').onclick = function () { ov.remove() }
+    ov.querySelector('#cust-none').onclick = function () { ov.remove(); if (onPick) onPick(null); else applyCustomer(null) }
+    ov.querySelector('#cust-new').onclick = async function () {
+      const name = prompt('新客户名字？')
+      if (!name) return
+      const phone = prompt('手机号？（可不填；填了下次打后四位就出来）', '') || ''
+      try {
+        const r = await api('customer:create', { name: name, phone: phone, notes: '' })
+        ov.remove()
+        const c = { id: r.id, name: name, phone: phone }
+        if (onPick) onPick(c)
+        else applyCustomer(c)
+      } catch (e) { toast('建客户失败：' + e.message) }
+    }
+  }
+
+  // ---------- 挂单（人多时来不及录单）----------
+  // 零售店的常规解法：一个顾客还没拿定 / 还没付款，先把这一单"挂着"，
+  // 立刻开下一单，回头点一下取回来接着结。挂单只存在这台手机上，断网也在。
+  function readHolds() { try { const v = JSON.parse(localStorage.getItem(HOLDS_KEY) || '[]'); return Array.isArray(v) ? v : [] } catch (e) { return [] } }
+  function writeHolds(list) { try { localStorage.setItem(HOLDS_KEY, JSON.stringify(list.slice(0, 20))) } catch (e) { /* 存不下不影响当前这单 */ } }
+  function holdTotal(h) { return (h.cart || []).reduce(function (s, c) { return s + c.selling_price * c.qty }, 0) }
+  function holdQty(h) { return (h.cart || []).reduce(function (s, c) { return s + c.qty }, 0) }
+  function holdCurrent() {
+    if (!cart.length) { toast('清单是空的，不用挂'); return }
+    const list = readHolds()
+    list.unshift({
+      id: 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+      at: Date.now(),
+      customer: customer ? { id: customer.id, name: customer.name, price_level: customer.price_level, spent: customer.spent, orders: customer.orders } : null,
+      cart: cart.map(function (c) { return { product_id: c.product_id, product: c.product, qty: c.qty, selling_price: c.selling_price, orig_price: c.orig_price, price_changed: c.price_changed } }),
+    })
+    writeHolds(list)
+    cart.length = 0
+    customer = null
+    resetIdem()
+    toast('已挂起 ' + list[0].cart.length + ' 种商品，可以开下一单了（点「取单」能取回来）')
+    renderCart(); renderMid()
+  }
+  function openHoldsSheet() {
+    const list = readHolds()
+    const ov = sheet('挂着的单（' + list.length + '）',
+      (list.length ? list.map(function (h) {
+        const t = new Date(h.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+        return '<div style="display:flex;align-items:center;gap:9px;padding:12px 0;border-bottom:1px solid var(--line2)">' +
+          '<div style="flex:1;min-width:0">' +
+            '<div class="font-bold" style="font-size:15px">' + holdQty(h) + ' 件 · ' + fmt(holdTotal(h)) + (h.customer ? ' · ' + esc(h.customer.name) : '') + '</div>' +
+            '<div class="text-xs text-muted" style="margin-top:2px">' + t + ' 挂起 · ' + (h.cart || []).length + ' 种商品</div>' +
+          '</div>' +
+          '<button data-resume="' + h.id + '" style="height:40px;padding:0 15px;border-radius:10px;border:none;background:var(--blue);color:#fff;font-size:14.5px;font-weight:800">取回来</button>' +
+          '<button data-drop="' + h.id + '" style="height:40px;width:42px;border-radius:10px;border:1px solid var(--red);background:#fff;color:var(--red);font-size:14px;font-weight:800">删</button>' +
+        '</div>'
+      }).join('') : '<div class="text-sm text-muted" style="padding:14px 0">没有挂着的单。</div>') +
+      '<div class="text-xs text-muted" style="margin-top:12px;line-height:1.75">忙的时候：把这一单先挂起（不结账、不丢货），立刻开下一单；回头点「取回来」接着结。<br>挂单只存在这台手机上，断网也能用。</div>')
+    ov.querySelectorAll('[data-resume]').forEach(function (b) {
+      b.onclick = function () {
+        const h = readHolds().find(function (x) { return x.id === b.getAttribute('data-resume') })
+        if (!h) return
+        if (cart.length && !confirm('清单里现在还有 ' + cart.length + ' 种商品，取回来会先清掉它。继续？')) return
+        cart.length = 0
+        ;(h.cart || []).forEach(function (c) { cart.push(c) })
+        customer = h.customer || null
+        writeHolds(readHolds().filter(function (x) { return x.id !== h.id }))
+        resetIdem()
+        ov.remove()
+        collapsed = false
+        renderCart(); renderMid()
+        toast('取回来了：' + (h.cart || []).length + ' 种商品')
+      }
+    })
+    ov.querySelectorAll('[data-drop]').forEach(function (b) {
+      b.onclick = function () {
+        if (!confirm('删掉这单挂着的东西？（只是不记了，商品档案和库存都不受影响）')) return
+        writeHolds(readHolds().filter(function (x) { return x.id !== b.getAttribute('data-drop') }))
+        ov.remove()
+        renderCart()
+        toast('已删')
+      }
+    })
+  }
+  // 购物清单上那条「顾客 / 挂起 / 取单」条：开单全程都能看到这单卖给谁
+  function custBar() {
+    const holds = readHolds().length
+    const bar = document.createElement('div')
+    bar.className = 'cfbar'
+    bar.innerHTML =
+      '<button class="cfcust' + (customer ? (isOldCustomer(customer) ? ' old' : ' on') : '') + '">' + FiIcon('users', 13) + ' ' + esc(custLabel()) + '</button>' +
+      '<button class="cfhold">' + FiIcon('download', 13) + ' 挂起</button>' +
+      (holds ? '<button class="cfholds">' + FiIcon('undo', 13) + ' 取单 ' + holds + '</button>' : '')
+    bar.querySelector('.cfcust').onclick = function (e) { e.stopPropagation(); pickCustomer() }
+    bar.querySelector('.cfhold').onclick = function (e) { e.stopPropagation(); holdCurrent() }
+    const hb = bar.querySelector('.cfholds')
+    if (hb) hb.onclick = function (e) { e.stopPropagation(); openHoldsSheet() }
+    return bar
+  }
+
   function renderCart() {
     if (!elCart) return
     const totalFen = cartTotal()
@@ -340,12 +574,19 @@ page('pos', function (app) {
     elCart.innerHTML = ''
     if (!cart.length) {
       const bar = document.createElement('div'); bar.className = 'chead'
+      // 空清单**不额外占一行**（原来空着也占半屏，老板说"商品页被挤没了"）：
+      // 把「认顾客 / 取单」直接塞进这一行 —— 比那句没人看的提示文字有用得多。
+      const holds0 = readHolds().length
       bar.innerHTML = '<span class="t">' + FiIcon('cart', 16) + '购物清单</span>' +
-        '<span class="ehint">点上面的商品加单 · 一个字也能搜 · 也能扫码</span>' +
+        '<button class="cfcust' + (customer ? (isOldCustomer(customer) ? ' old' : ' on') : '') + '">' + FiIcon('users', 13) + ' ' + esc(custLabel()) + '</button>' +
+        (holds0 ? '<button class="cfholds">' + FiIcon('undo', 13) + ' 取单 ' + holds0 + '</button>' : '') +
         '<span class="sum">' + fmt(0) + '</span>' +
         // 「结账」两个字一直在（老板说看不到结账按钮），加货后变成整条大按钮
         '<button class="paybtn mini" disabled>' + FiIcon('check', 15) + '结账</button>'
       elCart.appendChild(bar)
+      bar.querySelector('.cfcust').onclick = function (e) { e.stopPropagation(); pickCustomer() }
+      const hb0 = bar.querySelector('.cfholds')
+      if (hb0) hb0.onclick = function (e) { e.stopPropagation(); openHoldsSheet() }
       return
     }
 
@@ -363,6 +604,7 @@ page('pos', function (app) {
       collapsed = !collapsed; renderCart()
     }
     elCart.appendChild(head)
+    elCart.appendChild(custBar())
 
     const list = document.createElement('div'); list.className = 'clist'
     if (!cart.length) {
@@ -528,6 +770,10 @@ page('pos', function (app) {
       resetIdem(); seeCart(prodName(p) + ' ×' + existing.qty); renderMid(); return
     }
     let price = p.suggest_price
+    // 选了顾客就按他的价格档带价（电脑上给他设了常客价/VIP价/批发价就按那个走；
+    // 商品没设过这一档的，仍然走建议零售价）
+    const tiered = await tierPriceFor(p)
+    if (tiered) price = tiered
     // 没设售价的货必须现场填售价，不按进价兜底卖（不然倒贴钱）
     if (!price) {
       const s = prompt('「' + prodName(p) + '」没设售价，卖多少钱？（元）\n（填完也可以在这一单里继续改价）', '')
@@ -600,9 +846,13 @@ page('pos', function (app) {
   async function checkout(method) {
     if (cart.length === 0 || busy) return
     busy = true; renderCart()
+    const custName = customer ? customer.name : ''
     try {
+      // 选了顾客就把这一单记在他名下（付清的**不传** paidAmount → 不产生欠款）。
+      // 这样「这客户买过几次、累计多少」才算得出来，开单时也才看得出谁是老客户。
       const r = await api('outbound:checkout', {
         items: payItems(), payMethod: method, operator: getOperator(), idempotencyKey: idemFor(),
+        customerId: customer ? customer.id : undefined,
       })
       if (r && r.ok === false) { toast('开单被拦截：' + blockMsg(r)); return }
       const totalFen = cartTotal()
@@ -612,30 +862,40 @@ page('pos', function (app) {
         rows.forEach(function (el, i) { el.style.animation = 'payFly .42s cubic-bezier(.22,1,.36,1) both'; el.style.animationDelay = (i * 55) + 'ms' })
         await new Promise(function (r) { setTimeout(r, 260) })
       } catch (e) { /* 动画失败不影响记账 */ }
-      showStamp('收讫', fmt(totalFen) + ' · ' + method, false)
-      cart.length = 0; resetIdem()
+      showStamp('收讫', fmt(totalFen) + ' · ' + method + (custName ? ' · ' + custName : ''), false)
+      cart.length = 0
+      customer = null
+      resetIdem()
     } catch (e) { toast('结账失败: ' + e.message) } finally { busy = false; renderCart(); renderMid() }
   }
 
+  // 赊账：必须先落到一个客户头上。这一单还没选顾客就先选（选完继续赊）
   async function creditCheckout() {
     if (cart.length === 0 || busy) return
+    if (customer) { await doCredit(customer); return }
+    let list = []
+    try { list = (await api('customer:list')) || [] } catch (e) { toast('加载客户失败：' + e.message); return }
+    openCustomerPanel(list, async function (c) {
+      if (!c) { toast('赊账得选一个客户'); return }
+      await applyCustomer(c)
+      await doCredit(c)
+    })
+  }
+  async function doCredit(cust) {
+    busy = true; renderCart()
+    const totalFen = cartTotal()
     try {
-      const list = await api('customer:list')
-      openCustomerPanel(list, async function (customer) {
-        busy = true; renderCart()
-        const totalFen = cartTotal()
-        try {
-          const r = await api('outbound:checkout', {
-            items: payItems(), operator: getOperator(),
-            customerId: customer.id, paidAmount: 0, idempotencyKey: idemFor(),
-          })
-          if (r && r.ok === false) { toast('赊账被拦截：' + blockMsg(r)); return }
-          showStamp('已赊', fmt(totalFen) + ' · ' + customer.name, false)
-          cart.length = 0; resetIdem()
-        } catch (e) { toast('赊账失败: ' + e.message) }
-        finally { busy = false; renderCart(); renderMid() }
+      const r = await api('outbound:checkout', {
+        items: payItems(), operator: getOperator(),
+        customerId: cust.id, paidAmount: 0, idempotencyKey: idemFor(),
       })
-    } catch (e) { toast('加载客户失败: ' + e.message) }
+      if (r && r.ok === false) { toast('赊账被拦截：' + blockMsg(r)); return }
+      showStamp('已赊', fmt(totalFen) + ' · ' + cust.name, false)
+      cart.length = 0
+      customer = null
+      resetIdem()
+    } catch (e) { toast('赊账失败：' + e.message) }
+    finally { busy = false; renderCart(); renderMid() }
   }
 
   // 结账：点「结账」大按钮 → 选收款方式（现金 / 微信 / 支付宝 / 赊账）
@@ -644,6 +904,16 @@ page('pos', function (app) {
     const qtyAll = cart.reduce(function (s, c) { return s + c.qty }, 0)
     const ov = sheet('结账 ' + fmt(totalFen),
       '<div class="text-sm text-muted" style="margin-bottom:12px">这单 ' + cart.length + ' 种商品 · 共 ' + qtyAll + ' 件，选一个收款方式：</div>' +
+      // 顾客那一行：老客户在这里一眼可见（买过几次、是不是第一次来），也能当场换人/认人
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:10px 12px;border-radius:12px;background:var(--card2);border:1px solid var(--line)">' +
+        '<span style="color:var(--blue);display:flex">' + FiIcon('users', 15) + '</span>' +
+        '<span class="text-sm" style="flex:1;min-width:0">' +
+          (customer
+            ? ('顾客：<b>' + esc(customer.name) + '</b>' + (isOldCustomer(customer) ? '（老客户 · 买过 ' + (customer.orders || 0) + ' 次' + (customer.outstanding > 0 ? ' · 欠 ' + fmt(customer.outstanding) : '') + '）' : '（第一次来）'))
+            : '顾客：散客（点右边认人，记他名下才好统计）') +
+        '</span>' +
+        '<button id="pay-pick-cust" style="height:34px;padding:0 12px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--blue);font-size:13.5px;font-weight:800">' + (customer ? '换人' : '选顾客') + '</button>' +
+      '</div>' +
       '<div class="payrow4">' +
         '<button data-pay="现金" style="background:linear-gradient(135deg,#3b82f6,#2563eb)">' + FiIcon('wallet', 18) + '现金</button>' +
         '<button data-pay="微信" style="background:linear-gradient(135deg,#22c55e,#0f9d68)">' + FiIcon('phone', 18) + '微信</button>' +
@@ -651,6 +921,14 @@ page('pos', function (app) {
         '<button data-pay="赊账" style="background:linear-gradient(135deg,#64748b,#334155)">' + FiIcon('users', 18) + '赊账</button>' +
       '</div>' +
       '<div class="text-xs text-muted" style="margin-top:12px;line-height:1.7">现金：直接记「收讫」<br>微信 / 支付宝：先给顾客看你的收款码，到账再记账<br>赊账：选客户，记在 TA 头上</div>')
+    const pickCust = ov.querySelector('#pay-pick-cust')
+    if (pickCust) pickCust.onclick = async function () {
+      ov.remove()
+      let list = []
+      try { list = (await api('customer:list')) || [] } catch (e) { toast('加载客户失败：' + e.message); openPaySheet(); return }
+      // 选完（包括选「散客」）都回到结账面板，不用重新点一遍
+      openCustomerPanel(list, async function (c) { await applyCustomer(c); openPaySheet() })
+    }
     ov.querySelectorAll('[data-pay]').forEach(function (b) {
       b.onclick = function () {
         const m = b.getAttribute('data-pay')
@@ -689,46 +967,6 @@ page('pos', function (app) {
     overlay.querySelector('#qr-done').onclick = function () { overlay.remove(); checkout(method) }
   }
 
-  // 客户选择面板：点选老客户，或新建客户（不用手打字找）
-  function openCustomerPanel(list, onSelect) {
-    const overlay = document.createElement('div')
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(10,22,40,.95);z-index:300;display:flex;flex-direction:column;padding:20px;color:#e6edf5'
-    overlay.innerHTML =
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
-        '<div style="font-size:19px;font-weight:700">赊给谁？</div>' +
-        '<button id="cust-close" style="width:40px;height:40px;border-radius:20px;background:rgba(255,255,255,.12);color:#fff;border:none;font-size:19px">' + FiIcon('close', 16) + '</button>' +
-      '</div>' +
-      '<div id="cust-list" style="flex:1;overflow:auto"></div>' +
-      '<button id="cust-new" style="height:54px;border-radius:14px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:17px;font-weight:800;margin-top:10px">' + FiIcon('plus', 15) + ' 新建客户</button>'
-    document.body.appendChild(overlay)
-    document.getElementById('cust-close').onclick = function () { overlay.remove() }
-    const listBox = document.getElementById('cust-list')
-    if (list.length > 0) {
-      listBox.innerHTML = list.map(function (c) {
-        return '<div data-cust="' + c.id + '" style="padding:13px 15px;border-radius:10px;background:rgba(255,255,255,.08);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">' +
-          '<div style="font-size:17px;font-weight:700">' + esc(c.name) + '</div>' +
-          (c.outstanding > 0 ? '<div style="color:#ff6b6b;font-weight:700">欠 ' + fmt(c.outstanding) + '</div>' : '<div style="color:#4ade80">无欠款</div>') +
-        '</div>'
-      }).join('')
-      listBox.querySelectorAll('[data-cust]').forEach(function (el) {
-        el.onclick = function () {
-          const c = list.find(function (x) { return x.id === Number(el.getAttribute('data-cust')) })
-          if (c) { overlay.remove(); onSelect(c) }
-        }
-      })
-    } else {
-      listBox.innerHTML = '<div style="padding:10px;color:#8fa3c0">还没有客户，点下面新建</div>'
-    }
-    document.getElementById('cust-new').onclick = async function () {
-      const name = prompt('新客户名字？')
-      if (!name) return
-      try {
-        const r = await api('customer:create', { name: name, phone: '', notes: '' })
-        overlay.remove()
-        onSelect({ id: r.id, name: name })
-      } catch (e) { toast('建客户失败: ' + e.message) }
-    }
-  }
 
   // 从库存页点商品跳过来：自动把该商品加进购物清单
   try {

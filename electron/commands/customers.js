@@ -118,7 +118,11 @@ export function listCustomers(db) {
            WHEN type = 'exchange' AND paid_amount IS NOT NULL
              THEN paid_amount
            ELSE 0 END) AS net_credit,
-         MAX(timestamp) AS last_tx_at
+         MAX(timestamp) AS last_tx_at,
+         -- 累计消费（只算 out 的售价×数量）与成交笔数：老板开单时要一眼看出"这人是不是老客户"、
+         -- 买过多少 —— 只给一个"欠款"是不够的，欠款为 0 的人也可能是天天来的老主顾。
+         SUM(CASE WHEN type = 'out' AND selling_price IS NOT NULL THEN quantity * selling_price ELSE 0 END) AS spent,
+         SUM(CASE WHEN type = 'out' THEN 1 ELSE 0 END) AS orders
        FROM transactions WHERE customer_id IS NOT NULL GROUP BY customer_id`,
     )
     .all()
@@ -144,6 +148,8 @@ export function listCustomers(db) {
         total_credit,
         total_paid_back,
         outstanding: total_credit - total_paid_back,
+        spent: cr?.spent ?? 0,
+        orders: cr?.orders ?? 0,
         last_deal_at: lasts.length > 0 ? lasts.reduce((a, b) => (a > b ? a : b)) : null,
       }
     })

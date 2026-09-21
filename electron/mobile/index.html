@@ -357,6 +357,20 @@ body.fi-scanning #scan-overlay .scan-live-ui{display:flex!important}
 #scan-overlay .scan-frame i:nth-child(2){top:-2px;right:-2px;border-left:0;border-bottom:0;border-radius:0 14px 0 0}
 #scan-overlay .scan-frame i:nth-child(3){bottom:-2px;left:-2px;border-right:0;border-top:0;border-radius:0 0 0 14px}
 #scan-overlay .scan-frame i:nth-child(4){bottom:-2px;right:-2px;border-left:0;border-top:0;border-radius:0 0 14px 0}
+
+/* 购物清单上的「顾客 / 挂起 / 取单」条 —— 开单全程看得见这单卖给谁，忙时也能一键挂单 */
+.pos-cart .cfbar{flex:none;display:flex;align-items:center;gap:6px;padding:5px 12px 6px;border-bottom:1px solid var(--line2)}
+.pos-cart .cfbar button,.pos-cart .chead .cfcust,.pos-cart .chead .cfholds{height:30px;border-radius:999px;border:1px solid var(--line);background:var(--card2);color:var(--sub);font-size:calc(var(--s)*12px);font-weight:800;padding:0 11px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;overflow:hidden}
+.pos-cart .chead .cfcust{flex:1;min-width:0;justify-content:flex-start}
+.pos-cart .chead .cfcust.on{background:var(--blue-l);border-color:var(--blue-l2);color:var(--blue)}
+.pos-cart .chead .cfcust.old{background:#e8f8ee;border-color:#bfe7cf;color:#0f9d68}
+.pos-cart .chead .cfholds{flex:none;background:var(--warn-l);border-color:#f0dfb8;color:#8a6400}
+.pos-cart .cfbar .cfcust{flex:1;min-width:0;justify-content:flex-start}
+.pos-cart .cfbar .cfcust.on{background:var(--blue-l);border-color:var(--blue-l2);color:var(--blue)}
+.pos-cart .cfbar .cfcust.old{background:#e8f8ee;border-color:#bfe7cf;color:#0f9d68}
+.pos-cart .cfbar .cfhold{flex:none}
+.pos-cart .cfbar .cfholds{flex:none;background:var(--warn-l);border-color:#f0dfb8;color:#8a6400}
+.pos-cart.collapsed .cfbar{display:none}
 </style>
 </head>
 <body>
