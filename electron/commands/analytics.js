@@ -5,6 +5,8 @@
 //   库存金额 = Σ inventory_batches quantity×cost_price
 // 只读：绝不写库。
 
+import { productLabel } from './helpers.js'
+
 function pad(n) { return String(n).padStart(2, '0') }
 export function dateKey(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) }
 
@@ -61,11 +63,11 @@ export function analyticsCategory(db) {
 export function analyticsTop(db, n = 10) {
   const k = Math.max(1, Math.min(Number(n) || 10, 50))
   const txs = db.prepare(
-    "SELECT t.type, t.notes, t.quantity, t.selling_price, t.unit_price, t.product_id, p.name, p.brand, p.model, p.sku_code FROM transactions t JOIN products p ON p.id = t.product_id WHERE t.type IN ('out','return')",
+    "SELECT t.type, t.notes, t.quantity, t.selling_price, t.unit_price, t.product_id FROM transactions t WHERE t.type IN ('out','return')",
   ).all()
   const byP = new Map()
   let lookup
-  try { lookup = db.prepare('SELECT id, name, brand, model, sku_code FROM products').all() } catch { lookup = [] }
+  try { lookup = db.prepare('SELECT id, brand, model, sku_code FROM products').all() } catch { lookup = [] }
   const meta = new Map(lookup.map((r) => [r.id, r]))
   for (const t of txs) {
     if (t.type === 'return' && t.notes === '换货退旧') continue
@@ -83,7 +85,7 @@ export function analyticsTop(db, n = 10) {
       const m = meta.get(r.productId)
       return {
         productId: r.productId,
-        name: m?.name ?? '未知商品',
+        name: productLabel(m ?? {}) || '未知商品',
         brand: m?.brand ?? '',
         model: m?.model ?? '',
         sku: m?.sku_code ?? '',

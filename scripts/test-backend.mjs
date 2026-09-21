@@ -23,7 +23,7 @@ import { SEED_PRODUCTS, SEED_BATCHES, SEED_TRANSACTIONS } from '../electron/seed
 import { localFuzzyMatch } from '../electron/localSearch.js'
 import { logAudit } from '../electron/commands/helpers.js'
 // analytics 不在 commands.js 桶文件里（server.js 也是直接 import 这个模块）→ 这里照样直接引
-import { analyticsOverview, analyticsTrend } from '../electron/commands/analytics.js'
+import { analyticsOverview, analyticsTrend, analyticsTop } from '../electron/commands/analytics.js'
 // 中心库配置的主进程事实源（P0 2026-09-15）：纯 Node、不 import electron，可直接单测
 import { initCentralConfig, getCentralConfigLocal, setCentralConfigLocal, isCentralConfigured } from '../electron/centralConfig.js'
 // 功能开关（P3）：出厂默认 + 本机文件 + 服务端下发；"关"永远压过"开"
@@ -3363,6 +3363,50 @@ ok('preload 白名单含 expense 三通道',
   // 若还停第一层分支就是一片白屏。所以必须回落到表格，让它自带空态去说话。
   ok('库存两级：没商品/筛空时不落成白屏（分组空就回落表格的空态）',
     /openBrand === null && brandGroups\.length > 0/.test(inv))
+}
+
+// ============ 数据分析：畅销 Top N 必须能真跑起来（2026-09-21 修 p.name 400）============
+// 背景：线上 GET /api/analytics/top 实测 400「no such column: p.name」。
+//   analyticsTop 的 SQL 里引用了 products 表根本没有的列 p.name；同一句里还顺手 select 了
+//   p.brand/p.model/p.sku_code，但取值全走另一条 lookup —— 那 4 个列一点用没有，只负责把整条
+//   SQL 弄挂。坏这么久没人发现，是因为这里只断言过 overview/trend，Top 这条线从没跑过。
+// 口径（与 querySummary / inv-analytics 一致）：营业额 = out − return（换货退旧不算），
+//   商品名 = 品牌+型号 → 回退 SKU（helpers.productLabel）。
+{
+  const adb = openDatabase(path.join(tmp, 'analytics-top.db'))
+  // 新库自带 12 个演示商品 + 它们的流水；不清掉的话榜单里会混进种子数据，断言就不干净了
+  cmd.resetDemoData(adb)
+  cmd.createProduct(adb, { sku_code: 'AT-1', category: '鱼线', brand: '光威', model: '老竿 3.6m', cost_price: 4200, suggest_price: 9000, status: '在售' })
+  cmd.createProduct(adb, { sku_code: 'AT-2', category: '鱼线', brand: '达亿瓦', model: '老路亚 2.1m', cost_price: 15500, suggest_price: 20000, status: '在售' })
+  cmd.createProduct(adb, { sku_code: 'AT-3', category: '鱼线', cost_price: 100, suggest_price: 5000, status: '在售' })
+  const atP = (sku) => adb.prepare('SELECT id FROM products WHERE sku_code=?').get(sku).id
+  const p1 = atP('AT-1'), p2 = atP('AT-2'), p3 = atP('AT-3')
+  const insAt = adb.prepare('INSERT INTO transactions (product_id, type, quantity, unit_price, selling_price, timestamp, operator, notes, channel, store_code) VALUES (?,?,?,?,?,?,?,?,?,?)')
+  const atTs = new Date().toISOString()
+  insAt.run(p1, 'out', 3, 4200, 9000, atTs, '测试', '', 'pos', '') // AT-1：27000 / 毛利 14400 / 3 件
+  insAt.run(p1, 'return', 1, 4200, 9000, atTs, '测试', '', 'pos', '') // 退货冲减 → 18000 / 9600 / 2 件
+  insAt.run(p2, 'out', 1, 15500, 20000, atTs, '测试', '', 'pos', '') // AT-2：20000（第一名）
+  insAt.run(p2, 'return', 1, 15500, 20000, atTs, '测试', '换货退旧', 'pos', '') // 换货退旧：不计
+  insAt.run(p3, 'out', 2, 100, 5000, atTs, '测试', '', 'pos', '') // AT-3：10000
+
+  const top = analyticsTop(adb, 10)
+  ok('畅销Top：**能真跑起来**（SQL 引用不存在的列时，线上这条接口直接 400）',
+    Array.isArray(top) && top.length === 3, '返回 ' + top.length + ' 条')
+  ok('畅销Top：名字是「品牌+型号」（不是 products.name —— 那列根本不存在）',
+    top[0].name === '达亿瓦 老路亚 2.1m', top.map((r) => r.name).join(' / '))
+  ok('畅销Top：按营业额降序（20000 > 18000 > 10000）',
+    top.map((r) => r.revenue).join(',') === '20000,18000,10000', top.map((r) => r.revenue).join(','))
+  ok('畅销Top：退货冲减、换货退旧不计（AT-1 27000−9000=18000；AT-2 不被冲成 0）',
+    top[0].revenue === 20000 && top[1].revenue === 18000)
+  ok('畅销Top：件数/毛利跟着口径走（AT-1 净 2 件、毛利 9600）',
+    top[1].qty === 2 && top[1].profit === 9600, 'qty=' + top[1].qty + ' profit=' + top[1].profit)
+  ok('畅销Top：品牌型号都没填 → 名字回退 SKU', top[2].name === 'AT-3', top[2].name)
+  const top2 = analyticsTop(adb, 2)
+  ok('畅销Top：n 生效（要 2 条就只给 2 条，且是最高的两条）',
+    top2.length === 2 && top2[0].name === '达亿瓦 老路亚 2.1m' && top2[1].name === '光威 老竿 3.6m')
+  ok('畅销Top：n 传坏值不炸（-5 收成 1 条、非数字回退 10）',
+    analyticsTop(adb, -5).length === 1 && analyticsTop(adb, 'abc').length === 3)
+  adb.close()
 }
 
 fs.rmSync(tmp, { recursive: true, force: true })
