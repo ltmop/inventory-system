@@ -422,16 +422,15 @@ export async function parseInboundNote({ imageBase64, mimeType } = {}) {
   if (imageBase64.length > 4_000_000) return { ok: false, reason: 'image-too-large' }
   const mime = /^image\/(jpeg|png|webp)$/.test(mimeType) ? mimeType : 'image/jpeg'
 
-  // 店内商品清单喂给模型做匹配（ID|品牌|型号|品类|最近进价）
+  // ⚠️ 2026-09-21 成本优化：**不再把店内商品清单塞进 prompt**。
+  //    实测每次识别的输入 token ≈ 4,400，其中约 4,000 个就是那张 200 行的商品清单
+  //    （原来把它喂给模型，是为了让模型回填 product_id）。可是「模糊匹配已有商品」这件事
+  //    根本不该花大模型的钱 —— 本地一次比对又快又准。去掉后输入 token 掉到 ≈400，
+  //    按 doubao-seed-2-1-pro 的价（输入¥6/输出¥30 每百万）：每次从 ≈2.8 分降到 ≈0.4 分。
+  //    这里只取出匹配要用的几列（不拼字符串、不进 prompt，零 token 成本）。
   const products = db
-    .prepare('SELECT id, brand, model, category, sub_category, cost_price FROM products LIMIT 200')
+    .prepare('SELECT id, brand, model, sku_code, barcode, sub_category FROM products')
     .all()
-  const productList = products
-    .map(
-      (p) =>
-        `${p.id}|${p.brand ?? ''}|${p.model ?? ''}|${p.category}${p.sub_category ? '/' + p.sub_category : ''}|进价${yuan(p.cost_price)}元`,
-    )
-    .join('\n')
   // 店内**真实分类**喂给模型 —— 老板 2026-09-21：「分类要做自动分类」。
   // 原来 prompt 里给模型的示例是「饮料/零食/日化/文具/五金」这类通用行业词，渔具店一个都对不上，
   // 模型只能瞎猜或一律给"其他"（库里现在 9 个商品挂在"其他"下）。
@@ -446,17 +445,16 @@ export async function parseInboundNote({ imageBase64, mimeType } = {}) {
     '你是进销存店的入库录单员。识别这张送货单/进货单，把上面的商品**逐行**提取出来。' +
     '只输出 JSON，不要 markdown 代码块，不要任何解释文字。\n' +
     '输出格式：\n' +
-    '{"items":[{"brand":"品牌","model":"型号/规格","category":"品类","quantity":数量,"cost_price_yuan":单价数字,"product_id":匹配ID或null}]}\n' +
+    '{"items":[{"brand":"品牌","model":"型号/规格","category":"品类","quantity":数量,"cost_price_yuan":单价数字}]}\n' +
     '规则：\n' +
-    '1. **品牌(brand)和型号(model)是必须的**：单据上写了什么就抄什么（如 brand:"光威", model:"赤刃4.5m 28调"）。品牌看不清填 null，型号填你看到的规格。\n' +
-    '2. 能与店内商品清单匹配的行填 product_id（清单第一列），匹配不上填 null\n' +
+    '1. **品牌(brand)和型号(model)是必须的**：上面写了什么就抄什么（如 brand:"光威", model:"赤刃4.5m 28调"）。品牌看不清填 null，型号填你看到的规格。\n' +
     '3. category 必须从下面这份**本店分类**里挑一个最贴切的，并且**只写分类名本身**（不要带大分类前缀）。\n' +
     '   例：清单里写的是「线组钩漂 > 鱼钩」，你就填 "鱼钩"；写的是「竿轮 > 鱼竿」，你就填 "鱼竿"。\n' +
     '   实在对不上才填 "其他"。\n' +
     '   本店分类：' + (catList || '其他') + '\n' +
     '4. 金额只填数字（单位元），看不清的字段填 null，整行看不清就跳过\n' +
-    '5. 只输出 JSON\n\n' +
-    `店内商品清单（ID|品牌|型号|品类|最近进价）：\n${productList || '（店内暂无商品）'}`
+    '5. 只输出 JSON\n' +
+    '6. 每单最多 50 行'
 
   // 视觉识别：**先用手上主力模型自带的视觉**（老板填了 DeepSeek 就用 DeepSeek 视觉，
   // 2026-08-21 起官方有 deepseek-v4-flash-vision-exp），不行再退豆包视觉。
@@ -522,11 +520,48 @@ export async function parseInboundNote({ imageBase64, mimeType } = {}) {
   }
   if (!parsed || !Array.isArray(parsed.items)) return { ok: false, reason: 'parse-failed', detail: text.slice(0, 200) }
 
+  // 本地匹配已有商品（替代原来「把 200 行清单喂给模型」那一步）：
+  // 归一化后按 品牌+型号+规格 → 品牌+型号 → 规格包含 → 型号/SKU/条码 逐级找，找不到就 null（当新商品建档）。
+  // 这比让模型去 200 行里挑 ID 更准（不会挑错行），而且一分钱不花。
+  const norm = (s) => String(s ?? '').toLowerCase().replace(/[\s\-_/（）()【】\[\]#＃+．.,，、]/g, '')
+  // 本地匹配已有商品（替代原来「把 200 行清单喂给模型」）：用**二元字组重合度**打分，
+  // 取分最高的那一条；分不够就当新商品建档。
+  // 为什么不用「品牌相等 + 型号互相包含」这种硬规则：老板库里的数据很不整齐 ——
+  //   例「仓吉飞磕袖 #10」品牌栏是空的、品牌写进了型号；「渔聖龙吟」被识别成「渔圣龙呤」（呤/吟 差一个字）。
+  //   硬规则一条都匹配不上（实测三张图全返回 null），二元字组对「差不多」更稳。
+  const bigrams = (s) => { const o = new Set(); for (let i = 0; i + 1 < s.length; i++) o.add(s.slice(i, i + 2)); return o }
+  const cand = products.map((x) => ({
+    id: x.id,
+    brand: norm(x.brand),
+    key: norm((x.brand || '') + (x.model || '') + (x.sub_category || '')),
+  }))
+  const matchProduct = (brand, model) => {
+    const nb = norm(brand)
+    const nm = norm(model)
+    if (!nm && !nb) return null
+    const A = bigrams(nb + nm)
+    if (A.size === 0) return null
+    let best = null
+    let bestScore = 0
+    let brandSame = false
+    for (const c of cand) {
+      const B = bigrams(c.key)
+      let shared = 0
+      for (const g of A) if (B.has(g)) shared++
+      const same = !!(nb && c.brand && nb === c.brand)
+      const score = shared + (same ? 1.5 : 0)
+      if (score > bestScore) { bestScore = score; best = c; brandSame = same }
+    }
+    // 至少 3 个二字重合（或品牌一致时 2 个）才算匹配上；不够就当新商品建档，别乱指到别的货上
+    if (bestScore >= 3 || (brandSame && bestScore >= 3.5)) return best.id
+    return null
+  }
+
   const items = parsed.items
     .filter((it) => it && Number(it.quantity) > 0)
     .slice(0, 50)
     .map((it) => ({
-      product_id: Number.isInteger(it.product_id) && products.some((p) => p.id === it.product_id) ? it.product_id : null,
+      product_id: matchProduct(it.brand, it.model),
       brand: it.brand ?? null,
       model: it.model ?? null,
       category: typeof it.category === 'string' ? it.category : '其他',

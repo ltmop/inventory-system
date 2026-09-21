@@ -263,7 +263,12 @@ page('pos', function (app) {
       // 图片区单独一层：相机按钮放图片里（原来钉在卡片左下角，把价格压住了）
       '<div class="thumb">' + thumbHtml(p, 'im') + '<div class="cam" title="给这件商品拍照">' + FiIcon('camera', 14) + '</div></div>' +
       '<div class="nm">' + esc(prodName(p)) + '</div>' +
-      '<div class="pr"><span>' + fmt(p.suggest_price || 0) + '</span>' + (p.total_stock == null ? '' : '<span class="stk">存 ' + p.total_stock + '</span>') + '</div>'
+      (function () {
+        const fam = fiSpecFamily(p, allProducts)
+        // 多规格的商品：卡片上说清「几个规格 · 共多少」，老板就知道点进去还要选规格
+        if (fam.length > 1) return '<div class="pr"><span>' + fmt(p.suggest_price || 0) + '</span><span class="stk">' + fam.length + ' 规格 · 共 ' + fiSpecTotalStock(fam) + '</span></div>'
+        return '<div class="pr"><span>' + fmt(p.suggest_price || 0) + '</span>' + (p.total_stock == null ? '' : '<span class="stk">存 ' + p.total_stock + '</span>') + '</div>'
+      })()
     card.onclick = function () { addToCart(p) }
     const cam = card.querySelector('.cam')
     cam.onclick = function (e) { e.stopPropagation(); snapPhoto(p) }
@@ -753,6 +758,37 @@ page('pos', function (app) {
     document.body.appendChild(ov)
   }
 
+  // 选规格：一个大按钮一个规格，直接看到「规格名 · 库存 · 价格」，点一下就加单。
+  // 老板的问题「开单时还要选哪种规格嘛？如何高效又方便」——答案就是把它摊成按钮，一次点完，
+  // 不用去记 SKU、也不用在搜索框里打「3.9m」。
+  function openSpecPicker(p, fam) {
+    const base = fiSpecProductName(p)
+    const ov = sheet(base + ' · 选规格',
+      '<div class="text-sm text-muted" style="margin-bottom:10px">这个商品有 ' + fam.length + ' 个规格，点一个加进清单：</div>' +
+      fam.map(function (x) {
+        const st = Number(x.total_stock) || 0
+        const nm = fiSpecName(x) || (x.sku_code || '（没写规格）')
+        return '<button data-spec="' + x.id + '" style="width:100%;display:flex;align-items:center;gap:10px;padding:13px 14px;margin-bottom:8px;border-radius:12px;border:1px solid var(--line);background:var(--card2);text-align:left">' +
+          '<span style="flex:1;min-width:0">' +
+            '<span style="display:block;font-size:16.5px;font-weight:800;color:var(--ink)">' + esc(nm) + '</span>' +
+            '<span style="display:block;font-size:12.5px;color:var(--sub);margin-top:2px">' + esc(x.sku_code || '') + '</span>' +
+          '</span>' +
+          '<span style="flex:none;text-align:right">' +
+            '<span style="display:block;font-size:15px;font-weight:800;color:' + (st > 0 ? 'var(--green)' : 'var(--danger)') + '">' + (st > 0 ? ('存 ' + st) : '没货') + '</span>' +
+            '<span style="display:block;font-size:12.5px;color:var(--sub)">' + (x.suggest_price ? fmt(x.suggest_price) : '未定价') + '</span>' +
+          '</span>' +
+        '</button>'
+      }).join('') +
+      '<div class="text-xs text-muted" style="margin-top:6px;line-height:1.8">规格名就是商品档案里的「子分类」（例：3.9m-1.5#）。<br>要改规格名：库存页 → 详情 / 改价 · 换图。</div>')
+    ov.querySelectorAll('[data-spec]').forEach(function (b) {
+      b.onclick = function () {
+        const x = fam.find(function (y) { return y.id === Number(b.getAttribute('data-spec')) })
+        ov.remove()
+        if (x) addToCart(x, { skipSpec: true })
+      }
+    })
+  }
+
   // ---------- 加单 ----------
   function seeCart(msg) {
     collapsed = false
@@ -760,7 +796,13 @@ page('pos', function (app) {
     if (msg) toast('已加入购物清单：' + msg)
   }
 
-  async function addToCart(p) {
+  async function addToCart(p, opts) {
+    // 同一个商品有多个规格（线号/长度/号数…）时，先让他选规格 ——
+    // 老板点名的就是这件事：「开单时还要选哪种规格嘛？如何高效又方便」
+    if (!(opts && opts.skipSpec)) {
+      const fam = fiSpecFamily(p, allProducts)
+      if (fam.length > 1) { openSpecPicker(p, fam); return }
+    }
     // 分类台面上的商品常只有 p.* 字段，用总数补齐一下
     if (p.total_stock === undefined) p.total_stock = 0
     const existing = cart.find(function (c) { return c.product_id === p.id })

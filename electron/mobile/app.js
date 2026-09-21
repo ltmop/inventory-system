@@ -650,6 +650,29 @@ function fiLocalDate(d) {
 // 永远只有写死的「其他」和「件/米」。这里统一成：**先填兜底清单 → 再拉服务端真清单覆盖**。
 function fiEscOpt(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] }) }
 
+// ========== 规格（同一个商品的不同型号/线号/长度）==========
+// 老板 2026-09-21：「库存如何在商品的基础上加规格？规格如何加数量？总数量是总数量，
+// 单一规格数量是单一规格的数量……开单时如何选规格？如何高效又方便？」
+//
+// 现状（查过真库）：商品表**早就有** sub_category 列，老板一直用它记规格
+// （例：品牌「东哥」+ 型号「东哥线」+ 规格「3.9m-1.5#」），parent_id 列存在但从没用过。
+// 也就是说：**数据模型本来就是一商品多规格**，缺的只是「把它们当一个商品看」的那层界面。
+// 所以这里不新增表、不迁移数据，按「品牌+型号」把同族商品聚起来，sub_category 当规格名。
+function fiSpecKey(p) { return (String(p.brand || '').trim() || '(无牌)') + '|' + String(p.model || '').trim() }
+function fiSpecName(p) { return String(p.sub_category || '').trim() }
+function fiSpecProductName(p) { return ((String(p.brand || '').trim() + ' ' + String(p.model || '').trim()).trim()) || p.sku_code || '商品' }
+/** 同族商品（同一个品牌+型号）。只有 ≥2 条、且至少有一条写了规格名，才当成「一商品多规格」；
+ *  否则可能只是重复档案（库里确实有同名重复），合并显示反而误导。 */
+function fiSpecFamily(p, all) {
+  const key = fiSpecKey(p)
+  const fam = (all || []).filter(function (x) { return fiSpecKey(x) === key })
+  if (fam.length < 2) return [fam[0] || p]
+  if (!fam.some(fiSpecName)) return [fam[0] || p]
+  return fam.slice().sort(function (a, b) { return fiSpecName(a).localeCompare(fiSpecName(b), 'zh') })
+}
+/** 一个「商品」的总数量 = 各规格数量之和（老板明确要的口径） */
+function fiSpecTotalStock(fam) { return (fam || []).reduce(function (s, x) { return s + (Number(x.total_stock) || 0) }, 0) }
+
 // AI 识别失败时该说哪句话。三种情况必须分开 —— 老板 2026-09-21 就是被混淆的那个：
 // 当天额度用完（20 次）也被说成「AI 没认出商品」，他于是以为识别功能坏了。
 function fiAiFailMessage(r) {

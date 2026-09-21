@@ -267,11 +267,12 @@ page('stock', function (app) {
       return (a.category || '').localeCompare(b.category || '')
     })
 
-    // 按货位分组（有 location 的优先），没货位的归到品类组
+    // 按「商品（品牌+型号）」分组：同一个商品的多个规格聚成一组。
+    // 老板 2026-09-21：「总数量是总数量，单一规格数量是单一规格的数量」——
+    // 所以每组先给一个商品头（写总数量 + 几个规格），下面才是各规格各自的卡片与数量。
     const groups = {}
     sorted.forEach(p => {
-      const loc = (p.location || '').trim()
-      const key = loc || (p.category || '其他')
+      const key = fiSpecKey(p)
       ;(groups[key] = groups[key] || []).push(p)
     })
 
@@ -284,12 +285,17 @@ page('stock', function (app) {
       if (qi < q.length) requestAnimationFrame(drain)
     }
     for (const grpKey of Object.keys(groups)) {
-      const isLoc = groups[grpKey].every(p => (p.location || '').trim() === grpKey) && grpKey.trim()
-      const title = document.createElement('div'); title.className = 'sectitle'
-      title.innerHTML = '<span class="tag" style="font-size:14px">' + '' + grpKey + '</span><span style="font-size:13px">' + groups[grpKey].length + ' 个</span>'
-      q.push(function () { app.appendChild(title) })
+      const fam = groups[grpKey]
+      if (fam.length > 1) {
+        // 商品头：这个商品一共多少 —— 老板要的「总数量」
+        const total = fiSpecTotalStock(fam)
+        const title = document.createElement('div'); title.className = 'sectitle'
+        title.innerHTML = '<span class="tag" style="font-size:14px">' + escHtml(fiSpecProductName(fam[0])) + '</span>' +
+          '<span style="font-size:13px">' + fam.length + ' 个规格 · 共 <b style="color:' + (total > 0 ? 'var(--green)' : 'var(--red)') + '">' + total + '</b></span>'
+        q.push(function () { app.appendChild(title) })
+      }
 
-      groups[grpKey].forEach(p => {
+      fam.forEach(p => {
         const total = p.total_stock || 0
         const low = total < (p.min_stock || 5)
         const isHot = p.is_hot === 1
@@ -311,7 +317,7 @@ page('stock', function (app) {
               '<div class="text-sm" style="color:var(--sub);margin-top:2px">' + (p.sku_code || '') + '</div>' +
             '</div>' +
             '<div class="text-right" style="flex:none">' +
-              '<div class="font-bolder" style="font-size:20px;' + (low ? 'color:var(--red)' : 'color:var(--green)') + '">' + total + ' 件' + (low ? ' ⚠' : '') + '</div>' +
+              '<div class="font-bolder" style="font-size:20px;' + (low ? 'color:var(--red)' : 'color:var(--green)') + '">' + total + ' ' + escHtml(p.unit || '件') + (low ? ' ⚠' : '') + '</div>' +
               '<div class="text-sm" style="color:var(--sub)">' + (p.suggest_price ? fmt(p.suggest_price) : '未定价') + '</div>' +
             '</div>' +
           '</div>' +
