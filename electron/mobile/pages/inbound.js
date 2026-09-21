@@ -2,6 +2,26 @@
 
 // 分类/单位兜底清单：服务端 category:list / unit:list 拉不到时（弱网、离线、老服务器）也不让下拉空着。
 // 口径与服务端一致 —— 单位里 1 = 允许小数（units.allow_decimal），数量步进按它走。
+// AI 拍照建档按钮的图标（额度标签要重绘这一段，所以抽成常量）
+const AI_PHOTO_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="26" height="26"><path d="M4 8h3l2-3h6l2 3h3v12H4z"/><circle cx="12" cy="13" r="3.5"/></svg>'
+
+// AI 每日识别额度（**只有走官方 AI 的店才计次**；自备 Key 不限）。
+// 老板 2026-09-21：「AI识别图片文字无法识别了」—— 真因是当天 20 次额度用完了，
+// 可界面上既不提前说、失败时还回一句「AI 没认出商品」，等于让他白拍一张。
+// 现在：按钮上直接显示还剩几次；用完了先问一句再拍，并说清照片照样能挂上。
+let aiQuota = null
+async function loadAiQuota() {
+  try { aiQuota = await api('ai:quota', { feature: 'vision' }) } catch (e) { aiQuota = null }
+  const b = document.getElementById('ai-photo-btn')
+  if (b) b.innerHTML = AI_PHOTO_SVG + 'AI 拍照建档' + quotaTag()
+  return aiQuota
+}
+function quotaTag() {
+  if (!aiQuota || aiQuota.unlimited) return ''
+  if (aiQuota.remaining === 0) return '<span style="font-size:11.5px;font-weight:800;opacity:.95;margin-left:5px">今日已用完</span>'
+  return '<span style="font-size:11.5px;font-weight:800;opacity:.85;margin-left:5px">剩 ' + aiQuota.remaining + ' 次</span>'
+}
+
 const FI_CATEGORY_FALLBACK = ['饵料', '鱼钩', '鱼线', '浮漂', '铅坠', '鱼竿', '渔轮', '路亚假饵', '小药', '活饵', '工具配件', '收纳包具', '灯具', '其他']
 const FI_UNIT_FALLBACK = [
   ['件', 0], ['个', 0], ['包', 0], ['瓶', 0], ['盒', 0], ['袋', 0], ['箱', 0], ['桶', 0], ['盘', 0],
@@ -190,8 +210,8 @@ page('inbound', function (app) {
 
     // 四个入口：AI拍照建档 / 手动建档 / 扫码入库 / 进货单整单入库
     const row = document.createElement('div'); row.className = 'bigrow'
-    const photo = document.createElement('button'); photo.className = 'big photo'
-    photo.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="26" height="26"><path d="M4 8h3l2-3h6l2 3h3v12H4z"/><circle cx="12" cy="13" r="3.5"/></svg>AI 拍照建档'
+    const photo = document.createElement('button'); photo.className = 'big photo'; photo.id = 'ai-photo-btn'
+    photo.innerHTML = AI_PHOTO_SVG + 'AI 拍照建档' + quotaTag()
     photo.onclick = photoFlow
     const manual = document.createElement('button'); manual.className = 'big'
     manual.style.borderColor = 'var(--gold)'; manual.style.color = 'var(--gold)'
@@ -271,6 +291,9 @@ page('inbound', function (app) {
         qtyEl.value = String(Math.floor(parseFloat(qtyEl.value) || 0))
       }
     }
+
+    // 拉一次今日 AI 剩余次数，显示在「AI 拍照建档」按钮上（拍之前就知道还有没有）
+    loadAiQuota()
 
     document.getElementById('f-ok').onclick = finishInbound
 
@@ -393,7 +416,8 @@ page('inbound', function (app) {
     const form = document.getElementById('inbound-form')
     const aiTag = document.getElementById('ai-tag')
     document.getElementById('f-name').value = aiResult ? (aiResult.brand || '') + ' ' + (aiResult.model || '') : ''
-    document.getElementById('f-cat').value = aiResult ? aiResult.category || '其他' : '其他'
+    const catSel0 = document.getElementById('f-cat')
+    catSel0.value = aiResult ? (fiNormalizeCategory(aiResult.category, catSel0) || '其他') : '其他'
     document.getElementById('f-cost').value = aiResult ? (aiResult.cost_price_yuan || '') : ''
     const priceEl0 = document.getElementById('f-price')
     if (priceEl0) priceEl0.value = aiResult ? (aiResult.selling_price_yuan || '') : ''
@@ -440,7 +464,7 @@ page('inbound', function (app) {
         if (!productId) {
           // 建档新商品
           const r = await api('product:create', {
-            sku_code: '', barcode: '', category: it.category || '其他', brand: it.brand || '', model: it.model || '',
+            sku_code: '', barcode: '', category: (fiNormalizeCategory(it.category, document.getElementById('f-cat')) || '其他'), brand: it.brand || '', model: it.model || '',
             cost_price: cost, suggest_price: 0, status: '待盘点', unit: it.unit || '件',
           })
           productId = r.id
@@ -503,6 +527,12 @@ page('inbound', function (app) {
   // 拍照 → **先把照片显示出来并开出建档表单**（不依赖网络），再让 AI 帮你预填名称/进价/售价/分类。
   // 用户拍这张照就是为了确认商品、并给商品留张图；所以任何情况下图都不能丢。
   async function photoFlow() {
+    // 额度用完别让他白拍：先说清今天不会自动识别，但照片照样能挂到商品上
+    if (!aiQuota) await loadAiQuota()
+    if (aiQuota && !aiQuota.unlimited && aiQuota.remaining === 0) {
+      const go = confirm('今天的 AI 识别次数（' + aiQuota.limit + ' 次）已经用完了，明天自动恢复。\n\n现在还可以拍照 + 手填名称/分类/进价，照片照样存到商品上。\n要继续吗？')
+      if (!go) return
+    }
     const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*'; input.capture = 'environment'
     input.onchange = async function () {
       if (!input.files || !input.files[0]) return
@@ -522,15 +552,21 @@ page('inbound', function (app) {
           const it = items[0]
           const setV = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') el.value = v }
           setV('f-name', (((it.brand || '') + ' ' + (it.model || '')).trim()) || it.name || '')
-          if (it.category) setV('f-cat', it.category)
+          // 分类要归一成下拉里真实存在的那个：AI 可能回「线组钩漂 > 鱼钩」这种带大分类前缀的，
+          // 直接 setValue 会匹配不到任何 <option>，下拉静默落回第一项 = 自动分类看着没生效。
+          const cat = fiNormalizeCategory(it.category, document.getElementById('f-cat'))
+          if (cat) setV('f-cat', cat)
           setV('f-cost', it.cost_price_yuan)
           setV('f-price', it.selling_price_yuan)
           if (it.quantity) setV('f-qty', it.quantity)
           const tag = document.getElementById('ai-tag'); if (tag) tag.classList.add('show')
           toast(items.length > 1 ? ('AI 认出 ' + items.length + ' 行，已填好第一行；整张进货单请点下面的按钮') : 'AI 已帮你填好，核对后点完成入库')
           if (items.length > 1) showBatchEntry(items)
+          loadAiQuota()   // 刚用掉一次，按钮上的剩余次数要跟着变
         } else {
-          toast('AI 没认出商品，手填就好（照片已挂上）')
+          // 三种失败分开说（额度用完 / 没配 AI / 真没认出）—— 见 fiAiFailMessage
+          toast(fiAiFailMessage(r))
+          if (r && r.code === 'quota-exceeded') loadAiQuota()
         }
       } catch (e) { toast('AI 连不上，手填就好（照片已挂上）') }
     }

@@ -650,9 +650,39 @@ function fiLocalDate(d) {
 // 永远只有写死的「其他」和「件/米」。这里统一成：**先填兜底清单 → 再拉服务端真清单覆盖**。
 function fiEscOpt(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] }) }
 
+// AI 识别失败时该说哪句话。三种情况必须分开 —— 老板 2026-09-21 就是被混淆的那个：
+// 当天额度用完（20 次）也被说成「AI 没认出商品」，他于是以为识别功能坏了。
+function fiAiFailMessage(r) {
+  const why = (r && r.reason) ? String(r.reason) : ''
+  if (r && (r.code === 'quota-exceeded' || /额度|次数已用完/.test(why))) {
+    return (why || '今天的 AI 识别次数用完了') + '  照片已经挂上了，手填一下名称即可'
+  }
+  if (/no-key-or-image|no-vision|no-key|ai-not-ready/i.test(why)) return '这台机器没配 AI，手填就好（照片已挂上）'
+  return 'AI 没认出商品，手填就好（照片已挂上）'
+}
+
+// 把 AI/后端给的分类名归一成**下拉里真实存在的那个名字**。
+// 为什么需要：给模型看的分类清单带了大分类前缀（「线组钩漂 > 鱼钩」方便它辨别），
+// 而下拉的 <option> 只有叶子名（「鱼钩」）；直接 setValue("线组钩漂 > 鱼钩") 匹配不到任何一项，
+// 下拉会静默落回第一项 —— 老板看到的就是「自动分类没生效」。
+function fiNormalizeCategory(raw, sel) {
+  const s0 = String(raw == null ? '' : raw).trim()
+  if (!s0) return ''
+  const leaf = s0.indexOf('>') >= 0 ? s0.split('>').pop().trim() : s0
+  const opts = (sel && sel.options) ? Array.from(sel.options).map(function (o) { return o.value || o.textContent }) : []
+  if (!opts.length) return leaf
+  if (opts.indexOf(leaf) >= 0) return leaf
+  // 再退一步：模糊匹配（模型可能多写/少写一两个字）
+  const hit = opts.find(function (o) { return o && (o.indexOf(leaf) >= 0 || leaf.indexOf(o) >= 0) })
+  return hit || ''
+}
+
 // 分类：按「大分类」分组（与服务端 categories.parent 同口径），选起来比一条长列表快得多
 function fiFillCategories(sel, cats, fallback) {
   if (!sel) return
+  // 记住当前选中的分类：分类清单是异步拉回来的，**重建 innerHTML 会把已经填好的值冲掉**，
+  // 表现就是「AI 刚分类好、转个身又变回第一项」。填完再按名字恢复。
+  const keep = String(sel.value || '')
   const rows = (Array.isArray(cats) && cats.length) ? cats : (fallback || []).map(function (n) { return { name: n, parent: null } })
   const groups = []
   const idx = {}
@@ -665,6 +695,11 @@ function fiFillCategories(sel, cats, fallback) {
     const opts = g.items.map(function (n) { return '<option>' + fiEscOpt(n) + '</option>' }).join('')
     return g.parent ? ('<optgroup label="' + fiEscOpt(g.parent) + '">' + opts + '</optgroup>') : opts
   }).join('')
+  // 把之前选中的那一项恢复回来（重建下拉会把值冲掉；还在清单里才恢复）
+  if (keep) {
+    const has = Array.from(sel.options).some(function (o) { return (o.value || o.textContent) === keep })
+    if (has) sel.value = keep
+  }
 }
 
 // 单位：option 上带 data-decimal，数量输入框据此决定整数步进还是 0.1 步进

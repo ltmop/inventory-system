@@ -432,6 +432,14 @@ export async function parseInboundNote({ imageBase64, mimeType } = {}) {
         `${p.id}|${p.brand ?? ''}|${p.model ?? ''}|${p.category}${p.sub_category ? '/' + p.sub_category : ''}|进价${yuan(p.cost_price)}元`,
     )
     .join('\n')
+  // 店内**真实分类**喂给模型 —— 老板 2026-09-21：「分类要做自动分类」。
+  // 原来 prompt 里给模型的示例是「饮料/零食/日化/文具/五金」这类通用行业词，渔具店一个都对不上，
+  // 模型只能瞎猜或一律给"其他"（库里现在 9 个商品挂在"其他"下）。
+  // 现在把本店分类原样列出来让它挑，AI 才能真的自动归类。
+  const cats = db
+    .prepare('SELECT name, parent FROM categories ORDER BY sort_order, id')
+    .all()
+  const catList = cats.map((c) => (c.parent ? c.parent + ' > ' + c.name : c.name)).join('、')
 
   // 识别指令：强调品牌+型号（规格）必须逐个提取，是老板最关心的
   const prompt =
@@ -442,7 +450,10 @@ export async function parseInboundNote({ imageBase64, mimeType } = {}) {
     '规则：\n' +
     '1. **品牌(brand)和型号(model)是必须的**：单据上写了什么就抄什么（如 brand:"光威", model:"赤刃4.5m 28调"）。品牌看不清填 null，型号填你看到的规格。\n' +
     '2. 能与店内商品清单匹配的行填 product_id（清单第一列），匹配不上填 null\n' +
-    '3. category 必须是商品所属分类（如：饮料/零食/日化/文具/五金/其他） 之一\n' +
+    '3. category 必须从下面这份**本店分类**里挑一个最贴切的，并且**只写分类名本身**（不要带大分类前缀）。\n' +
+    '   例：清单里写的是「线组钩漂 > 鱼钩」，你就填 "鱼钩"；写的是「竿轮 > 鱼竿」，你就填 "鱼竿"。\n' +
+    '   实在对不上才填 "其他"。\n' +
+    '   本店分类：' + (catList || '其他') + '\n' +
     '4. 金额只填数字（单位元），看不清的字段填 null，整行看不清就跳过\n' +
     '5. 只输出 JSON\n\n' +
     `店内商品清单（ID|品牌|型号|品类|最近进价）：\n${productList || '（店内暂无商品）'}`

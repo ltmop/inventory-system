@@ -398,6 +398,28 @@ function registerIpc() {
     }
   }
 
+  // 把本机授权档位推给中心库 —— 手机端（走中心库）用的是**中心库那份档位**，
+  // 它决定 AI 每日识别次数这类分级能力。
+  // 不推的后果（2026-09-21 实测）：老板在电脑上激活了进阶版/大师版，手机上照样按免费版
+  // 20 次/天卡着，而且中心库那边**没有任何地方能改** —— 档位永远停在 free。
+  async function pushLicenseToCentral() {
+    try {
+      const { url, token } = getCentralConfigLocal()
+      if (!url || !token) return { ok: false, reason: 'not-central' }
+      const lic = loadLicense(dataDir)
+      const level = lic.activated ? lic.level : 'free'
+      const res = await fetch(url.replace(/\/+$/, '') + '/api/invoke?token=' + encodeURIComponent(token), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel: 'license:applyConfig', payload: { level } }),
+        signal: AbortSignal.timeout(20000),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || !j || !j.result || !j.result.ok) return { ok: false, reason: (j && j.error) || ('http-' + res.status) }
+      return { ok: true, level }
+    } catch (e) { return { ok: false, reason: String(e?.message ?? e) } }
+  }
+
   handle('ai:status', () => ai.aiStatus())
   handle('ai:providers', () => ai.aiProviders())
   handle('ai:setProvider', (d, p) => ai.setProvider(p.provider))
@@ -420,15 +442,31 @@ function registerIpc() {
     if (r?.ok) commands.recordAiUsage(db, 'chat')
     return r
   })
-  // AI 视觉识别（拍照识别进货单）：v3.0 每日额度控制（普通20/进阶100/大师不限）
+  // AI 视觉识别（拍照识别进货单）：v3.0 每日额度控制（普通20/进阶100/大师不限）——
+  // **只对走官方网关的店生效**，与上面 ai:chat 同口径（ai.js:31：「走官方网关的用量按版本每日限额，
+  // 自备 Key 的不限次」）。以前这里无条件扣额度，自备 Key 的店花了自己的模型钱还被 20 次/天卡死。
   handle('ai:parseInboundNote', async (d, p) => {
-    const quota = commands.checkAiQuota(db, 'vision')
-    if (!quota.allow) return { ok: false, reason: quota.message }
+    if (ai.usingOfficialGateway()) {
+      const quota = commands.checkAiQuota(db, 'vision')
+      if (!quota.allow) return { ok: false, code: 'quota-exceeded', reason: quota.message, quota: commands.aiQuotaStatus(db, 'vision') }
+    }
     const r = await ai.parseInboundNote(p)
-    if (r?.ok) commands.recordAiUsage(db, 'vision')
+    if (r?.ok && ai.usingOfficialGateway()) commands.recordAiUsage(db, 'vision')
     return r
   })
-  handle('ai:quota', () => commands.aiQuotaStatus(db, 'vision'))
+  // 今日额度：形状与中心库的 ai:quota 对齐（前端不用区分两端）
+  handle('ai:quota', () => {
+    const official = ai.usingOfficialGateway()
+    const st = commands.aiQuotaStatus(db, 'vision')
+    return {
+      feature: 'vision',
+      official,
+      unlimited: !official || st.unlimited,
+      limit: (!official || !Number.isFinite(st.limit)) ? null : st.limit,
+      used: official ? st.used : 0,
+      remaining: (!official || !Number.isFinite(st.remaining)) ? null : st.remaining,
+    }
+  })
   // ---- P0 计费阀门：余额/流水/激活码绑定/本地用量统计（额度卡数据源） ----
   handle('ai:gatewayQuota', () => aiQuota.gatewayQuota())
   handle('ai:gatewayUsage', (d, p) => aiQuota.gatewayUsage(p?.limit ?? 20))
@@ -579,6 +617,8 @@ function registerIpc() {
     try {
       const lic = loadLicense(dataDir)
       if (db) saveLevelToDb(db, lic.activated ? lic.level : 'free')
+      // 顺手把档位推给中心库（失败不阻断启动，客户端静默降级原则）
+      pushLicenseToCentral().catch(() => {})
       return lic
     } catch { return { activated: false, level: 'free', expiresAt: null, machineId: machineFingerprint(), daysLeft: null } }
   })
@@ -586,6 +626,8 @@ function registerIpc() {
     try {
       const r = activateLicense(dataDir, p?.code ?? '')
       if (r.ok && db) saveLevelToDb(db, r.license.level)
+      // 激活成功 → 立刻把新档位推给中心库，手机端马上就能拿到（不然手机还按旧档限次）
+      if (r.ok) pushLicenseToCentral().catch(() => {})
       // P0 计费阀门：激活成功 → 保存激活码原文（safeStorage 加密）并绑到网关账户（余额迁移）
       // 网关不可达不阻断激活本身（客户端静默降级原则）
       let gatewayBind = null

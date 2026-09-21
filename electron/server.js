@@ -28,6 +28,9 @@ const { productNamesForSearch, localSearchHit } = search
 import { saveInsight, listInsights, updateInsight, deleteInsight } from './db.js'
 const { analyticsTrend, analyticsCategory, analyticsTop, analyticsStockValue, analyticsOverview } = analytics
 import { createPhotoStore } from './photo.js'
+// 授权档位（v3.0）：中心库也要能读/写这份档位 —— 手机端走中心库那份，
+// 它决定 AI 每日额度之类的分级能力。以前中心库完全没有授权概念，永远停在免费档。
+import { readLevelFromDb, saveLevelToDb } from './license.js'
 
 const DEFAULT_PORT = 17532
 const MAX_PORT_RETRY = 10
@@ -854,6 +857,8 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
   const WRITE_CHANNELS = new Set([
     'product:create','product:update','product:batchUpdate','product:delete','product:mark','product:priceFromCost',
   'ai:applyConfig',
+  // 改授权档位会放开受限能力（AI 次数、SKU 上限）—— 必须算写通道，否则只读令牌也能给自己升档
+  'license:applyConfig',
     'inbound:create','inbound:fromNote','outbound:confirm','outbound:checkout','outbound:return','outbound:exchange',
     'supplier:create','supplier:update','supplier:delete','supplier:pay',
     'stocktake:create','stocktake:updateItem','stocktake:complete','stocktake:submit','import:batch',
@@ -1450,9 +1455,14 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     },
     'ai:photoDraft': async (d, p) => {
       if (!aiRef || !p?.imageBase64) return { ok: false, reason: 'no-key-or-image' }
-      // v3.0 每日额度（普通20/进阶100/大师不限）
-      const quota = cmds.checkAiQuota(d, 'vision')
-      if (!quota.allow) return { ok: false, reason: quota.message }
+      // v3.0 每日额度（普通20/进阶100/大师不限）—— **只对走官方网关的店生效**。
+      // 与 ai.js:31 写明的口径一致：「走官方网关的用量按版本每日限额，自备 Key 的不限次」。
+      // 以前这里是无条件扣额度，于是自备 Key 的店花了自己的模型钱、还照样被 20 次/天卡死 ——
+      // 和 ai:chat 的口径也不一致（chat 只对官方网关限次）。
+      if (aiRef.usingOfficialGateway && aiRef.usingOfficialGateway()) {
+        const quota = cmds.checkAiQuota(d, 'vision')
+        if (!quota.allow) return { ok: false, code: 'quota-exceeded', reason: quota.message, quota: cmds.aiQuotaStatus(d, 'vision') }
+      }
       try {
         const r = await aiRef.parseInboundNote({ imageBase64: p.imageBase64, mimeType: p.mimeType || 'image/jpeg' })
         if (r?.ok) cmds.recordAiUsage(d, 'vision')
@@ -1460,7 +1470,32 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       } catch (e) { return { ok: false, reason: e.message } }
     },
     // 手机端 AI 功能：状态 / 一句话日报 / 对话助手（与桌面端同一套 ai.js 逻辑）
+    // 授权档位：free=普通版(视觉20次/天) / pro=进阶版(100) / max=大师版(不限)
+    // 中心库原本没有任何授权处理 → settings.license_level 永远是 'free'，
+    // 于是**手机端永远卡在免费档且无处可改**。桌面端激活后会把这个档推过来（与 ai:applyConfig 同一套路）。
+    'license:level': (d) => readLevelFromDb(d),
+    'license:applyConfig': (d, p) => {
+      const lv = ['free', 'pro', 'max'].includes(p?.level) ? p.level : 'free'
+      saveLevelToDb(d, lv)
+      return { ok: true, level: lv }
+    },
     'ai:status': (d) => aiRef ? aiRef.aiStatus() : { configured: false },
+    // 今日 AI 额度：手机端要在**拍照之前**就告诉老板还剩几次，
+    // 别让他拍完、等一圈、才被告知「今天的次数用完了」。
+    'ai:quota': (d, p) => {
+      const feature = p?.feature === 'chat' ? 'chat' : 'vision'
+      const st = cmds.aiQuotaStatus(d, feature)
+      const official = !!(aiRef && aiRef.usingOfficialGateway && aiRef.usingOfficialGateway())
+      return {
+        feature,
+        official,
+        // 自备 Key 不计每日次数 → 一律当作不限，前端就不会拿「还剩几次」去吓人
+        unlimited: !official || st.unlimited,
+        limit: (!official || !Number.isFinite(st.limit)) ? null : st.limit,
+        used: official ? st.used : 0,
+        remaining: (!official || !Number.isFinite(st.remaining)) ? null : st.remaining,
+      }
+    },
     'ai:dailySummary': async (d, p) => {
       if (!aiRef) return { ok: false, reason: 'ai-not-ready' }
       try {
