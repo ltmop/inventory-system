@@ -1464,7 +1464,8 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
         if (!quota.allow) return { ok: false, code: 'quota-exceeded', reason: quota.message, quota: cmds.aiQuotaStatus(d, 'vision') }
       }
       try {
-        const r = await aiRef.parseInboundNote({ imageBase64: p.imageBase64, mimeType: p.mimeType || 'image/jpeg' })
+        // light=true（单品建档，简单任务）→ 走网关的轻档模型；进货单多行识别不传
+        const r = await aiRef.parseInboundNote({ imageBase64: p.imageBase64, mimeType: p.mimeType || 'image/jpeg', light: !!p.light })
         if (r?.ok) cmds.recordAiUsage(d, 'vision')
         return r
       } catch (e) { return { ok: false, reason: e.message } }

@@ -415,7 +415,11 @@ export async function dailySummary(stats) {
  * @param {{ imageBase64: string, mimeType: string }} payload
  * @returns {Promise<{ok:true, items:Array} | {ok:false, reason:string}>}
  */
-export async function parseInboundNote({ imageBase64, mimeType } = {}) {
+export async function parseInboundNote({ imageBase64, mimeType, light } = {}) {
+  // light=true：单品拍照建档（简单任务）。走网关的轻档：可以配更便宜的视觉模型，
+  // 客户端这边也把图压得更小。老板 2026-09-21：「AI 这个要分档，而不是高射炮打蚊子」。
+  // 进货单多行识别（难任务）不传 light，仍走强档 + 原尺寸。
+  const feature = light ? 'vision_light' : 'vision'
   if (!db) return { ok: false, reason: 'db-not-ready' }
   if (!imageBase64 || typeof imageBase64 !== 'string') return { ok: false, reason: 'no-image' }
   // 防御：base64 体积过大直接拒绝（前端应已压缩到 1280px JPEG）
@@ -474,7 +478,7 @@ export async function parseInboundNote({ imageBase64, mimeType } = {}) {
           ],
         },
       ],
-      { model: pv, maxTokens: 2000, noThink: !!currentProvider().noThink },
+      { model: pv, maxTokens: 2000, noThink: !!currentProvider().noThink, feature },
     )
     if (r.ok && r.message?.content?.trim()) text = r.message.content.trim()
     else firstErr = r.reason || 'empty'
@@ -496,7 +500,7 @@ export async function parseInboundNote({ imageBase64, mimeType } = {}) {
             ],
           },
         ],
-        { model: pv, maxTokens: 2000 },
+        { model: pv, maxTokens: 2000, feature },
       )
       if (!r.ok) return r
       text = r.message.content?.trim() ?? ''
