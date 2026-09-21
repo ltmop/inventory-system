@@ -552,6 +552,8 @@ document.addEventListener('DOMContentLoaded', () => {
   renderPage()
   flushOffline() // 开机先把上次离线攒下的单据重传一遍
   appPing()      // 上报一次「这台设备在用」（只发安装号+版本，不带经营数据）
+  // 首次使用引导：第一次打开自动弹（看过一次就不再打扰，更多页可重看）
+  try { if (!localStorage.getItem('fi-guided')) setTimeout(function () { openGuide(false) }, 1200) } catch (e) {}
   // 首次连上后问一次「这台手机谁在用」；不选就一直用「老板」，不再打扰
   try { if (!localStorage.getItem('fi-operator')) setTimeout(openOperatorPanel, 700) } catch (e) {}
 })
@@ -629,6 +631,48 @@ function applyUiSize(v) {
   return s
 }
 applyUiSize(savedUiSize())
+
+// ========== 首次使用引导（五步）==========
+// 老板要的"首次下载要加入引导使用"：第一次打开自动弹一次，之后可以在「更多 → 使用引导」重看。
+function openGuide(manual) {
+  const steps = [
+    { icon: 'cart', t: '第 1 步 · 开单卖货', d: '点分类找货，或搜一个字、或扫码 → 点商品加进下面的「购物清单」→ 点 现金/微信/支付宝/赊账 中的一个就记账了（点「合计」上方的提示也能看到这句话）。' },
+    { icon: 'clipboard', t: '第 2 步 · 进货入库', d: '「入库」页四个入口：AI 拍照建档、手动建档、扫码入库、拍整张进货单一次入完。新建的货会立刻出现在下面的「今日入库」里。' },
+    { icon: 'box', t: '第 3 步 · 看库存', d: '「库存」页先列品牌（多少种规格、库存多少、均价、几个缺货）。点品牌进去看规格明细：几米的竿、有没有货。' },
+    { icon: 'chart', t: '第 4 步 · 看今天赚多少', d: '「今日」页最上面钉着 营业额/毛利/净利，下面有数据分析图（收款方式、各时段）和运营额度（应收、库存告急、支出、AI 状态）。' },
+    { icon: 'sparkle', t: '第 5 步 · 有事问小渔', d: '「更多 → AI 助手」直接问："哪些货该补了"、"什么卖得最好"、"这个月赚多少"。' },
+    { icon: 'type', t: '顺手调一下', d: '「更多 → 界面字号」有 小/标准/大；「更多 → 使用引导」随时能再看这个教程。' },
+  ]
+  let i = 0
+  const ov = sheet('怎么用「AI 智能进销存」', '<div id="gd-body"></div>')
+  const body = ov.querySelector('#gd-body')
+  function draw() {
+    const s = steps[i]
+    body.innerHTML =
+      '<div class="flex" style="align-items:center;gap:11px;margin-bottom:12px">' +
+        '<div style="width:42px;height:42px;border-radius:13px;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;flex:none">' + FiIcon(s.icon, 22) + '</div>' +
+        '<div><div class="font-bold" style="font-size:16px">' + escHtml(s.t) + '</div>' +
+        '<div class="text-xs text-muted" style="margin-top:2px">第 ' + (i + 1) + ' / ' + steps.length + ' 步</div></div>' +
+      '</div>' +
+      '<div class="text-sm" style="line-height:1.85;color:var(--ink2)">' + escHtml(s.d) + '</div>' +
+      '<div class="gdots">' + steps.map(function (_x, k) { return '<i class="' + (k === i ? 'on' : '') + '"></i>' }).join('') + '</div>' +
+      '<div class="flex" style="gap:9px;margin-top:14px">' +
+        (i > 0 ? '<button id="gd-prev" style="flex:1;height:46px;border-radius:12px;border:1px solid var(--line);background:var(--card2);font-size:15px;font-weight:800;color:var(--ink)">上一步</button>' : '') +
+        '<button id="gd-next" class="okbtn" style="flex:2;height:46px">' + (i === steps.length - 1 ? '开始使用' : '下一步') + '</button>' +
+      '</div>' +
+      '<button id="gd-skip" style="width:100%;height:42px;margin-top:9px;border-radius:12px;border:none;background:transparent;color:var(--sub);font-size:13px">' + (manual ? '关闭' : '跳过，我直接开始用') + '</button>'
+    const prev = body.querySelector('#gd-prev'); if (prev) prev.onclick = function () { i--; draw() }
+    body.querySelector('#gd-next').onclick = function () {
+      if (i === steps.length - 1) { finish() } else { i++; draw() }
+    }
+    body.querySelector('#gd-skip').onclick = finish
+  }
+  function finish() {
+    try { localStorage.setItem('fi-guided', '1') } catch (e) {}
+    ov.remove()
+  }
+  draw()
+}
 
 // ========== 更新：分两层，各管各的 ==========
 // 第 1 层（主力）网页层热更新：这套 APP 的原生部分只有一层薄壳（WebView + 安装器），
@@ -1127,10 +1171,11 @@ page('more', (app) => {
         '<div class="font-bold" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(savedAccount() || '用连接码接入') + '</div>' +
         '<div class="text-xs text-muted" style="margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(savedServer() || SERVER || '本机账本') + '</div>' +
       '</div>' +
-      '<button id="op-switch" style="border:1px solid var(--line);background:var(--card2);border-radius:999px;padding:6px 11px;font-size:11.5px;font-weight:700;color:var(--ink2);display:flex;align-items:center;gap:4px;flex:none">' + FiIcon('user', 14) + escHtml(getOperator()) + '</button>' +
-    '</div>'
+      '<button id="op-switch" style="border:none;background:var(--blue-l);border-radius:999px;padding:7px 12px;font-size:12px;font-weight:800;color:var(--blue);display:flex;align-items:center;gap:5px;flex:none">' + FiIcon('user', 14) + escHtml(getOperator()) + '<span style="font-weight:600;opacity:.75">换人</span></button>' +
+    '</div>' +
+    '<div class="text-xs text-muted" style="margin-top:8px">这台手机现在记谁的名字：开单/入库/报损都算在 TA 头上 · 点右上角换人</div>'
   app.appendChild(head)
-  head.querySelector('#op-switch').onclick = openOperatorPanel
+  head.querySelector('#op-switch').onclick = function () { toast('换人：点一个名字就行，之后开单都记在 TA 头上'); openOperatorPanel() }
 
   // 登录方式：老板最在意的一句话 —— 到底是"账号密码登录"还是"粘了个连接码"
   const lm = loginMethod()
@@ -1156,8 +1201,13 @@ page('more', (app) => {
 
   // 分组渲染：一屏能扫完，不用在几十个入口里找
   // 分组可折叠：点标题收起/展开，状态记在本机（老板要"分类能缩放"）
+  // 默认**全部收起**，进更多页先看到一个目录（点标题或右边「展开」就打开）
   function collapsedGroups() {
-    try { return JSON.parse(localStorage.getItem('fi-more-collapsed') || '[]') } catch (e) { return [] }
+    try {
+      const raw = localStorage.getItem('fi-more-collapsed')
+      if (raw === null) return ['经营', '货品', '账务', '系统']   // 第一次进：默认收起
+      return JSON.parse(raw || '[]')
+    } catch (e) { return [] }
   }
   function toggleGroup(name, on) {
     try {
@@ -1170,7 +1220,9 @@ page('more', (app) => {
     const isCollapsed = collapsedGroups().indexOf(title) >= 0
     const g = document.createElement('div')
     g.className = 'group tap'
-    g.innerHTML = escHtml(title) + '<span class="ln"></span><span class="gr-arrow">' + FiIcon('chevron', 13) + '</span>'
+    // 右边给一个明确的「展开 / 收起」，别只放一个箭头（老板说"右边要有缩放按键或者提示才对"）
+    g.innerHTML = '<span class="gr-t">' + escHtml(title) + '</span><span class="ln"></span>' +
+      '<span class="gr-btn">' + (isCollapsed ? '展开' : '收起') + FiIcon('chevron', 13) + '</span>'
     g.style.cursor = 'pointer'
     app.appendChild(g)
     const list = document.createElement('div')
@@ -1190,6 +1242,8 @@ page('more', (app) => {
       const nowCollapsed = !list.classList.contains('collapsed')
       list.classList.toggle('collapsed', nowCollapsed)
       g.classList.toggle('closed', nowCollapsed)
+      const btn = g.querySelector('.gr-btn')
+      if (btn) btn.innerHTML = (nowCollapsed ? '展开' : '收起') + FiIcon('chevron', 13)
       toggleGroup(title, nowCollapsed)
     }
     if (isCollapsed) g.classList.add('closed')
@@ -1215,6 +1269,7 @@ page('more', (app) => {
   ])
 
   const sys = [
+    { icon: 'sparkle', t: '使用引导', d: '五步讲清楚这个 APP 怎么用（第一次打开会自动弹）', fn: function () { openGuide(true) } },
     { icon: 'share', t: '分享给同事', d: '把下载链接发微信，别人也能装', fn: shareApp },
     { icon: 'pulse', t: '使用情况', d: '装了几台、今天几台在用、版本分布', fn: openUsagePanel },
     { icon: 'type', t: '界面字号', d: '小 / 标准 / 大，整套一起变', fn: openSizeSheet },

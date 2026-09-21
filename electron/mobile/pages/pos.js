@@ -347,6 +347,7 @@ page('pos', function (app) {
 
     const tail = document.createElement('div'); tail.className = 'ctail'
     tail.innerHTML = '<div class="total"><span class="t">合计</span><span class="v">' + fmt(totalFen) + '</span></div>' +
+      '<div class="payhint">' + FiIcon('check', 13) + (cart.length ? '结账：点下面收款方式，一按就记进账本' : '先加商品，再点下面收款方式结账') + '</div>' +
       '<div class="payrow">' +
         '<button class="pay cash">现金</button>' +
         '<button class="pay wx">微信</button>' +
