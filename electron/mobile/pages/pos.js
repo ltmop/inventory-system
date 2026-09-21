@@ -160,6 +160,17 @@ page('pos', function (app) {
   app.appendChild(root)
   renderCats(); renderMid(true); renderCart()
 
+  // 购物清单加多了会占掉下半屏，把商品货架压住 —— 老板反馈"加多了容易把商品页盖住"。
+  // 处理：① CSS 把清单最多压到 .pos 的 34%；② 只要往下翻商品，就把清单自动收成一行，
+  // 商品页立刻全露出来；点一下清单条又展开（收起的行数、金额、结账键都还在）。
+  let lastMidTop = 0
+  elMid.addEventListener('scroll', function () {
+    const top = elMid.scrollTop
+    const dy = top - lastMidTop
+    lastMidTop = top
+    if (dy > 12 && cart.length && !collapsed) { collapsed = true; renderCart() }
+  }, { passive: true })
+
   // ---------- 分类行 ----------
   function catList() {
     const m = {}

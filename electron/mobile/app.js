@@ -1126,9 +1126,9 @@ function initSafeArea() {
     bottom = Math.round(probe2.getBoundingClientRect().height || 0)
     probe2.remove()
   } catch (e) { bottom = 0 }
-  if (!bottom && native) bottom = 12   // 真机拿不到就给一点兜底，宁可多留白也别被系统条压住
+  if (!bottom && native) bottom = 6    // 真机拿不到就给一点点兜底（原来给 12，功能栏被抬高了）
   // 兜住离谱值：env() 在某些机型/某些状态下会给出很大的数，直接变成"购物清单下面一大片白"
-  if (bottom > 48) bottom = 48
+  if (bottom > 40) bottom = 40
   if (top > 64) top = 64
   try { document.documentElement.style.setProperty('--safe-bottom', bottom + 'px') } catch (e) {}
   applyViewportHeight()

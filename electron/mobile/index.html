@@ -76,7 +76,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro SC","PingFang SC","Mic
 .pos{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--bg)}
 .pos-top{flex:none;background:var(--card);border-bottom:1px solid var(--line);position:relative;z-index:3}
 .pos-mid{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
-.pos-cart{flex:none;margin-top:auto;display:flex;flex-direction:column;background:var(--card);border-radius:var(--r-xl) var(--r-xl) 0 0;box-shadow:0 -8px 28px rgba(16,24,40,.10);overflow:hidden;max-height:42dvh}
+.pos-cart{flex:none;margin-top:auto;display:flex;flex-direction:column;background:var(--card);border-radius:var(--r-xl) var(--r-xl) 0 0;box-shadow:0 -8px 28px rgba(16,24,40,.10);overflow:hidden;max-height:34%}
 .pos-cart .chead{flex:none;display:flex;align-items:center;gap:8px;padding:9px 14px 7px;cursor:pointer}
 .pos-cart .chead .t{display:flex;align-items:center;gap:7px;font-size:calc(var(--s)*14px);font-weight:800}
 .pos-cart .chead .t .pill{background:var(--blue);color:#fff;border-radius:999px;min-width:18px;height:18px;padding:0 5px;font-size:calc(var(--s)*11px);font-weight:800;display:flex;align-items:center;justify-content:center}
@@ -84,14 +84,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro SC","PingFang SC","Mic
 .pos-cart .chead .chev{display:flex;color:var(--sub);transition:transform .3s var(--spring)}
 .pos-cart.collapsed .chead .chev{transform:rotate(-90deg)}
 .pos-cart .chead .clr{display:flex;align-items:center;gap:3px;font-size:calc(var(--s)*11px);color:var(--sub);border:1px solid var(--line);border-radius:999px;padding:3px 9px;background:#fff;font-weight:700}
-.pos-cart .clist{overflow-y:auto;-webkit-overflow-scrolling:touch;max-height:20dvh;padding:0 14px}
+.pos-cart .clist{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 14px}
 .pos-cart.collapsed .clist{display:none}
-.pos-cart .ctail{flex:none;padding:7px 14px calc(7px + var(--safe-bottom,0px));border-top:1px solid var(--line2)}
+/* 注意：这里不垫底部安全区 —— 购物车就贴在上面功能栏上，垫两次会在中间留一道白缝 */
+.pos-cart .ctail{flex:none;padding:7px 14px 9px;border-top:1px solid var(--line2)}
 .pos-cart .empty{color:var(--sub);font-size:calc(var(--s)*12.5px);text-align:center;padding:18px 8px;line-height:1.7}
 /* 空购物清单：只占一行 —— 老板反馈"空白页太多、中间的商品页被挤没了"。
    原来空着也占半屏（实测 610px，其中 254px 是纯空白），把商品货架压到只剩一行半。 */
 .pos-cart.is-empty{border-radius:var(--r-lg) var(--r-lg) 0 0}
-.pos-cart.is-empty .chead{padding:9px 12px calc(9px + var(--safe-bottom,0px));gap:7px}
+.pos-cart.is-empty .chead{padding:9px 12px 10px;gap:7px}
 .pos-cart.is-empty .chead .t{font-size:calc(var(--s)*13.5px)}
 .pos-cart.is-empty .ehint{flex:1;min-width:0;font-size:calc(var(--s)*11.5px);color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pos-cart.is-empty .chead .sum{font-size:calc(var(--s)*15px)}
