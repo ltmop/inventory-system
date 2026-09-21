@@ -129,3 +129,57 @@ node scripts/release.mjs --skip-build --web-only   # 只补发官网（更新源
 3. **把别人给的 `latest.json` 直接传上去** → 清单必须是自己构建出来的（脚本会自检，但别绕过脚本）。
 4. **以为改 `electron/mobile/**` 必须发壳** → 不必，手机端有单独部署路；但**桌面局域网那份要发壳**。
 5. **远端 `updates/flags.json` 是无鉴权静态文件** → 能改它的人能关/开功能（"开"只有建议权，本机可否决）。
+
+---
+
+## 7. GitHub Release 同步（2026-09-21 补）
+
+**为什么会漏**：`release.mjs` 的五步只覆盖「更新源 + 官网」两处，**GitHub 完全不在脚本里** ——
+所以「官网已经 1.1.13、GitHub 还停在一个月前」这种漂移不会有人报错，只会长期存在。
+
+### 7.1 现状（2026-09-21 实测，四处对照）
+
+| 位置 | 版本 | 状态 |
+|---|---|---|
+| 更新源 `sync.junchengzn.com/updates/latest.yml` | 1.1.13（09-20 19:35） | ✅ |
+| 官网 `/download/` | 桌面 1.1.13 / 手机 1.3.0，带大小与 SHA-512 指纹 | ✅ |
+| GitHub **代码**（`main`） | `24a2ed8`（= 2026-09-20 那次文档提交） | ❌ 本地领先 **32 个提交未推** |
+| GitHub **Releases** | 只有 `v0.1.0`（2026-08-14，老安装包） | ❌ 整个 1.1.x 一代都没有 |
+| GitHub **Tags** | `v2.1.0`…`v2.1.9`（2026-08，`fishing-inventory` 老血脉） | ⚠️ 与现在的 1.1.x 不是一条线，别拿来对齐 |
+
+> 判断"落后多少"的最快办法（不需要本地 git）：
+> `https://api.github.com/repos/ltmop/inventory-system/commits?per_page=1`（远端 HEAD）
+> 与本地 `.git/refs/heads/main`（本地 HEAD）对比；再用 `.../releases`、`.../tags` 看发布面。
+
+### 7.2 每次发版要补的三步
+
+```bash
+# ① 推代码（本地提交必须先上 GitHub，否则"代码在 GitHub 上"是假的）
+git push origin main
+
+# ② 打 tag —— 规范：v<版本号>，与 package.json 的 version 一致
+git tag -a v1.1.13 -m "1.1.13"
+git push origin v1.1.13
+
+# ③ 发 Release 并上传安装包（资产名与更新源保持一致）
+gh release create v1.1.13 "release/inventory-system-setup-1.1.13.exe" \
+  --title "v1.1.13" --notes-file <本次发布说明>
+# 没有 gh CLI 时：网页 Releases → Draft a new release → 选 tag → 上传 exe
+```
+
+**资产命名（踩过的坑）**：更新源里叫 `inventory-system-setup-<版本>.exe`，
+而官网上那个文件叫 `general-inventory-setup-<版本>.exe`（**同一个包、两个文件名**）。
+GitHub 附件请用**更新源那个名字**，并在 Release 说明里写清"与官网同一个包"，
+免得后来人以为是两个不同的东西。
+
+### 7.3 校验（别只看"传上去了"）
+
+- Release 附件的 **sha512 应与 `latest.yml` 里的 `sha512` 一致**（同一个包）：
+  `curl -s https://sync.junchengzn.com/updates/latest.yml | grep sha512`
+- 附件大小应与 `latest.yml` 的 `size` 一致（1.1.13 = 124,772,447 字节）
+- Release 的 tag 与 `package.json` 的 version 一致
+
+### 7.4 更好的做法（可选）
+
+把这三步挂进 `release.mjs` 的第 5 步之后（`gh release create` 幂等：已存在就 `gh release upload --clobber`），
+让"发版"只有一个入口 —— 与当初把 `publish-update.mjs` 删掉、只留 `release.mjs` 是同一个道理（避免两份发布真相）。
