@@ -1105,7 +1105,21 @@ function applyViewportHeight() {
   } catch (e) { /* 拿不到就用 dvh */ }
 }
 
+/** 系统条是不是"叠在"网页上（edge-to-edge）？
+ *  —— 只有叠着才需要我们自己垫；系统已经让开位置了（下面那截是黑的/灰的），再垫一次就是把内容往里挤。
+ *  判断依据：网页可见高度 ≈ 整块屏幕高度 → 铺满整屏 = 叠着的。 */
+function isEdgeToEdge(screenH, innerH) {   // 两个参数只为测试可传，正常不传
+  try {
+    const sh = Math.round(screenH || (window.screen && window.screen.height) || 0)
+    const ih = Math.round(innerH || window.innerHeight || 0)
+    if (!sh || !ih) return true
+    return ih >= sh - 8
+  } catch (e) { return true }
+}
+
 function initSafeArea() {
+  // 系统已经给让出位置了 → 不许再垫（老板反馈：店名那一条要往上、功能栏要往下，就是被这个垫出来的）
+  const overlay = isEdgeToEdge()
   let top = 0
   try {
     const probe = document.createElement('div')
@@ -1115,7 +1129,8 @@ function initSafeArea() {
     probe.remove()
   } catch (e) { top = 0 }
   const native = !!(window.Capacitor && (window.Capacitor.isNativePlatform ? window.Capacitor.isNativePlatform() : !!window.Capacitor.Plugins))
-  if (!top && native) top = 28
+  // 没拿到 env() 说明 WebView 没有顶到状态栏下面（系统已经让开了），就不该再垫 28px —— 那会把店名那一条压下去
+  if (!top && native) top = 6
   try { document.documentElement.style.setProperty('--safe-top', top + 'px') } catch (e) {}
   // 底部：安卓三键导航/手势条会盖住最下面的东西（老板说"看不到结账按钮"很可能就是这个）
   let bottom = 0
@@ -1126,10 +1141,11 @@ function initSafeArea() {
     bottom = Math.round(probe2.getBoundingClientRect().height || 0)
     probe2.remove()
   } catch (e) { bottom = 0 }
-  if (!bottom && native) bottom = 6    // 真机拿不到就给一点点兜底（原来给 12，功能栏被抬高了）
+  if (!bottom && native) bottom = 3    // 真机拿不到就给一点点兜底（12 -> 6 -> 3，功能栏一步步往下压）
   // 兜住离谱值：env() 在某些机型/某些状态下会给出很大的数，直接变成"购物清单下面一大片白"
   if (bottom > 40) bottom = 40
   if (top > 64) top = 64
+  if (!overlay) { top = 0; bottom = 0 }   // 系统条没压着网页：一点都不用垫
   try { document.documentElement.style.setProperty('--safe-bottom', bottom + 'px') } catch (e) {}
   applyViewportHeight()
   // 排障用：把关键尺寸打到 console（adb logcat 里搜 [fi] 就能看到真机实测值）
@@ -1155,6 +1171,8 @@ function openScreenDiag() {
   const dvh = (function () { try { const d = document.createElement('div'); d.style.height = '100dvh'; document.body.appendChild(d); const h = Math.round(d.getBoundingClientRect().height); d.remove(); return h } catch (e) { return '—' } })()
   const css = function (k) { try { return getComputedStyle(document.documentElement).getPropertyValue(k).trim() || '0' } catch (e) { return '—' } }
   const rows = [
+    ['整屏高度 screen.h', (window.screen ? Math.round(window.screen.height) : 0) + ''],
+    ['是否叠在系统条上', isEdgeToEdge() ? '是（要垫安全区）' : '否（系统已让开，不垫）'],
     ['屏幕（WebView 高度）', window.innerHeight + ''],
     ['visualViewport', window.visualViewport ? Math.round(window.visualViewport.height) + '' : '—'],
     ['100dvh', dvh + ''],

@@ -58,9 +58,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro SC","PingFang SC","Mic
 .ico-box{display:flex;align-items:center;justify-content:center}
 
 /* ---------- 顶栏 ---------- */
-.sign{flex:none;background:var(--card);padding:7px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line)}
-.sign h1{font-size:calc(var(--s)*14.5px);font-weight:800;letter-spacing:.2px;color:var(--ink2)}
-.sign .sub{font-size:calc(var(--s)*11px);color:var(--sub);margin-top:1px}
+.sign{flex:none;background:var(--card);padding:6px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line)}
+/* 店名那一条：往上收一点、字再大一点（老板 2026-09-21 要求） */
+.sign h1{font-size:calc(var(--s)*17.5px);font-weight:800;letter-spacing:.2px;color:var(--ink)}
+.sign .sub{font-size:calc(var(--s)*11.5px);color:var(--sub);margin-top:1px}
 .seal{margin-left:auto;display:flex;align-items:center;gap:5px;background:var(--blue-l);color:var(--blue);border-radius:999px;padding:5px 11px;font-size:calc(var(--s)*11px);font-weight:800}
 .seal .dot{width:6px;height:6px;border-radius:50%;background:var(--blue);animation:breathe 2.6s var(--ease) infinite}
 @keyframes breathe{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.8)}}
@@ -189,8 +190,8 @@ mark{background:var(--blue-l2);color:var(--blue-d);border-radius:3px;padding:0 2
 .pay[disabled]{opacity:.45}
 
 /* ---------- 底部导航 ---------- */
-.tabs{display:grid;grid-template-columns:repeat(5,1fr);background:var(--card);border-top:1px solid var(--line);flex:none;padding-bottom:max(var(--safe-bottom,0px), 2px)}
-.tab{padding:9px 0 8px;text-align:center;font-size:calc(var(--s)*12.5px);color:var(--sub);font-weight:700;cursor:pointer;text-decoration:none;position:relative;transition:color .22s var(--ease)}
+.tabs{display:grid;grid-template-columns:repeat(5,1fr);background:var(--card);border-top:1px solid var(--line);flex:none;padding-bottom:max(var(--safe-bottom,0px), 1px)}
+.tab{padding:7px 0 4px;text-align:center;font-size:calc(var(--s)*12.5px);color:var(--sub);font-weight:700;cursor:pointer;text-decoration:none;position:relative;transition:color .22s var(--ease)}
 .tab .ico-box{width:100%;display:flex;justify-content:center;margin-bottom:4px}
 /* 图标放大（老板要求）：21 → 27，标签 11 → 12.5 */
 .tab svg{width:calc(var(--s)*27px);height:calc(var(--s)*27px);transition:transform .32s var(--spring)}
