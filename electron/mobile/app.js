@@ -544,7 +544,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // ⓪ 顶部安全区：先把状态栏那一段垫出来，再渲染页面（否则第一帧标题会被盖住）
   initSafeArea()
   // ① 网页层热更：报心跳 + 顺手查新版（只对装了 APP 的机器生效；不依赖是否已连店铺）
-  initWebUpdate()
+  const wuState = initWebUpdate()
   // ② 原生壳检查（只有壳变了才有内容），同样不依赖「是否已连上」
   setTimeout(function () { checkUpdate(true) }, 3000)
   // 没有连接码：用页内面板（可粘整条链接 / 扫码），不再用系统弹窗 —— 店主不会打长串；
@@ -553,7 +553,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('dateEl').textContent = new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })
   renderPage()
   flushOffline() // 开机先把上次离线攒下的单据重传一遍
-  appPing()      // 上报一次「这台设备在用」（只发安装号+版本，不带经营数据）
+  // 上报一次「这台设备在用」（只发安装号+版本，不带经营数据）。
+  // 等热更状态读出来再报，这样服务端能看到每台手机真正跑着的网页层版本；插件卡住也有 1.5 秒兜底，绝不漏报。
+  let pingSent = false
+  const pingOnce = function () { if (!pingSent) { pingSent = true; appPing() } }
+  if (wuState && wuState.then) { wuState.then(pingOnce).catch(pingOnce); setTimeout(pingOnce, 1500) } else pingOnce()
   // 首次使用引导：第一次打开自动弹（看过一次就不再打扰，更多页可重看）
   try { if (!localStorage.getItem('fi-guided')) setTimeout(function () { openGuide(false) }, 1200) } catch (e) {}
   // 首次连上后问一次「这台手机谁在用」；不选就一直用「老板」，不再打扰
@@ -701,24 +705,29 @@ function webUpdaterPlugin() {
 
 // 开机三件事：① 报心跳（告诉原生「这一版网页跑得起来，别回退」）
 //            ② 读当前生效的热更版本 ③ 2.5 秒后顺手查有没有新版
+// 返回一个 promise：原生插件读完「当前跑的是哪一版网页」就 resolve。
+// 心跳必须等它 —— 否则上报的 webVersion 永远是空的（2026-09-21 实测服务端 app_installs 全是空，
+// 根本看不出哪台手机跑的是哪一版，排查「老板说没生效」时抓瞎）。
 function initWebUpdate() {
   const WU = webUpdaterPlugin()
-  if (!WU) return
+  if (!WU) return null
+  let statePromise = null
   // 顺序要紧：先读状态（拿「上次刚热更到哪一版」，好告诉用户一声），再报心跳（心跳会把这条提醒清掉）
   try {
-    WU.getState().then(function (s) {
+    statePromise = WU.getState().then(function (s) {
       WEB_USING_BUNDLE = !!(s && s.usingBundle)
       if (s && s.usingBundle && s.version) WEB_VERSION_APPLIED = s.version
       if (s && s.justUpdated) toast('已热更到 ' + s.justUpdated + '（只下了 ' + (s.lastDownloaded | 0) + ' 个文件）')
       return WU.markHealthy()
     }).catch(function () {})
-  } catch (e) {}
+  } catch (e) { statePromise = Promise.resolve() }
   setTimeout(function () {
     try {
       // 有新版就自动换：插件内部会切资源目录并重载（所以这里的回调常常来不及跑到，属正常）
       WU.sync({ manifestUrl: WEB_MANIFEST }).catch(function () {})
     } catch (e) {}
   }, 2500)
+  return statePromise
 }
 
 /** 手动「检查更新」：先热更（局部），没有网页层更新再查原生壳 */
