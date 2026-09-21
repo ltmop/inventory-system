@@ -2,6 +2,8 @@
 import { parseExpiryDate } from './helpers.js'
 // 欠款口径直接用 customers.js 那一份，绝不在这里再写一遍 —— 两套口径迟早对不上
 import { listCustomers } from './customers.js'
+// 补货建议用**已有的**销量驱动算法，不再自己写一套「低于预警线」的笨规则
+import { computeRestockAdvice } from '../lib/restockAdvice.js'
 
 // ---------- 分级库存预警 ----------
 // 口径（全站统一）：商品总库存 < COALESCE(products.min_stock, 默认阈值) 即预警；
@@ -179,17 +181,39 @@ export function dailyTodo(db) {
   //    所以"低于预警线"这个信号本身**没有区分度** —— 只报"补 5 样"等于每天说同一句废话。
   //    所以这里同时给出**总数**，让标题说实话（"共 121 样低于预警线，最缺的 5 样是…"），
   //    老板才有判断：是先补最缺的，还是这批 0 库存本来就该停售/清理。
-  const allLow = lowStockProducts(db)
-  const restockTotal = allLow.length
-  const restock = allLow
+  // ⚠️ 2026-09-21 改：老板指出「贵的鱼竿库存少不警告，清 0 再说；卖得多的才警告」——
+  //    上一版我用的是「低于预警线就提醒」，跑真实数据是「补货 121 样」，全是噪音（库里大多库存是 0 又没卖过）。
+  //    正确口径是**已有的 restockAdvice**：按近 90 天真实销量算「还能卖几天」，快断才提醒；
+  //    卖不动的不会进补货，而是进滞销（压着多少钱）—— 贵的鱼竿本来就该走滞销那条。
+  const advice = computeRestockAdvice(
+    db.prepare('SELECT * FROM products').all(),
+    db.prepare('SELECT * FROM inventory_batches').all(),
+    db.prepare('SELECT product_id, type, quantity, notes, timestamp FROM transactions').all(),
+  )
+  const pById = new Map(db.prepare('SELECT id, sku_code, brand, model, suggest_price, unit FROM products').all().map((x) => [x.id, x]))
+  // 老板还说「可以按价格来区分」：贵货压的是大钱，不到快断不催（<15 天才提醒）；普通货按常规 30 天。
+  const EXPENSIVE_FEN = 20000
+  const DAYS_LEFT_EXPENSIVE = 15
+  const restockAll = advice.restock.filter((r) => {
+    const pr = pById.get(r.productId) || {}
+    const expensive = Number(pr.suggest_price || 0) >= EXPENSIVE_FEN
+    return r.daysOfStock < (expensive ? DAYS_LEFT_EXPENSIVE : 30)
+  })
+  const restockTotal = restockAll.length
+  const restock = restockAll
     .slice(0, 5)
-    .map((r) => ({
-      productId: r.id,
-      name: [r.brand, r.model].filter(Boolean).join(' ') || r.sku_code || '商品',
-      sku: r.sku_code || '',
-      stock: r.stock,
-      threshold: r.threshold,
-    }))
+    .map((r) => {
+      const pr = pById.get(r.productId) || {}
+      return {
+        productId: r.productId,
+        name: [pr.brand, pr.model].filter(Boolean).join(' ') || pr.sku_code || '商品',
+        sku: pr.sku_code || '',
+        stock: r.stock,
+        threshold: null,
+        daysLeft: Math.floor(r.daysOfStock),
+        suggestQty: r.suggestedQty,
+      }
+    })
 
   // 欠款：直接取 customers 的唯一口径，别在这重写
   let cust = []
@@ -207,6 +231,15 @@ export function dailyTodo(db) {
     }))
 
   const anomalies = []
+  // 滞销压资金（卖不动但占着钱）—— 贵的鱼竿就该出现在这里，而不是"该补货"里
+  if (advice.deadStock.length && advice.totalTiedCapital >= 100000) {
+    const top = advice.deadStock[0]
+    const tp = pById.get(top.productId) || {}
+    anomalies.push({
+      kind: 'dead-stock',
+      text: '有 ' + advice.deadStock.length + ' 样货卖不动、压着 ¥' + (advice.totalTiedCapital / 100).toFixed(0) + '（最多的是「' + ([tp.brand, tp.model].filter(Boolean).join(' ') || tp.sku_code || '商品') + '」）',
+    })
+  }
   // ① 今天 vs 上周同一天（同一星期几比才有意义）
   const todayRev = revenueOfDay(db, 0)
   const lastWeekRev = revenueOfDay(db, -7)

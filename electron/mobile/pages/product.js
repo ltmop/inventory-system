@@ -87,6 +87,9 @@ page('product', function (app) {
     form.innerHTML =
       '<div class="font-bold" style="margin-bottom:8px">改资料</div>' +
       '<div class="fld"><label>商品名称</label><input id="pd-model" value="' + escHtml(p.model || '') + '" placeholder="例：老鬼 918 腥味"></div>' +
+      // 规格：同一个商品的型号/线号/长度（存在 sub_category）。原来详情页没有这个字段，
+      // 规格名建完就再也改不了 —— 老板问「商品怎么再次录入规格呢」就是卡在这。
+      '<div class="fld"><label>规格（型号/线号/长度，可留空）</label><input id="pd-sub" value="' + escHtml(p.sub_category || '') + '" placeholder="例：3.9m-1.5# / 4.5号 / 350g"></div>' +
       '<div class="fldrow">' +
         '<div class="fld"><label>品牌</label><input id="pd-brand" value="' + escHtml(p.brand || '') + '"></div>' +
         '<div class="fld"><label>分类</label><select id="pd-cat">' + opt(p.category || '其他', p.category || '其他') + '</select></div>' +
@@ -107,6 +110,15 @@ page('product', function (app) {
       '<button id="pd-save" class="okbtn" style="margin-top:10px">保存修改</button>'
     app.appendChild(form)
 
+    // ---- 同款其他规格（老板三问：怎么再录规格 / 本来就是多规格的怎么办 / 规格价格不同怎么设）----
+    // 口径与库存页、开单页选规格完全同一套：同「品牌+型号」的多条商品 = 一个商品的多个规格。
+    const specCard = document.createElement('div')
+    specCard.className = 'card'
+    specCard.id = 'pd-specs'
+    specCard.innerHTML = '<div class="font-bold" style="margin-bottom:8px">同款其他规格</div><div class="text-sm text-muted" id="pd-spec-body">读取中…</div>'
+    app.appendChild(specCard)
+    loadSiblings()
+
     // ---- 主要动作 ----
     const acts = document.createElement('div')
     acts.style.cssText = 'padding:0 16px 20px'
@@ -125,6 +137,83 @@ page('product', function (app) {
     if (unitSel) unitSel.onchange = updateUnitHint
     updateUnitHint()
     fillOptions()
+  }
+
+  // 读同款规格：拉全量商品，按「品牌+型号」分族（fiSpecFamily 是全局助手，与库存/开单同口径）
+  async function loadSiblings() {
+    const box = document.getElementById('pd-spec-body')
+    if (!box) return
+    let all = []
+    try { all = (await api('product:list', { limit: 1000 })) || [] } catch (e) { all = [] }
+    const self = all.find(function (x) { return x.id === p.id }) || p
+    const fam = fiSpecFamily(self, all)
+    const others = fam.filter(function (x) { return x.id !== p.id })
+    const row = function (x) {
+      const st = Number(x.total_stock) || 0
+      return '<div data-sib="' + x.id + '" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line2)">' +
+        '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14.5px">' + escHtml(fiSpecName(x) || '（没写规格）') + '</div>' +
+        '<div class="text-xs text-muted" style="margin-top:2px">' + escHtml(x.sku_code || '') + '</div></div>' +
+        '<div style="text-align:right;flex:none"><div style="font-weight:800;font-size:14.5px;color:' + (st > 0 ? 'var(--green)' : 'var(--red)') + '">' + (st > 0 ? ('存 ' + st) : '没货') + '</div>' +
+        '<div class="text-xs text-muted">' + (x.suggest_price ? fmt(x.suggest_price) : '未定价') + '</div></div>' +
+      '</div>'
+    }
+    box.innerHTML =
+      '<div class="text-xs text-muted" style="margin-bottom:6px">当前规格：<b>' + escHtml(fiSpecName(self) || '（没写规格）') + '</b>　·　同款共 ' + fam.length + ' 个规格</div>' +
+      (others.length ? others.map(row).join('') : '<div class="text-xs text-muted" style="padding:6px 0">还没有别的规格</div>') +
+      '<button id="pd-addspec" style="width:100%;height:48px;margin-top:10px;border-radius:12px;border:2px dashed var(--blue);background:var(--blue-l);color:var(--blue);font-size:15px;font-weight:800">' + FiIcon('plus', 15) + ' 给「' + escHtml(fiSpecProductName(self)) + '」加一个规格</button>' +
+      '<div class="text-xs text-muted" style="margin-top:8px;line-height:1.75">加规格 = 同品牌+型号再建一条，规格名不同、价格可以各自不同。<br>开单时点这个商品会让你选规格。</div>'
+    box.querySelectorAll('[data-sib]').forEach(function (el) {
+      el.onclick = function () {
+        const x = all.find(function (y) { return y.id === Number(el.getAttribute('data-sib')) })
+        if (!x) return
+        try { localStorage.setItem('fi-product-edit', JSON.stringify(x)) } catch (e) {}
+        navigate('product')
+      }
+    })
+    const addBtn = document.getElementById('pd-addspec')
+    if (addBtn) addBtn.onclick = function () { openAddSpecSheet(self) }
+  }
+
+  // 加规格：只问「规格名 + 售价 + 首次进货数量」，品牌/型号/分类/单位/进价都沿用当前这条
+  function openAddSpecSheet(self) {
+    const base = fiSpecProductName(self)
+    const ov = sheet('给「' + base + '」加规格',
+      '<div class="text-sm text-muted" style="margin-bottom:10px;line-height:1.75">品牌、型号、分类、单位都沿用当前商品，你只要填这个**新规格**的名字和价格。</div>' +
+      '<div class="fld"><label>规格名（必填）</label><input id="as-sub" placeholder="例：5.4m-3# / 6.0号 / 500g"></div>' +
+      '<div class="fldrow"><div class="fld"><label>进价（元）</label><input id="as-cost" type="number" step="0.01" inputmode="decimal" value="' + toYuan(self.cost_price) + '"></div>' +
+      '<div class="fld"><label>售价（元）</label><input id="as-price" type="number" step="0.01" inputmode="decimal" value="' + toYuan(self.suggest_price) + '"></div></div>' +
+      '<div class="fld"><label>首次进货数量（可填 0，之后再入库）</label><input id="as-qty" type="number" step="0.1" inputmode="decimal" value="0"></div>' +
+      '<button id="as-ok" class="okbtn" style="margin-top:10px">加这个规格</button>')
+    const btn = ov.querySelector('#as-ok')
+    btn.onclick = async function () {
+      const sub = String(ov.querySelector('#as-sub').value || '').trim()
+      if (!sub) { toast('规格名要填（例：5.4m-3#）'); return }
+      const cost = toCents(ov.querySelector('#as-cost').value)
+      const price = toCents(ov.querySelector('#as-price').value)
+      const qty = parseFloat(ov.querySelector('#as-qty').value) || 0
+      btn.disabled = true; btn.textContent = '正在加…'
+      try {
+        const r = await api('product:create', {
+          sku_code: '', barcode: '', category: self.category || '其他',
+          brand: self.brand || '', model: self.model || '', sub_category: sub,
+          cost_price: cost == null ? 0 : cost, suggest_price: price == null ? 0 : price,
+          unit: self.unit || '件', status: self.status || '在售',
+          min_stock: self.min_stock == null ? null : self.min_stock,
+          location: self.location || '',
+        })
+        if (qty > 0) {
+          await api('inbound:create', { productId: r.id, quantity: qty, costPrice: cost == null ? 0 : cost, location: self.location || '', operator: getOperator() })
+        }
+        ov.remove()
+        fiTrack('spec:add', true, 0)
+        toast('已加规格「' + sub + '」' + (qty > 0 ? ('，并入了 ' + qty + ' ' + (self.unit || '件')) : ''))
+        await loadSiblings()
+      } catch (e) {
+        fiTrack('spec:add', false, 0)
+        btn.disabled = false; btn.textContent = '加这个规格'
+        toast('加规格失败：' + ((e && e.message) || '请重试'))
+      }
+    }
   }
 
   // 单位提示：按斤/公斤/克这类可小数单位要提醒一句（与桌面端 allow_decimal 同源）
@@ -183,6 +272,7 @@ page('product', function (app) {
         suggest_price: toCents(document.getElementById('pd-suggest').value), // 留空 = 清成未定价
         min_stock: minStock,
         location: document.getElementById('pd-loc').value.trim(),
+        sub_category: ((document.getElementById('pd-sub') || {}).value || '').trim(),
         operator: getOperator(),
       })
       // 服务端返回的是更新后的整行（含新的 updated_at），直接接着用它渲染
