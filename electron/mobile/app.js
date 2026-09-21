@@ -1127,6 +1127,9 @@ function initSafeArea() {
     probe2.remove()
   } catch (e) { bottom = 0 }
   if (!bottom && native) bottom = 12   // 真机拿不到就给一点兜底，宁可多留白也别被系统条压住
+  // 兜住离谱值：env() 在某些机型/某些状态下会给出很大的数，直接变成"购物清单下面一大片白"
+  if (bottom > 48) bottom = 48
+  if (top > 64) top = 64
   try { document.documentElement.style.setProperty('--safe-bottom', bottom + 'px') } catch (e) {}
   applyViewportHeight()
   // 排障用：把关键尺寸打到 console（adb logcat 里搜 [fi] 就能看到真机实测值）
@@ -1143,6 +1146,30 @@ function initSafeArea() {
       }))
     }, 1500)
   } catch (e) {}
+}
+
+/** 屏幕适配自检：真机上看不到 console，就把关键尺寸摊在屏幕上 ——
+ *  以后再有"功能栏没贴底/中间有空白"，让老板点一下发张图，就不用猜了。 */
+function openScreenDiag() {
+  const box = function (s) { const el = document.querySelector(s); if (!el) return '—'; const r = el.getBoundingClientRect(); return Math.round(r.top) + ' → ' + Math.round(r.bottom) }
+  const dvh = (function () { try { const d = document.createElement('div'); d.style.height = '100dvh'; document.body.appendChild(d); const h = Math.round(d.getBoundingClientRect().height); d.remove(); return h } catch (e) { return '—' } })()
+  const css = function (k) { try { return getComputedStyle(document.documentElement).getPropertyValue(k).trim() || '0' } catch (e) { return '—' } }
+  const rows = [
+    ['屏幕（WebView 高度）', window.innerHeight + ''],
+    ['visualViewport', window.visualViewport ? Math.round(window.visualViewport.height) + '' : '—'],
+    ['100dvh', dvh + ''],
+    ['顶部安全区', css('--safe-top')],
+    ['底部安全区', css('--safe-bottom')],
+    ['整页 .phone', box('.phone')],
+    ['页面区 #app', box('#app')],
+    ['功能栏 .tabs', box('.tabs')],
+    ['文档总高', document.documentElement.scrollHeight + ''],
+  ]
+  sheet('屏幕适配自检',
+    '<div class="text-sm text-muted" style="margin-bottom:10px">这是这台手机实测的排版尺寸。<b>「功能栏 .tabs」的下边 = 屏幕高度</b>就说明贴底了；不是的话把这张图发我。</div>' +
+    rows.map(function (r) {
+      return '<div class="flex" style="justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line2);font-size:13px"><span class="text-muted">' + r[0] + '</span><b style="font-variant-numeric:tabular-nums">' + r[1] + '</b></div>'
+    }).join(''))
 }
 
 function renderAccountChip() {
@@ -1310,6 +1337,7 @@ page('more', (app) => {
     { icon: 'share', t: '分享给同事', d: '把下载链接发微信，别人也能装', fn: shareApp },
     { icon: 'pulse', t: '使用情况', d: '装了几台、今天几台在用、版本分布', fn: openUsagePanel },
     { icon: 'type', t: '界面字号', d: '小 / 标准 / 大，整套一起变', fn: openSizeSheet },
+    { icon: 'pulse', t: '屏幕适配自检', d: '功能栏没贴底 / 有空白时，点这里看实测尺寸', fn: openScreenDiag },
     { icon: 'undo', t: '撤回误操作', d: '删商品 / 报损 / 入库点错了能还原', fn: openUndoPanel },
   ]
   if (SERVER) {
