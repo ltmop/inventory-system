@@ -38,7 +38,7 @@ page('today', function (app) {
       let lowStock = []
       try { lowStock = (await api('report:lowStock')).slice(0, 3).map(r => ({ name: (r.brand || '') + ' ' + (r.model || '') || r.sku_code, total: r.stock })) } catch {}
       const stats = {
-        date: new Date().toISOString().slice(0, 10),
+        date: fiLocalDate(),
         qty: topItems.reduce((s, i) => s + i.quantity, 0),
         revenue: data.revenue || 0, profit: data.profit || 0,
         topItems, lowStock,
@@ -120,7 +120,7 @@ page('today', function (app) {
         c2.appendChild(subTitle)
         qrSales.forEach(t => {
           const name = (t.brand || '') + ' ' + (t.model || '') || t.sku_code || '-'
-          const time = (t.timestamp || '').slice(11, 16)
+          const time = fiHHMM(t.timestamp)
           const line = document.createElement('div'); line.style.cssText = 'display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid var(--line)'
           line.innerHTML = '<span style="color:var(--sub);width:42px">' + time + '</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + name + '</span><span style="color:var(--gold);font-weight:700">' + (t.pay_method === '微信' ? '微' : '支') + ' ' + fmt(t.selling_price * t.quantity) + '</span>'
           c2.appendChild(line)
@@ -135,7 +135,7 @@ page('today', function (app) {
     const buckets = []
     for (let h = 0; h < 24; h += 3) buckets.push({ label: h + '点', val: 0 })
     outTx.forEach(function (t) {
-      const hh = parseInt(String(t.timestamp || '').slice(11, 13), 10)
+      const hh = fiHour(t.timestamp)
       if (!isNaN(hh)) buckets[Math.floor(hh / 3)].val += (t.selling_price || 0) * (t.quantity || 0)
     })
     const maxBucket = Math.max(1, ...buckets.map(function (b) { return b.val }))
@@ -210,7 +210,7 @@ page('today', function (app) {
       c3.innerHTML = '<div class="font-bold mb-sm">今日流水</div>'
       recent.slice(0, 20).forEach(t => {
         const name = (t.brand || '') + ' ' + (t.model || '') || t.sku_code || '-'
-        const time = (t.timestamp || '').slice(11, 16)
+        const time = fiHHMM(t.timestamp)
         const amt = t.type === 'out' ? fmt(t.selling_price * t.quantity) : (t.type === 'return' ? '退货' : '入库')
         const line = document.createElement('div'); line.style.cssText = 'display:flex;justify-content:space-between;padding:4px 0;font-size:12px;border-bottom:1px solid var(--line)'
         line.innerHTML = '<span style="color:var(--sub);width:42px">' + time + '</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + name + '</span><span class="' + (t.type === 'out' ? 'text-blue' : 'text-red') + '">' + amt + '</span>'

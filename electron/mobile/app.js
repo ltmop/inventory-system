@@ -545,6 +545,9 @@ document.addEventListener('DOMContentLoaded', () => {
   initSafeArea()
   // ① 网页层热更：报心跳 + 顺手查新版（只对装了 APP 的机器生效；不依赖是否已连店铺）
   const wuState = initWebUpdate()
+  // ①b 更新说明：热更自动做完后，弹一次「已更新到 X + 这次改了什么」——
+  // 老板要的「有更新要提示、还要说清优化了什么」，就落在这里。
+  if (wuState && wuState.then) wuState.then(afterWebUpdate).catch(function () {}); else setTimeout(afterWebUpdate, 800)
   // ② 原生壳检查（只有壳变了才有内容），同样不依赖「是否已连上」
   setTimeout(function () { checkUpdate(true) }, 3000)
   // 没有连接码：用页内面板（可粘整条链接 / 扫码），不再用系统弹窗 —— 店主不会打长串；
@@ -615,6 +618,85 @@ function fmt(cents, nullText) {
   if (cents === null || cents === undefined) return nullText || '-'
   const v = cents / 100
   return '¥' + (v % 1 ? v.toFixed(2) : v.toFixed(0))
+}
+
+// 服务端时间戳是 **UTC ISO**（形如 2026-09-21T08:31:54.762Z）。
+// 以前各页直接 slice(11,16) 取字符串 —— 那是把 UTC 当成本地时间显示，北京时间会差 8 小时
+// （16:31 卖的单子显示成 08:31，老板看到的就是"卖出去货物的时间对不上"）。
+// 统一走这两个函数：先 new Date() 让浏览器按本机时区换算，再取时分。
+function fiHHMM(ts) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  if (isNaN(d.getTime())) return String(ts).slice(11, 16)   // 不是标准时间格式（如老数据）→ 退回原样截取
+  return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2)
+}
+// 时间戳 → 本机小时（0-23）；解析不了返回 NaN（调用方据此跳过，不要算进 0 点）
+function fiHour(ts) {
+  if (!ts) return NaN
+  const d = new Date(ts)
+  return isNaN(d.getTime()) ? NaN : d.getHours()
+}
+// 今天（本机时区）的 YYYY-MM-DD。不能用 new Date().toISOString().slice(0,10) ——
+// 那是 UTC 日期：北京时间 00:00~08:00 会算成前一天，AI 日报/对账的日期就串了一天。
+function fiLocalDate(d) {
+  const x = d ? new Date(d) : new Date()
+  const pad = function (n) { return n < 10 ? '0' + n : '' + n }
+  return x.getFullYear() + '-' + pad(x.getMonth() + 1) + '-' + pad(x.getDate())
+}
+// ========== 分类 / 单位下拉（入库、建档页共用）==========
+// 老板 2026-09-21 反馈：「商品的分类里没有分类，只有一个其他分类」「计量单位太少了，
+// 饵料是包、蚯蚓是千克、铅是个、鱼竿是根」。根因：入库页那句动态拉分类的 invoke(...) 调的是
+// 不存在的函数（app.js 只有 api / invokeRaw），ReferenceError 被 try/catch 吞掉，所以下拉里
+// 永远只有写死的「其他」和「件/米」。这里统一成：**先填兜底清单 → 再拉服务端真清单覆盖**。
+function fiEscOpt(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] }) }
+
+// 分类：按「大分类」分组（与服务端 categories.parent 同口径），选起来比一条长列表快得多
+function fiFillCategories(sel, cats, fallback) {
+  if (!sel) return
+  const rows = (Array.isArray(cats) && cats.length) ? cats : (fallback || []).map(function (n) { return { name: n, parent: null } })
+  const groups = []
+  const idx = {}
+  for (const c of rows) {
+    const p = c.parent || ''
+    if (idx[p] === undefined) { idx[p] = groups.length; groups.push({ parent: p, items: [] }) }
+    groups[idx[p]].items.push(c.name)
+  }
+  sel.innerHTML = groups.map(function (g) {
+    const opts = g.items.map(function (n) { return '<option>' + fiEscOpt(n) + '</option>' }).join('')
+    return g.parent ? ('<optgroup label="' + fiEscOpt(g.parent) + '">' + opts + '</optgroup>') : opts
+  }).join('')
+}
+
+// 单位：option 上带 data-decimal，数量输入框据此决定整数步进还是 0.1 步进
+function fiFillUnits(sel, units, fallback) {
+  if (!sel) return
+  const rows = (Array.isArray(units) && units.length) ? units : (fallback || []).map(function (u) { return { name: u[0], allow_decimal: u[1] } })
+  sel.innerHTML = rows.map(function (u) {
+    const dec = u.allow_decimal ? '1' : '0'
+    return '<option value="' + fiEscOpt(u.name) + '" data-decimal="' + dec + '">' + fiEscOpt(u.name) + (dec === '1' ? '（可小数）' : '') + '</option>'
+  }).join('')
+}
+
+// 当前选中的单位是否允许小数（老数据/没带标记时按整数处理，绝不让 0.5 件悄悄变成 0）
+function fiUnitAllowsDecimal(sel) {
+  // 不用 selectedOptions：程序化改 select.value 后它不一定立刻同步（happy-dom 实测不同步，
+  // 真机 WebView 上也别赌），直接按 value 去 options 里找那一条最稳。
+  if (!sel) return false
+  try {
+    const v = sel.value
+    const list = sel.options || []
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].value === v) return !!(list[i].dataset && list[i].dataset.decimal === '1')
+    }
+    return false
+  } catch (e) { return false }
+}
+
+// 把「米/斤/公斤/千克/克/卷」这些能拆着卖的单位按 0.1 步进，其余按整数 —— 与服务端 units.allow_decimal 同口径
+function fiRoundQty(v, allowDecimal) {
+  const n = parseFloat(v)
+  if (!isFinite(n)) return 0
+  return allowDecimal ? Math.round(n * 10) / 10 : Math.floor(n)
 }
 
 // 商品缩略底色：**统一**白蓝渐变（老板说"颜色太花了"）。
@@ -697,6 +779,7 @@ const UPDATE_BASE = 'http://43.128.20.39:17533'
 const WEB_MANIFEST = 'https://junchengzn.com/download/web/manifest.json'   // 网页层清单（HTTPS 静态）
 let WEB_VERSION_APPLIED = ''   // 当前真正跑着的网页层版本（热更后会与 APP_VERSION 不同）
 let WEB_USING_BUNDLE = false   // true = 现在跑的是热更包（不是安装包自带素材）
+let WEB_JUST_UPDATED = ''      // 上一次启动刚热更到的版本（原生插件记的），用来弹「已更新到 X」
 
 /** 取原生热更插件（只装了 APP 才有；浏览器 / 局域网 /m/ 没有这层） */
 function webUpdaterPlugin() {
@@ -717,7 +800,12 @@ function initWebUpdate() {
     statePromise = WU.getState().then(function (s) {
       WEB_USING_BUNDLE = !!(s && s.usingBundle)
       if (s && s.usingBundle && s.version) WEB_VERSION_APPLIED = s.version
-      if (s && s.justUpdated) toast('已热更到 ' + s.justUpdated + '（只下了 ' + (s.lastDownloaded | 0) + ' 个文件）')
+      // 跑的是安装包自带素材时，也要知道「当前是内置的哪一版」——
+      // 否则第一次热更上来时没有基准，会误判成「首次安装」而错过更新提示。
+      else if (s && s.builtinVersion) WEB_VERSION_APPLIED = s.builtinVersion
+      // 上一轮刚热更完：原生插件记住了版本号。这里不要只用一句 toast 打发，
+      // 老板明确要求「更新优化了什么、更新说明要提出来」—— 记下来，等会弹说明面板。
+      if (s && s.justUpdated) WEB_JUST_UPDATED = s.justUpdated
       return WU.markHealthy()
     }).catch(function () {})
   } catch (e) { statePromise = Promise.resolve() }
@@ -794,34 +882,139 @@ function checkUpdate(silent) {
     else if (!silent) toast("已是最新版 " + APP_VERSION)
   })
 }
+// ========== 更新说明 ==========
+// 老板 2026-09-21：「自动提示有更新功能没有完善，还是需要人为去点击更新，即便是小更新也应该提示，
+//               更新优化了什么，更新说明要提出来」
+// 说明文件 update-notes.json 是**构建时**写进网页层自己的（见 scripts/build-web-bundle.mjs）：
+// 热更换的就是整包代码，所以新版一跑起来就自带「这次改了什么」——不依赖跨域、断网也能看。
+// （去 fetch junchengzn.com 那份 manifest 是行不通的：那边没有 CORS 头，APP 跑在 http://localhost 会被拦。）
+let updateNotesCache = null
+function loadUpdateNotes() {
+  if (updateNotesCache) return Promise.resolve(updateNotesCache)
+  return fetch('update-notes.json', { cache: 'no-store' })
+    .then(function (r) { return r.ok ? r.json() : null })
+    .then(function (j) { updateNotesCache = (j && typeof j === 'object') ? j : null; return updateNotesCache })
+    .catch(function () { return null })
+}
+
+/** 更新说明面板：justUpdated=true 时是「刚更新完」的口吻，否则是「查看说明」 */
+function openUpdateNotesPanel(version, notes, justUpdated) {
+  const list = (Array.isArray(notes) && notes.length)
+    ? '<div class="text-sm" style="line-height:1.95">' + notes.map(function (n) { return '· ' + escHtml(n) }).join('<br>') + '</div>'
+    : '<div class="text-sm text-muted">这一版没写更新说明。</div>'
+  sheet(justUpdated ? ('已更新到 ' + version) : ('更新说明 · ' + version),
+    (justUpdated ? '<div class="text-sm" style="margin-bottom:10px;color:var(--ok);font-weight:700">这次是自动更新的，不用你动手。改了什么：</div>' : '') +
+    list +
+    '<div class="text-xs text-muted" style="margin-top:12px;line-height:1.7">改页面会自动热更（只下变化的文件，秒级生效）；只有动到原生壳（权限/插件/图标）才需要重装一次安装包。</div>')
+}
+
+/** 启动后判断要不要弹「已更新」：刚热更过，或跑着的版本和上次见过的不一样 */
+function afterWebUpdate() {
+  const running = String(WEB_VERSION_APPLIED || '').trim()
+  if (!running) return
+  let seen = ''
+  try { seen = localStorage.getItem('fi-seen-web-version') || '' } catch (e) {}
+  if (seen === running) return
+  try { localStorage.setItem('fi-seen-web-version', running) } catch (e) {}
+  // 第一次装（没有任何基准）不算「更新」，不打扰；但原生插件说刚热更过，就一定要说一声
+  if (!seen && !WEB_JUST_UPDATED) return
+  if (!TOKEN) return   // 还没登录：先让登录面板出来，别两个弹层叠在一起
+  loadUpdateNotes().then(function (n) {
+    const notes = (n && n.version === running && Array.isArray(n.notes)) ? n.notes : []
+    openUpdateNotesPanel(running, notes, true)
+  })
+}
+
+/** 更多页「更新说明」：当前版本 + 最近几版改了什么 */
+function openUpdateHistory() {
+  const running = String(WEB_VERSION_APPLIED || APP_VERSION)
+  loadUpdateNotes().then(function (n) {
+    if (!n) {
+      sheet('更新说明', '<div class="text-sm text-muted">这台设备上还没有更新说明文件（多半是安装包自带的老版本）。连上网自动热更一次之后就有了。</div>')
+      return
+    }
+    const hist = Array.isArray(n.history) ? n.history : []
+    const block = function (h, isCur) {
+      const body = (Array.isArray(h.notes) && h.notes.length)
+        ? '<div class="text-sm" style="line-height:1.9">' + h.notes.map(function (x) { return '· ' + escHtml(x) }).join('<br>') + '</div>'
+        : '<div class="text-xs text-muted">（这一版没写说明）</div>'
+      return '<div style="padding:10px 0;border-bottom:1px solid var(--line2)">' +
+        '<div class="flex" style="align-items:center;gap:8px;margin-bottom:5px">' +
+        '<b style="font-size:13.5px">' + (isCur ? '当前 · ' : '') + 'v' + escHtml(String(h.version || '')) + '</b>' +
+        '<span class="text-xs text-muted">' + escHtml(String(h.date || '')) + '</span></div>' + body + '</div>'
+    }
+    sheet('更新说明',
+      '<div class="text-sm text-muted" style="margin-bottom:8px">这台手机跑的是网页层 <b>' + escHtml(running) + '</b>（壳 ' + escHtml(APP_VERSION) + '）。</div>' +
+      (hist.length ? hist.map(function (h) { return block(h, h.version === running) }).join('') : block(n, true)))
+  })
+}
+
 // ========== 扫码 ==========
 let scanCallback = null
 
 // 真·扫码：装了 APP 的走**原生条码扫描**（摄像头实时识别，对准就出结果，不用拍照）；
 // 浏览器页面没有这个插件，自动退回「拍照识别 / 手输条码」，两条路都在面板上，不会死胡同。
+// 取原生条码扫描器。
+// ⚠️ 老板 2026-09-21 反馈「条码入档摄像头无法打开、连提示权限都没有，而且是拍照不是扫码」，根因就在这里：
+//   Capacitor 7 的 window.Capacitor.Plugins 是**普通对象**，不会为「原生已注册但 JS 没注册」的插件自动建代理
+//   （见 @capacitor/core/dist/capacitor.js：Plugins[name] 只在 registerPlugin() 里赋值）。
+//   所以光把插件打进 APK、在 capacitor.plugins.json 里登记是不够的 —— 这里必须自己 registerPlugin 一次，
+//   否则 Capacitor.Plugins.BarcodeScanner 永远是 undefined → 面板退化成「手输 + 拍照识别」，
+//   原生实时扫码那条路整条不存在（相机当然打不开、也不会有任何权限弹窗）。
 function nativeBarcodeScanner() {
-  try { return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BarcodeScanner) || null } catch (e) { return null }
+  try {
+    const C = window.Capacitor
+    if (!C) return null
+    if (C.Plugins && C.Plugins.BarcodeScanner) return C.Plugins.BarcodeScanner
+    if (C.registerPlugin && C.isPluginAvailable && C.isPluginAvailable('BarcodeScanner')) {
+      return C.registerPlugin('BarcodeScanner')
+    }
+    return null
+  } catch (e) { return null }
 }
 // 返回 'ok'（扫到了）/ 'handled'（跑完但没扫到）/ 'unavailable'（没有原生插件）
 async function nativeScanOnce(cb) {
   const BS = nativeBarcodeScanner()
   if (!BS) return 'unavailable'
+  const ov = document.getElementById('scan-overlay')
+  const body = document.body
+  let resolved = true
   try {
     if (BS.checkPermission) {
-      const p = await BS.checkPermission({ force: true })
-      if (p && p.camera && p.camera !== 'granted') { toast('需要相机权限才能扫码'); return 'handled' }
+      let p = null
+      try { p = await BS.checkPermission({ force: true }) } catch (e) { /* 插件老版本可能没有这个参数，继续走 startScan 让它自己申请 */ }
+      // 插件返回的是 {granted:true} / {neverAsked:true} / {denied:true}（**不是** {camera:'granted'}）。
+      // 只有「被永久拒绝」才拦下来并告诉老板去哪儿开；其余情况都继续，让 startScan 自己弹权限框。
+      if (p && p.denied && p.granted !== true) {
+        toast('相机权限被拒了：手机「设置 → 应用 → AI 智能进销存 → 权限」里把「相机」打开再回来')
+        return 'handled'
+      }
     }
-    if (BS.hideBackground) await BS.hideBackground()   // 让 WebView 透明，露出相机画面
+    // 让出画面：相机预览在 WebView 背后，网页底色不透明就一片白/黑（见 index.html 的 .fi-scanning 说明）
+    body.classList.add('fi-scanning')
+    if (ov) ov.classList.add('scanning')
+    if (BS.hideBackground) await BS.hideBackground()
     const r = await BS.startScan({ targetedFormats: ['EAN_13', 'EAN_8', 'UPC_A', 'UPC_E', 'CODE_128', 'CODE_39', 'ITF', 'QR_CODE'] })
-    if (BS.showBackground) await BS.showBackground()
     if (r && r.hasContent && r.content) { cb(String(r.content).trim()); return 'ok' }
+    if (!r || r.hasContent !== false) resolved = false
     toast('没扫到，把条码对准框里再试')
     return 'handled'
   } catch (e) {
-    try { if (BS.showBackground) await BS.showBackground() } catch (e2) { /* 忽略 */ }
     toast('扫码没成功：' + ((e && e.message) || '请重试'))
     return 'handled'
+  } finally {
+    // 无论成功失败都要把画面还回来，否则整页一直透明（像坏了一样）
+    try { if (BS.showBackground) await BS.showBackground() } catch (e2) { /* 忽略 */ }
+    body.classList.remove('fi-scanning')
+    if (ov) ov.classList.remove('scanning')
+    if (resolved) { /* 已结算，无需额外动作 */ }
   }
+}
+// 主动停止扫描：把挂着的 startScan 结算掉（resolveScan:true → {hasContent:false}），相机才会关
+async function nativeStopScan() {
+  const BS = nativeBarcodeScanner()
+  if (!BS || !BS.stopScan) return
+  try { await BS.stopScan({ resolveScan: true }) } catch (e) { try { await BS.stopScan() } catch (e2) { /* 忽略 */ } }
 }
 
 // 扫码面板：原生实时扫码（装了 APP）+ 手动输入 + 拍照识别三个入口。
@@ -832,6 +1025,13 @@ function openScanner(cb, hint) {
   overlay.id = 'scan-overlay'
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(10,22,40,.95);z-index:300;display:flex;flex-direction:column;justify-content:center;padding:24px;color:#e6edf5'
   overlay.innerHTML =
+    // 扫描中：只留取景框 + 停止按钮（其余内容必须藏掉，否则不透明的面板会挡住背后的相机画面）
+    '<div class="scan-live-ui">' +
+      '<div style="text-align:center;color:#fff;font-size:15px;font-weight:700;text-shadow:0 1px 8px rgba(0,0,0,.7)">把条码放进框里，扫到自动填</div>' +
+      '<div class="scan-frame"><i></i><i></i><i></i><i></i></div>' +
+      '<button id="scan-stop" style="width:100%;height:54px;border-radius:14px;border:none;background:rgba(255,255,255,.94);color:#0a1628;font-size:17px;font-weight:800">停止扫描</button>' +
+    '</div>' +
+    '<div class="scan-form">' +
     '<div style="font-size:18px;font-weight:700;margin-bottom:8px">扫码 / 输条码</div>' +
     '<div style="font-size:13px;color:#8fa3c0;margin-bottom:14px">' + (hint || '扫描或输入商品条码') + '</div>' +
     (hasNative
@@ -843,7 +1043,8 @@ function openScanner(cb, hint) {
       '<button id="scan-ok" style="flex:1;height:54px;border-radius:12px;border:none;background:linear-gradient(135deg,#c9a55a,#d4af37);color:#0a1628;font-size:17px;font-weight:800">确认</button>' +
       '<button id="scan-cam" style="flex:1;height:54px;border-radius:12px;border:none;background:rgba(255,255,255,.12);color:#e6edf5;font-size:17px">' + FiIcon('camera', 15) + ' 拍照识别</button>' +
     '</div>' +
-    '<button id="scan-cancel" style="margin-top:12px;height:44px;border-radius:10px;border:none;background:transparent;color:#8fa3c0;font-size:15px">取消</button>'
+    '<button id="scan-cancel" style="margin-top:12px;height:44px;border-radius:10px;border:none;background:transparent;color:#8fa3c0;font-size:15px">取消</button>' +
+    '</div>'
   document.body.appendChild(overlay)
 
   const submitCode = (code) => {
@@ -892,6 +1093,9 @@ function openScanner(cb, hint) {
         liveBtn.disabled = false; liveBtn.innerHTML = FiIcon('camera', 16) + ' 再扫一次'
       }
     }
+    // 停止按钮：扫描中面板只剩取景框，得给个出口（否则相机一直开着、只能按系统返回键）
+    const stopBtn = document.getElementById('scan-stop')
+    if (stopBtn) stopBtn.onclick = () => { nativeStopScan() }
     setTimeout(() => { liveBtn.click() }, 250)
   } else {
     // 浏览器页面没有原生插件：聚焦手输框
@@ -1190,6 +1394,67 @@ function openScreenDiag() {
     }).join(''))
 }
 
+/** 图片同步自检：老板说「我这台手机拍的照片，别的手机看不到」时，让他点这里，
+ *  把结论摊在屏幕上（真机看不到 console）。分了四段：能不能造图 / 账本在哪 / 有几件带图 / 能不能读回来。
+ *  照片是存在「账本那台机器」（中心库服务器）上的，所以第 3、4 段正常 = 跨手机就是通的。 */
+function openPhotoSyncDiag() {
+  const rows = []
+  const line = function (k, v, flag) {
+    const color = flag === true ? 'color:var(--ok)' : flag === false ? 'color:var(--danger)' : ''
+    rows.push('<div class="flex" style="justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line2);font-size:13px"><span class="text-muted">' + escHtml(k) + '</span><b style="font-variant-numeric:tabular-nums;' + color + '">' + escHtml(String(v)) + '</b></div>')
+  }
+  const ov = sheet('图片同步自检', '<div id="pdiag" class="text-sm text-muted">检查中…</div>')
+  const box = ov.querySelector('#pdiag')
+  ;(async function () {
+    // ① 本机能不能「造出」一张图 —— 这一步失败，拍照永远存不上，而且与服务器无关
+    let canMake = false
+    let makeMsg = ''
+    try {
+      const c = document.createElement('canvas'); c.width = 120; c.height = 120
+      const ctx = c.getContext('2d')
+      if (!ctx) throw new Error('画布不可用')
+      ctx.fillStyle = '#2563eb'; ctx.fillRect(0, 0, 120, 120)
+      const b64 = String(c.toDataURL('image/jpeg', 0.85).split(',')[1] || '')
+      canMake = b64.length > 200
+      makeMsg = canMake ? ('正常（' + Math.round(b64.length / 1024) + 'KB）') : '生成不出来（空图）'
+    } catch (e) { makeMsg = '失败：' + ((e && e.message) || e) }
+    line('① 本机造图能力', makeMsg, canMake)
+    // ② 这台手机连的是哪个账本
+    line('② 账本服务器', SERVER || '（没连上）', !!SERVER)
+    line('③ 网页层版本', (WEB_VERSION_APPLIED || APP_VERSION) + (WEB_USING_BUNDLE ? '（热更）' : '（安装包自带）'), null)
+    // ④ 中心库上到底有几件商品带图，再真读一张回来（别的手机读的就是这个地址）
+    let withPhoto = []
+    let total = 0
+    try {
+      const list = await api('product:list', { limit: 1000 })
+      total = (list || []).length
+      withPhoto = (list || []).filter(function (p) { return p.photo_path })
+      line('④ 商品总数 / 带图', total + ' / ' + withPhoto.length, null)
+    } catch (e) {
+      line('④ 读商品列表', '失败：' + ((e && e.message) || e), false)
+    }
+    if (withPhoto.length) {
+      try {
+        const p = withPhoto[0]
+        const res = await fetch(FiPhoto.productPhotoUrl(p.photo_path, p.updated_at), { method: 'GET' })
+        line('⑤ 读回一张图', res.ok ? ('正常（HTTP ' + res.status + '）') : ('失败 HTTP ' + res.status), res.ok)
+      } catch (e) {
+        line('⑤ 读回一张图', '异常：' + ((e && e.message) || e), false)
+      }
+    } else {
+      line('⑤ 读回一张图', '中心库上还没有任何商品图', false)
+    }
+    box.innerHTML = rows.join('') +
+      '<div class="text-xs text-muted" style="margin-top:12px;line-height:1.75">' +
+      (canMake
+        ? '本机能正常拍照生成图片。<br>'
+        : '<b style="color:var(--danger)">本机造不出图</b> —— 拍照会失败，这是手机内存/画布的问题，跟网络无关。<br>') +
+      '照片存在「账本那台机器」上（不是存在这台手机里）。所以只要 ④ 有带图的商品、⑤ 读得回来，' +
+      '一台手机拍的图，另一台手机打开同一个商品就能看到；反过来，如果 ⑤ 失败，才是真的没同步过去。' +
+      '</div>'
+  })()
+}
+
 function renderAccountChip() {
   const el = document.getElementById('acctChip')
   if (!el) return
@@ -1356,6 +1621,8 @@ page('more', (app) => {
     { icon: 'pulse', t: '使用情况', d: '装了几台、今天几台在用、版本分布', fn: openUsagePanel },
     { icon: 'type', t: '界面字号', d: '小 / 标准 / 大，整套一起变', fn: openSizeSheet },
     { icon: 'pulse', t: '屏幕适配自检', d: '功能栏没贴底 / 有空白时，点这里看实测尺寸', fn: openScreenDiag },
+    { icon: 'camera', t: '图片同步自检', d: '这台手机拍的照片别的手机看不到时，点这里看卡在哪一环', fn: openPhotoSyncDiag },
+    { icon: 'refresh', t: '更新说明', d: '当前 ' + (WEB_VERSION_APPLIED || APP_VERSION) + ' · 最近几版改了什么', fn: openUpdateHistory },
     { icon: 'undo', t: '撤回误操作', d: '删商品 / 报损 / 入库点错了能还原', fn: openUndoPanel },
   ]
   if (SERVER) {

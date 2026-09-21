@@ -338,6 +338,25 @@ mark{background:var(--blue-l2);color:var(--blue-d);border-radius:3px;padding:0 2
 @keyframes panelUp{from{opacity:0;transform:translate3d(0,5%,0) scale(.98)}to{opacity:1;transform:none}}
 /* 无障碍：系统开了"减弱动态效果"就全部关掉 */
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ========== 原生条码扫描：把画面让给相机 ==========
+   相机预览是加在 WebView **背后**的原生 View。插件 hideBackground() 只把 <html> 刷成 transparent，
+   可 body/.phone/#app/.card 这些不透明底色照样把相机盖住 —— 表现就是「摄像头打开了但一片白/黑，扫不出来」。
+   所以扫的时候给 body 挂 .fi-scanning，把整条链路的底色都让开。
+   同时扫码面板本身（#scan-overlay 是 rgba(10,22,40,.95) 的深色全屏）也得变透明，只留取景框和按钮。 */
+body.fi-scanning,body.fi-scanning .phone,body.fi-scanning #app,body.fi-scanning .pos,
+body.fi-scanning .sticky-bar,body.fi-scanning .sign,body.fi-scanning .tabs,
+body.fi-scanning .card,body.fi-scanning .pos-top,body.fi-scanning .pos-cart{background:transparent!important;box-shadow:none!important}
+body.fi-scanning #scan-overlay{background:transparent!important;justify-content:space-between;padding:0}
+body.fi-scanning #scan-overlay .scan-form{display:none!important}
+body.fi-scanning #scan-overlay .scan-live-ui{display:flex!important}
+#scan-overlay .scan-live-ui{display:none;flex-direction:column;flex:1;align-items:center;justify-content:space-between;padding:26px 20px 34px}
+#scan-overlay .scan-frame{position:relative;width:76%;max-width:330px;aspect-ratio:1.35;border-radius:16px;box-shadow:0 0 0 100vmax rgba(6,14,26,.35)}
+#scan-overlay .scan-frame i{position:absolute;width:34px;height:34px;border:3px solid #d4af37}
+#scan-overlay .scan-frame i:nth-child(1){top:-2px;left:-2px;border-right:0;border-bottom:0;border-radius:14px 0 0 0}
+#scan-overlay .scan-frame i:nth-child(2){top:-2px;right:-2px;border-left:0;border-bottom:0;border-radius:0 14px 0 0}
+#scan-overlay .scan-frame i:nth-child(3){bottom:-2px;left:-2px;border-right:0;border-top:0;border-radius:0 0 0 14px}
+#scan-overlay .scan-frame i:nth-child(4){bottom:-2px;right:-2px;border-left:0;border-top:0;border-radius:0 0 14px 0}
 </style>
 </head>
 <body>

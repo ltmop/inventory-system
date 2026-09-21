@@ -1353,10 +1353,10 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     },
     'report:today': (d) => {
       const rev = d.prepare(
-        `SELECT COALESCE(SUM((CASE WHEN t.type='return' THEN -1 ELSE 1 END) * t.selling_price * t.quantity),0) FROM transactions t WHERE t.notes!='换货退旧' AND date(t.timestamp,'localtime')=date('now','localtime')`
+        `SELECT COALESCE(SUM((CASE WHEN t.type='return' THEN -1 ELSE 1 END) * t.selling_price * t.quantity),0) FROM transactions t WHERE COALESCE(t.notes,'')!='换货退旧' AND date(t.timestamp,'localtime')=date('now','localtime')`
       ).get()
       const profit = d.prepare(
-        `SELECT COALESCE(SUM((CASE WHEN t.type='return' THEN -1 ELSE 1 END) * (t.selling_price - t.unit_price) * t.quantity),0) FROM transactions t WHERE t.notes!='换货退旧' AND date(t.timestamp,'localtime')=date('now','localtime')`
+        `SELECT COALESCE(SUM((CASE WHEN t.type='return' THEN -1 ELSE 1 END) * (t.selling_price - t.unit_price) * t.quantity),0) FROM transactions t WHERE COALESCE(t.notes,'')!='换货退旧' AND date(t.timestamp,'localtime')=date('now','localtime')`
       ).get()
       const paySplit = cmds.todayPaymentSplit(d)
       const orders = d.prepare(

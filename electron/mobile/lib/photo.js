@@ -22,9 +22,15 @@
       input.type = 'file'
       input.accept = 'image/*'
       input.capture = 'environment'
+      // 必须**挂进文档**再 click()：Android WebView 对游离（不在 DOM 里）的 file input
+      // 不一定回调 WebChromeClient.onShowFileChooser，表现就是「点了拍照毫无反应」。
+      // 挂到屏幕外，用完立刻删掉。
+      input.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0'
+      document.body.appendChild(input)
+      var finish = function () { try { input.remove() } catch (e) { /* 忽略 */ } }
       input.onchange = function () {
         var file = input.files && input.files[0]
-        if (!file) return resolve(null)
+        if (!file) { finish(); return resolve(null) }
         var reader = new FileReader()
         reader.onload = function () {
           var img = new Image()
@@ -36,14 +42,22 @@
               var canvas = document.createElement('canvas')
               canvas.width = w
               canvas.height = h
-              canvas.getContext('2d').drawImage(img, 0, 0, w, h)
-              resolve(canvas.toDataURL('image/jpeg', QUALITY).split(',')[1] || null)
-            } catch (e) { reject(e) }
+              var ctx = canvas.getContext('2d')
+              if (!ctx) throw new Error('这台手机处理不了这张图（画布不可用），换张图或重启 APP 再试')
+              ctx.drawImage(img, 0, 0, w, h)
+              var b64 = String(canvas.toDataURL('image/jpeg', QUALITY).split(',')[1] || '')
+              // 关键校验：Android WebView 在内存吃紧或原图过大时，toDataURL 会返回空串 / 'data:,'。
+              // 老代码这里 resolve(null)，调用方一看 !b64 就直接 return —— **照片就这么静默没了**，
+              // 老板只会觉得「拍了照但另一台手机看不到」。这里改成明确报错，绝不悄悄吞掉。
+              if (b64.length < 200) throw new Error('这张图没生成成功（多半是手机内存不足），重拍一张或先清一下后台')
+              finish()
+              resolve(b64)
+            } catch (e) { finish(); reject(e) }
           }
-          img.onerror = function () { reject(new Error('图片读取失败')) }
+          img.onerror = function () { finish(); reject(new Error('图片读取失败，重拍一张')) }
           img.src = String(reader.result)
         }
-        reader.onerror = function () { reject(new Error('图片读取失败')) }
+        reader.onerror = function () { finish(); reject(new Error('图片读取失败，重拍一张')) }
         reader.readAsDataURL(file)
       }
       input.click()
@@ -56,10 +70,19 @@
    */
   async function saveProductPhoto(productId, base64) {
     if (!productId) throw new Error('这家商品还没有 id，先建档')
-    if (!base64) throw new Error('没有图片内容')
+    if (!base64) throw new Error('没有图片内容（拍照那一步没生成图，重拍一张）')
     var r = await api('photo:save', { productId: productId, base64: base64, ext: 'jpg' })
     if (!r || !r.ok || !r.path) throw new Error('图片保存失败')
     await api('product:update', { id: productId, photo_path: r.path })
+    // 存完**立刻回读一次**：图片是落在「账本那台机器」（中心库）上的，只有能读回来，
+    // 才等于别的手机也看得到。读不回来就当场报错 —— 不能让人以为存上了，
+    // 事后换台手机才发现「图片没同步」（老板 2026-09-21 反馈的就是这事儿）。
+    try {
+      var res = await fetch(productPhotoUrl(r.path, Date.now()), { method: 'GET' })
+      if (!res || !res.ok) throw new Error('HTTP ' + (res && res.status))
+    } catch (e) {
+      throw new Error('图已写进账本，但回读失败（' + ((e && e.message) || e) + '）—— 检查手机网络后重拍一张')
+    }
     return r.path
   }
 

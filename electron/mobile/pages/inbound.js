@@ -1,4 +1,14 @@
 // inbound.js: 入库页 —— 拍照建档 / 扫码入库 双入口 → 已入库印章
+
+// 分类/单位兜底清单：服务端 category:list / unit:list 拉不到时（弱网、离线、老服务器）也不让下拉空着。
+// 口径与服务端一致 —— 单位里 1 = 允许小数（units.allow_decimal），数量步进按它走。
+const FI_CATEGORY_FALLBACK = ['饵料', '鱼钩', '鱼线', '浮漂', '铅坠', '鱼竿', '渔轮', '路亚假饵', '小药', '活饵', '工具配件', '收纳包具', '灯具', '其他']
+const FI_UNIT_FALLBACK = [
+  ['件', 0], ['个', 0], ['包', 0], ['瓶', 0], ['盒', 0], ['袋', 0], ['箱', 0], ['桶', 0], ['盘', 0],
+  ['把', 0], ['根', 0], ['支', 0], ['条', 0], ['套', 0], ['副', 0], ['双', 0], ['张', 0], ['台', 0], ['辆', 0], ['块', 0],
+  ['斤', 1], ['公斤', 1], ['千克', 1], ['克', 1], ['米', 1], ['卷', 1],
+]
+
 page('inbound', function (app) {
   let recentInbounds = []
   let lowStock = []            // 低于警戒线的货（凑成入库页下半屏的「待补货」清单）
@@ -214,13 +224,15 @@ page('inbound', function (app) {
       '<div class="ft"><b>新商品建档</b><span class="aitag" id="ai-tag">AI 已预填</span></div>' +
       '<div class="fld"><label>商品名称</label><input id="f-name" placeholder="例：农夫山泉 550ml"></div>' +
       '<div class="fldrow">' +
-        '<div class="fld"><label>分类</label><select id="f-cat"><option>其他</option></select></div>' +
+        // 分类/单位的 <option> 由 fiFillCategories / fiFillUnits 填（先兜底后拉服务端）；
+        // 以前这里写死 <option>其他</option> 和「件/米」两个，所以老板永远只看到「其他」
+        '<div class="fld"><label>分类</label><select id="f-cat"></select></div>' +
         '<div class="fld"><label>进价（元）</label><input id="f-cost" type="number" step="0.01" placeholder="0.00"></div>' +
       '</div>' +
       '<div class="fld"><label>售价（元）</label><input id="f-price" type="number" step="0.01" placeholder="卖多少钱？填了开单点一下就卖"></div>' +
       '<div class="fldrow">' +
-        '<div class="fld"><label>计量单位</label><select id="f-unit"><option value="件">件</option><option value="米">米</option></select></div>' +
-        '<div class="fld"><label>数量</label><input id="f-qty" type="number" step="0.1" placeholder="多少个 / 多少米？"></div>' +
+        '<div class="fld"><label>计量单位</label><select id="f-unit"></select></div>' +
+        '<div class="fld"><label>数量</label><input id="f-qty" type="number" step="1" placeholder="多少个 / 多少包？"></div>' +
       '</div>' +
       '<div class="fld"><label id="f-expiry-label">到期日（可选）</label><input id="f-expiry" type="date" placeholder="2026-12-31"></div>' +
       '<div class="fld"><label>商品照片（可选）</label>' +
@@ -232,15 +244,33 @@ page('inbound', function (app) {
       '<button class="okbtn" id="f-ok">完成入库</button>'
     app.appendChild(form)
 
-    // 动态分类：从后端拉取（通用版分类可配置）
-    try {
-      invoke('category:list', {}).then((cats) => {
-        const sel = document.getElementById('f-cat')
-        if (sel && Array.isArray(cats) && cats.length > 0) {
-          sel.innerHTML = cats.map((c) => '<option>' + c.name + '</option>').join('')
-        }
-      }).catch(() => { /* 拉取失败保持默认 */ })
-    } catch (e) { /* 忽略 */ }
+    // 分类 / 单位：**先填兜底清单，再拉服务端真清单覆盖**（离线也不至于只剩一个「其他」）。
+    // 旧代码这里写的是 invoke('category:list')，而 app.js 里根本没有 invoke 这个函数
+    // （只有 api / invokeRaw）→ 抛 ReferenceError → 被下面的 try/catch 吞掉 →
+    // 「动态分类」从上线起就从来没生效过，老板看到的永远是写死的「其他」。
+    // 现在：①改用真函数 api() ②不再用裸 try/catch 静默吞错。
+    const catSel = document.getElementById('f-cat')
+    const unitSel = document.getElementById('f-unit')
+    const qtyEl = document.getElementById('f-qty')
+    fiFillCategories(catSel, null, FI_CATEGORY_FALLBACK)
+    fiFillUnits(unitSel, null, FI_UNIT_FALLBACK)
+    syncQtyStep()
+    if (unitSel) unitSel.addEventListener('change', syncQtyStep)
+    api('category:list').then((cats) => fiFillCategories(catSel, cats, FI_CATEGORY_FALLBACK)).catch(() => {})
+    api('unit:list').then((units) => { fiFillUnits(unitSel, units, FI_UNIT_FALLBACK); syncQtyStep() }).catch(() => {})
+
+    // 数量的步进跟着单位走：可小数单位（斤/公斤/千克/克/米/卷）按 0.1，其余按整数
+    function syncQtyStep() {
+      if (!qtyEl) return
+      const dec = fiUnitAllowsDecimal(unitSel)
+      const un = (unitSel && unitSel.value) || '件'
+      qtyEl.step = dec ? '0.1' : '1'
+      qtyEl.placeholder = dec ? ('多少' + un + '？可填小数') : ('多少个 / 多少' + un + '？')
+      // 从可小数单位切到整数单位时，把已经填的小数抹平（2.5 包 → 2 包），不留一个非法值在框里
+      if (!dec && qtyEl.value && String(qtyEl.value).indexOf('.') >= 0) {
+        qtyEl.value = String(Math.floor(parseFloat(qtyEl.value) || 0))
+      }
+    }
 
     document.getElementById('f-ok').onclick = finishInbound
 
@@ -271,7 +301,7 @@ page('inbound', function (app) {
       }
       recentInbounds.forEach((t, ti) => {
         const name = (t.brand || '') + ' ' + (t.model || '') || t.sku_code || '-'
-        const time = (t.timestamp || '').slice(11, 16)
+        const time = fiHHMM(t.timestamp)
         const div = document.createElement('div'); div.className = 'rec' + (ti < justAdded ? ' new' : '')
         div.innerHTML =
           '<div class="ph" style="background:var(--green)">' + (name[0] || '?') + '</div>' +
@@ -411,7 +441,7 @@ page('inbound', function (app) {
           // 建档新商品
           const r = await api('product:create', {
             sku_code: '', barcode: '', category: it.category || '其他', brand: it.brand || '', model: it.model || '',
-            cost_price: cost, suggest_price: 0, status: '待盘点', unit: '件',
+            cost_price: cost, suggest_price: 0, status: '待盘点', unit: it.unit || '件',
           })
           productId = r.id
         }
@@ -564,7 +594,10 @@ page('inbound', function (app) {
     const unitEl = document.getElementById('f-unit')
     const unit = unitEl ? unitEl.value : '件'
     const qtyStr = document.getElementById('f-qty').value
-    const qty = unit === '米' ? Math.round((parseFloat(qtyStr) || 0) * 10) / 10 : (parseInt(qtyStr, 10) || 0)
+    // 能不能填小数由**单位**决定（服务端 units.allow_decimal），不再写死「只有米能填小数」——
+    // 蚯蚓按千克卖、饵料按包卖，老板要的就是这些单位能各自按自己的规矩填。
+    const allowDec = fiUnitAllowsDecimal(unitEl)
+    const qty = fiRoundQty(qtyStr, allowDec)
     if (!name) { toast('填个商品名就能入库了'); return }
     if (!(qty > 0)) { toast('填个数量'); return }
     const cost = costStr ? Math.round(parseFloat(costStr) * 100) : 0
@@ -597,7 +630,7 @@ page('inbound', function (app) {
         catch (e) { toast('已入库，但照片没存上：' + (e.message || '')) }
         pendingPhoto = null
       }
-      showStamp('已入库', name + ' × ' + qty + (unit === '米' ? '米' : ''), true)
+      showStamp('已入库', name + ' × ' + qty + unit, true)
       form.classList.remove('show')
       document.getElementById('ai-tag').classList.remove('show')
       ;['f-name', 'f-cost', 'f-qty', 'f-price'].forEach(id => { const el = document.getElementById(id); if (el) el.value = '' })
