@@ -52,8 +52,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro SC","PingFang SC","Mic
 .ico-box{display:flex;align-items:center;justify-content:center}
 
 /* ---------- 顶栏 ---------- */
-.sign{flex:none;background:var(--card);padding:10px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line)}
-.sign h1{font-size:calc(var(--s)*17px);font-weight:800;letter-spacing:.2px}
+.sign{flex:none;background:var(--card);padding:7px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line)}
+.sign h1{font-size:calc(var(--s)*16px);font-weight:800;letter-spacing:.2px}
 .sign .sub{font-size:calc(var(--s)*11px);color:var(--sub);margin-top:1px}
 .seal{margin-left:auto;display:flex;align-items:center;gap:5px;background:var(--blue-l);color:var(--blue);border-radius:999px;padding:5px 11px;font-size:calc(var(--s)*11px);font-weight:800}
 .seal .dot{width:6px;height:6px;border-radius:50%;background:var(--blue);animation:breathe 2.6s var(--ease) infinite}
@@ -70,17 +70,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro SC","PingFang SC","Mic
 .pos{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--bg)}
 .pos-top{flex:none;background:var(--card);border-bottom:1px solid var(--line);position:relative;z-index:3}
 .pos-mid{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
-.pos-cart{flex:none;margin-top:auto;display:flex;flex-direction:column;background:var(--card);border-radius:var(--r-xl) var(--r-xl) 0 0;box-shadow:0 -8px 28px rgba(16,24,40,.10);max-height:min(58%,560px);overflow:hidden;transition:max-height .32s var(--ease)}
-.pos-cart .chead{flex:none;display:flex;align-items:center;gap:8px;padding:14px 16px 10px;cursor:pointer}
+.pos-cart{flex:none;margin-top:auto;display:flex;flex-direction:column;background:var(--card);border-radius:var(--r-xl) var(--r-xl) 0 0;box-shadow:0 -8px 28px rgba(16,24,40,.10);overflow:hidden;max-height:42dvh}
+.pos-cart .chead{flex:none;display:flex;align-items:center;gap:8px;padding:9px 14px 7px;cursor:pointer}
 .pos-cart .chead .t{display:flex;align-items:center;gap:7px;font-size:calc(var(--s)*14px);font-weight:800}
 .pos-cart .chead .t .pill{background:var(--blue);color:#fff;border-radius:999px;min-width:18px;height:18px;padding:0 5px;font-size:calc(var(--s)*11px);font-weight:800;display:flex;align-items:center;justify-content:center}
 .pos-cart .chead .sum{margin-left:auto;font-size:calc(var(--s)*17px);font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
 .pos-cart .chead .chev{display:flex;color:var(--sub);transition:transform .3s var(--spring)}
 .pos-cart.collapsed .chead .chev{transform:rotate(-90deg)}
 .pos-cart .chead .clr{display:flex;align-items:center;gap:3px;font-size:calc(var(--s)*11px);color:var(--sub);border:1px solid var(--line);border-radius:999px;padding:3px 9px;background:#fff;font-weight:700}
-.pos-cart .clist{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0;padding:0 16px}
+.pos-cart .clist{overflow-y:auto;-webkit-overflow-scrolling:touch;max-height:20dvh;padding:0 14px}
 .pos-cart.collapsed .clist{display:none}
-.pos-cart .ctail{flex:none;padding:8px 14px calc(8px + var(--safe-bottom,0px));border-top:1px solid var(--line2)}
+.pos-cart .ctail{flex:none;padding:7px 14px calc(7px + var(--safe-bottom,0px));border-top:1px solid var(--line2)}
 .pos-cart .empty{color:var(--sub);font-size:calc(var(--s)*12.5px);text-align:center;padding:18px 8px;line-height:1.7}
 .line{display:flex;align-items:center;gap:9px;padding:10px 0;border-bottom:1px solid var(--line2);animation:lineIn .3s var(--spring) both}
 @keyframes lineIn{from{opacity:0;transform:translate3d(16px,0,0)}to{opacity:1;transform:none}}
@@ -102,17 +102,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro SC","PingFang SC","Mic
 .qty{display:flex;align-items:center;gap:4px;flex:none;background:var(--blue-l);border-radius:999px;padding:3px}
 .qty button{width:calc(var(--s)*28px);height:calc(var(--s)*28px);border-radius:50%;border:none;background:#fff;color:var(--blue);display:flex;align-items:center;justify-content:center;box-shadow:var(--sh-1)}
 .qty .n{min-width:calc(var(--s)*30px);text-align:center;font-size:calc(var(--s)*14px);font-weight:800;cursor:pointer;font-variant-numeric:tabular-nums}
-.total{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px}
-.total .t{font-size:calc(var(--s)*13px);color:var(--sub);font-weight:600}
-.total .v{font-size:calc(var(--s)*24px);font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+.total{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+.total .t{font-size:calc(var(--s)*12px);color:var(--sub);font-weight:600}
+.total .v{font-size:calc(var(--s)*21px);font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
 
 /* ---------- 找货区 ---------- */
-.scanrow{display:flex;gap:8px;padding:10px 14px 4px}
-.scanbtn{flex:none;height:calc(var(--s)*44px);padding:0 14px;border:none;border-radius:var(--r-md);background:var(--blue-l);color:var(--blue);font-size:calc(var(--s)*14px);font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px}
-.search{flex:1;min-width:0;height:calc(var(--s)*44px);border:1px solid var(--line);border-radius:var(--r-md);background:var(--card2);padding:0 12px;font-size:calc(var(--s)*14px);outline:none;color:var(--ink);transition:border-color .2s var(--ease),background .2s var(--ease),box-shadow .2s var(--ease)}
+.scanrow{display:flex;gap:8px;padding:8px 14px 2px}
+.scanbtn{flex:none;height:calc(var(--s)*40px);padding:0 14px;border:none;border-radius:var(--r-md);background:var(--blue-l);color:var(--blue);font-size:calc(var(--s)*14px);font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px}
+.search{flex:1;min-width:0;height:calc(var(--s)*40px);border:1px solid var(--line);border-radius:var(--r-md);background:var(--card2);padding:0 12px;font-size:calc(var(--s)*14px);outline:none;color:var(--ink);transition:border-color .2s var(--ease),background .2s var(--ease),box-shadow .2s var(--ease)}
 .search::placeholder{color:#a9b3c1}
 .search:focus{border-color:var(--blue-l2);background:#fff;box-shadow:0 0 0 4px var(--blue-l)}
-.cats{display:flex;gap:7px;overflow-x:auto;padding:9px 14px 10px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.cats{display:flex;gap:6px;overflow-x:auto;padding:7px 14px 7px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
 .cats::-webkit-scrollbar{display:none}
 .cat{flex:none;height:calc(var(--s)*32px);padding:0 13px;border-radius:999px;border:1px solid var(--line);background:#fff;font-size:calc(var(--s)*13px);font-weight:700;color:var(--ink2);display:flex;align-items:center;gap:5px;white-space:nowrap;transition:background .22s var(--ease),color .22s var(--ease),border-color .22s var(--ease),transform .22s var(--spring)}
 .cat:active{transform:scale(.95)}
@@ -154,6 +154,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro SC","PingFang SC","Mic
 mark{background:var(--blue-l2);color:var(--blue-d);border-radius:3px;padding:0 2px}
 
 /* ---------- 收款四键 ---------- */
+/* 结账大按钮：老板一直说"看不到结账按钮"，现在就是一个写着「结账」的大按钮 */
+.paybtn{width:100%;height:calc(var(--s)*46px);border:none;border-radius:var(--r-md);background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff;font-size:calc(var(--s)*17px);font-weight:900;letter-spacing:3px;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 8px 20px rgba(37,99,235,.28);transition:transform .2s var(--spring),filter .2s var(--ease)}
+.paybtn:active{transform:scale(.97);filter:brightness(.96)}
+.paybtn[disabled]{opacity:.45;box-shadow:none}
+.payrow4{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.payrow4 button{height:calc(var(--s)*54px);border:none;border-radius:var(--r-md);color:#fff;font-size:calc(var(--s)*16px);font-weight:800;display:flex;align-items:center;justify-content:center;gap:7px;box-shadow:0 6px 16px rgba(16,24,40,.16)}
 /* 结账：先给一句明确提示，再是四个收款键（老板说"看不到结账按钮"，其实是缺这句） */
 .payhint{display:flex;align-items:center;gap:5px;font-size:calc(var(--s)*11.5px);color:var(--sub);font-weight:700;margin:-2px 0 7px}
 .payrow{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
@@ -281,12 +287,12 @@ mark{background:var(--blue-l2);color:var(--blue-d);border-radius:3px;padding:0 2
 .today-fixed .m .k{font-size:11px;color:var(--sub)}
 .today-fixed .m .v{font-size:calc(var(--s)*17px);font-weight:800;font-variant-numeric:tabular-nums;margin-top:1px}
 /* 右上角登录账号（一直挂着） */
-.acct-chip{display:flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--card2);border-radius:999px;padding:4px 10px 4px 4px;font-size:11.5px;font-weight:700;color:var(--ink2);max-width:52%;transition:background .2s var(--ease),transform .2s var(--spring)}
+.acct-chip{margin-left:auto;display:flex;align-items:center;gap:5px;border:1px solid var(--line);background:transparent;border-radius:999px;padding:3px 9px 3px 3px;font-size:10.5px;font-weight:600;color:var(--sub);max-width:42%;transition:background .2s var(--ease),transform .2s var(--spring)}
 .acct-chip:active{transform:scale(.96)}
-.acct-chip .av{width:22px;height:22px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex:none}
+.acct-chip .av{width:18px;height:18px;border-radius:50%;background:var(--blue-l);color:var(--blue);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex:none}
 .acct-chip .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .acct-chip.warn{background:var(--warn-l);border-color:#f0dfb8;color:#8a6400}
-.acct-chip.warn .av{background:var(--warn)}
+.acct-chip.warn .av{background:var(--warn);color:#fff}
 /* 弹层统一入场（JS 里给 overlay 加 .sheet） */
 .sheet{animation:panelUp .36s var(--spring) both}
 @keyframes panelUp{from{opacity:0;transform:translate3d(0,5%,0) scale(.98)}to{opacity:1;transform:none}}

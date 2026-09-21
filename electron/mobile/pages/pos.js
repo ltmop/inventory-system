@@ -142,8 +142,8 @@ page('pos', function (app) {
 
   // 操作员 + 一句用法提示
   const hintRow = document.createElement('div'); hintRow.className = 'hint'
-  hintRow.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 16px 8px'
-  hintRow.innerHTML = '<span>点分类找货 · 点商品直接加单</span>'
+  hintRow.style.cssText = 'display:flex;align-items:center;gap:8px;padding:2px 14px 4px'
+  hintRow.innerHTML = ''
   const opBtn = document.createElement('button')
   opBtn.style.cssText = 'margin-left:auto;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:1px 8px;font-size:11px;font-weight:700;color:var(--ink)'
   opBtn.innerHTML = FiIcon('user', 13) + ' ' + esc(getOperator())
@@ -346,20 +346,13 @@ page('pos', function (app) {
     elCart.appendChild(list)
 
     const tail = document.createElement('div'); tail.className = 'ctail'
-    tail.innerHTML = '<div class="total"><span class="t">合计</span><span class="v">' + fmt(totalFen) + '</span></div>' +
-      '<div class="payhint">' + FiIcon('check', 13) + (cart.length ? '结账：点下面收款方式，一按就记进账本' : '先加商品，再点下面收款方式结账') + '</div>' +
-      '<div class="payrow">' +
-        '<button class="pay cash">现金</button>' +
-        '<button class="pay wx">微信</button>' +
-        '<button class="pay ali">支付宝</button>' +
-        '<button class="pay credit">赊账</button>' +
-      '</div>'
-    if (!busy && cart.length > 0) {
-      tail.querySelector('.pay.cash').onclick = function () { checkout('现金') }
-      tail.querySelector('.pay.wx').onclick = function () { payWithQr('微信') }
-      tail.querySelector('.pay.ali').onclick = function () { payWithQr('支付宝') }
-      tail.querySelector('.pay.credit').onclick = function () { creditCheckout() }
-    }
+    tail.innerHTML = '<div class="total"><span class="t">合计' + (cart.length ? '（点结账选收款方式）' : '') + '</span><span class="v">' + fmt(totalFen) + '</span></div>' +
+      // 一个明确的「结账」按钮（老板说看不到结账按钮 —— 原来只有四个收款键，没有"结账"两个字）
+      '<button class="paybtn" id="pos-pay"' + ((busy || !cart.length) ? ' disabled' : '') + '>' +
+        FiIcon('check', 18) + (cart.length ? '结账' : '结账（先加商品）') + '</button>' +
+      ''
+    const payBtn = tail.querySelector('#pos-pay')
+    if (payBtn) payBtn.onclick = function () { if (cart.length && !busy) openPaySheet() }
     elCart.appendChild(tail)
   }
 
@@ -616,6 +609,30 @@ page('pos', function (app) {
         finally { busy = false; renderCart(); renderMid() }
       })
     } catch (e) { toast('加载客户失败: ' + e.message) }
+  }
+
+  // 结账：点「结账」大按钮 → 选收款方式（现金 / 微信 / 支付宝 / 赊账）
+  function openPaySheet() {
+    const totalFen = cartTotal()
+    const qtyAll = cart.reduce(function (s, c) { return s + c.qty }, 0)
+    const ov = sheet('结账 ' + fmt(totalFen),
+      '<div class="text-sm text-muted" style="margin-bottom:12px">这单 ' + cart.length + ' 种商品 · 共 ' + qtyAll + ' 件，选一个收款方式：</div>' +
+      '<div class="payrow4">' +
+        '<button data-pay="现金" style="background:linear-gradient(135deg,#3b82f6,#2563eb)">' + FiIcon('wallet', 18) + '现金</button>' +
+        '<button data-pay="微信" style="background:linear-gradient(135deg,#22c55e,#0f9d68)">' + FiIcon('phone', 18) + '微信</button>' +
+        '<button data-pay="支付宝" style="background:linear-gradient(135deg,#60a5fa,#1d4ed8)">' + FiIcon('bolt', 18) + '支付宝</button>' +
+        '<button data-pay="赊账" style="background:linear-gradient(135deg,#64748b,#334155)">' + FiIcon('users', 18) + '赊账</button>' +
+      '</div>' +
+      '<div class="text-xs text-muted" style="margin-top:12px;line-height:1.7">现金：直接记「收讫」<br>微信 / 支付宝：先给顾客看你的收款码，到账再记账<br>赊账：选客户，记在 TA 头上</div>')
+    ov.querySelectorAll('[data-pay]').forEach(function (b) {
+      b.onclick = function () {
+        const m = b.getAttribute('data-pay')
+        ov.remove()
+        if (m === '现金') checkout('现金')
+        else if (m === '赊账') creditCheckout()
+        else payWithQr(m)
+      }
+    })
   }
 
   // 微信/支付宝：先全屏展示收款码让顾客扫，到账后点「已完成收款」再记账（对账有依据）
