@@ -544,6 +544,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // ⓪ 顶部安全区：先把状态栏那一段垫出来，再渲染页面（否则第一帧标题会被盖住）
   initSafeArea()
   // ① 网页层热更：报心跳 + 顺手查新版（只对装了 APP 的机器生效；不依赖是否已连店铺）
+  // 反馈闭环：开机拉一次「我的反馈」，有回复就在「更多」上显示红点
+  setTimeout(function () { fiLoadMyFeedback() }, 2500)
   const wuState = initWebUpdate()
   // ①b 更新说明：热更自动做完后，弹一次「已更新到 X + 这次改了什么」——
   // 老板要的「有更新要提示、还要说清优化了什么」，就落在这里。
@@ -672,6 +674,31 @@ function fiSpecFamily(p, all) {
 }
 /** 一个「商品」的总数量 = 各规格数量之和（老板明确要的口径） */
 function fiSpecTotalStock(fam) { return (fam || []).reduce(function (s, x) { return s + (Number(x.total_stock) || 0) }, 0) }
+
+// 保质期商品品类：饵料/小药/活饵/路亚假饵（与电脑端 requiresExpiry 同口径）
+const EXPIRY_REQUIRED_CATEGORIES = ['饵料', '小药', '活饵', '路亚假饵']
+
+// 保质期默认值（老板 2026-09-21）：
+//   「正常的饵料保质期是两年，其他的标品基本没有所谓的保质期；
+//     应该从建档日期往后两年去推，而不是自己手动去填保质期。」
+// 所以：需要保质期的品类 → 到期日自动填「今天 + 2 年」（可改）；标品留空。
+// 建档日就是今天（拍照/扫码的当下），直接按今天推两年。
+const EXPIRY_DEFAULT_YEARS = 2
+function defaultExpiryDate(cat) {
+  if (EXPIRY_REQUIRED_CATEGORIES.indexOf(cat) < 0) return ''
+  const d = new Date()
+  d.setFullYear(d.getFullYear() + EXPIRY_DEFAULT_YEARS)
+  const pad = function (n) { return n < 10 ? '0' + n : '' + n }
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+}
+
+// 品类变了就顺手把到期日填成默认值（用户已经改过的不覆盖）。挂在 app.js 便于复用与测试。
+function fillExpiryDefault(cat) {
+  const el = document.getElementById('f-expiry')
+  if (!el) return
+  const def = defaultExpiryDate(cat)
+  if (def && !el.value) el.value = def
+}
 
 // AI 识别失败时该说哪句话。三种情况必须分开 —— 老板 2026-09-21 就是被混淆的那个：
 // 当天额度用完（20 次）也被说成「AI 没认出商品」，他于是以为识别功能坏了。
@@ -1098,6 +1125,44 @@ function openNotifySheet() {
         .then(function () { btn.disabled = false; btn.textContent = '发一条测试' })
     }
   }).catch(function (e) { toast('读设置失败：' + ((e && e.message) || '')) })
+}
+
+// ===== 我的反馈（反馈闭环的最后一环）=====
+// 老板 2026-09-21 问「反馈渠道是什么？人工介入的后台怎么收到？」
+// 光把反馈收上来没用 —— 用户得能看到「我们回了什么」，这条通道才活得下去。
+// 所以：APP 里能看自己发过的反馈 + 官方回复；有新回复时「更多」入口带红点。
+let fiFeedbackItems = null
+function fiLoadMyFeedback() {
+  const iid = fiInstallId()
+  if (!iid) return Promise.resolve([])
+  return fetch(FI_TELEMETRY_API + '/api/v1/app/feedback-mine?installId=' + encodeURIComponent(iid))
+    .then(function (r) { return r.ok ? r.json() : null })
+    .then(function (j) { fiFeedbackItems = (j && j.items) || []; return fiFeedbackItems })
+    .catch(function () { return fiFeedbackItems || [] })
+}
+function fiReplyCount() { return (fiFeedbackItems || []).filter(function (x) { return x.reply }).length }
+function fiUnseenReplies() {
+  try { return Math.max(0, fiReplyCount() - Number(localStorage.getItem('fi-feedback-seen') || 0)) } catch (e) { return 0 }
+}
+function openMyFeedbackSheet() {
+  fiLoadMyFeedback().then(function (items) {
+    try { localStorage.setItem('fi-feedback-seen', String(fiReplyCount())) } catch (e) {}
+    const list = items || []
+    const ov = sheet('我的反馈',
+      '<div class="text-sm text-muted" style="margin-bottom:10px;line-height:1.75">你发过的反馈和我们回的都在这里。有新回复会在「更多」上带个红点。</div>' +
+      (list.length ? list.map(function (x) {
+        return '<div style="padding:12px 0;border-bottom:1px solid var(--line2)">' +
+          '<div style="font-size:14.5px;font-weight:700">' + escHtml(x.text) + '</div>' +
+          '<div class="text-xs text-muted" style="margin-top:3px">' + escHtml(x.at || '') + '</div>' +
+          (x.reply
+            ? '<div style="margin-top:8px;padding:10px 12px;border-radius:10px;background:#e8f8ee;color:#0f9d68;font-size:14px;line-height:1.7"><b>我们的回复</b>（' + escHtml(x.repliedAt || '') + '）<br>' + escHtml(x.reply) + '</div>'
+            : '<div class="text-xs text-muted" style="margin-top:6px">还没回复 —— 一般当天会看</div>') +
+        '</div>'
+      }).join('') : '<div class="text-sm text-muted" style="padding:14px 0">还没发过反馈。</div>') +
+      '<button id="mfb-new" style="width:100%;height:50px;margin-top:14px;border-radius:12px;border:none;background:var(--blue);color:#fff;font-size:16px;font-weight:800">再提一条</button>')
+    const nb = ov.querySelector('#mfb-new')
+    if (nb) nb.onclick = function () { ov.remove(); openFeedbackSheet() }
+  })
 }
 
 // ========== 今天该做的事（2026-09-21 主动触达）==========
@@ -1904,6 +1969,7 @@ page('more', (app) => {
     { icon: 'camera', t: '图片同步自检', d: '这台手机拍的照片别的手机看不到时，点这里看卡在哪一环', fn: openPhotoSyncDiag },
     { icon: 'refresh', t: '更新说明', d: '当前 ' + (WEB_VERSION_APPLIED || APP_VERSION) + ' · 最近几版改了什么', fn: openUpdateHistory },
     { icon: 'users', t: '反馈给开发', d: '哪里不对 / 想加什么，直接说；会自动带上页面和版本', fn: openFeedbackSheet },
+    { icon: 'receipt', t: '我的反馈' + (fiUnseenReplies() ? ' ●' + fiUnseenReplies() : ''), d: fiReplyCount() ? ('我们回了 ' + fiReplyCount() + ' 条') : '看我们回了什么', fn: openMyFeedbackSheet },
     { icon: 'clock', t: '每日提醒', d: '每天定时把「今天该做的事」发到你微信上', fn: openNotifySheet },
     { icon: 'undo', t: '撤回误操作', d: '删商品 / 报损 / 入库点错了能还原', fn: openUndoPanel },
   ]

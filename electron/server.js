@@ -1540,9 +1540,20 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     },
     'ai:chat': async (d, p) => {
       if (!aiRef) return { ok: false, reason: 'ai-not-ready' }
+      // ⚠️ 2026-09-21 补：中心库**原来漏了这一层额度检查**（只有桌面端 main.js 有）。
+      //    手机端走的是中心库，所以「每天 5 次」的手机端等于不存在 ——
+      //    小渔可以被当成免费通用 AI 一直刷（老板原话：「天天聊天这玩意的 token 遭不住」）。
+      //    现在与桌面端同口径：官方网关限次、自备 Key 不限。
+      const official = !!(aiRef.usingOfficialGateway && aiRef.usingOfficialGateway())
+      if (official) {
+        const quota = cmds.checkAiQuota(d, 'chat')
+        if (!quota.allow) return { ok: false, code: 'quota-exceeded', reason: quota.message }
+      }
       try {
         // p.messages = [{role, content}]，返回 { ok, content, drafts, trace }
-        return await aiRef.agentChat(Array.isArray(p?.messages) ? p.messages : [])
+        const r = await aiRef.agentChat(Array.isArray(p?.messages) ? p.messages : [])
+        if (official && r && r.ok) cmds.recordAiUsage(d, 'chat')
+        return r
       } catch (e) { return { ok: false, reason: e.message } }
     },
     // 语音纠错：ASR 识别不准 → 用店里商品清单纠正成真实商品名（手机端语音搜索用）

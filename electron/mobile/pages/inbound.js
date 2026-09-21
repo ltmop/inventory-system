@@ -254,7 +254,7 @@ page('inbound', function (app) {
         '<div class="fld"><label>计量单位</label><select id="f-unit"></select></div>' +
         '<div class="fld"><label>数量</label><input id="f-qty" type="number" step="1" placeholder="多少个 / 多少包？"></div>' +
       '</div>' +
-      '<div class="fld"><label id="f-expiry-label">到期日（可选）</label><input id="f-expiry" type="date" placeholder="2026-12-31"></div>' +
+      '<div class="fld"><label id="f-expiry-label">到期日</label><input id="f-expiry" type="date"><div class="text-xs text-muted" style="margin-top:3px">饵料/小药/活饵默认「今天 + 2 年」；标品可以留空</div></div>' +
       '<div class="fld"><label>商品照片（可选）</label>' +
         '<div style="display:flex;align-items:center;gap:10px">' +
           '<img id="f-photo-prev" alt="商品照片" style="display:none;width:110px;height:110px;object-fit:cover;border-radius:10px;border:2px solid var(--ink);flex:none">' +
@@ -341,8 +341,7 @@ page('inbound', function (app) {
     app.appendChild(restockBox)
   }
 
-  // 保质期商品品类：饵料/小药/活饵/路亚假饵 入库必填到期日（与电脑端 requiresExpiry 一致）
-  const EXPIRY_REQUIRED_CATEGORIES = ['饵料', '小药', '活饵', '路亚假饵']
+  // （到期日的默认值逻辑在 app.js：defaultExpiryDate / fillExpiryDefault，全站共用一份）
 
   // 日历点选到期日（替代手输，防输错）；required=true 时无"不要到期日"按钮（保质期商品）
   function promptDate(title, cb, required) {
@@ -383,10 +382,9 @@ page('inbound', function (app) {
       const qty = isMeter ? Math.round((parseFloat(qtyStr) || 0) * 10) / 10 : (parseInt(qtyStr, 10) || 0)
       if (!(qty > 0)) return
       const cost = prompt('进价多少元？', String((p.cost_price || 0) / 100))
-      // 到期日：保质期商品（饵料/小药/活饵/路亚假饵）必填，与电脑端 requiresExpiry 同口径；其他可选
-      const needExpiry = EXPIRY_REQUIRED_CATEGORIES.includes(p.category)
-      promptDate('到期日（饵料/小药/活饵/路亚假饵填）', async (expiry) => {
-        if (needExpiry && !expiry) { toast('保质期商品必须填到期日'); return }
+      // 到期日（老板 2026-09-21）：饵料/小药/活饵这些保质期品类**按「今天 + 2 年」自动落**，
+      // 不再弹日历逼老板手填；标品（鱼钩鱼线鱼竿这些）本来就没有保质期，问一次、可留空。
+      const doInbound = async (expiry) => {
         const payload = {
           productId: p.id, quantity: qty,
           costPrice: cost ? Math.round(parseFloat(cost) * 100) : p.cost_price,
@@ -398,8 +396,10 @@ page('inbound', function (app) {
           showStamp('已入库', name + ' × ' + qty, true)
           loadRecents([{ brand: p.brand, model: p.model, quantity: qty, timestamp: new Date().toISOString() }])
         } catch (e) { toast('入库失败: ' + e.message) }
-      }, needExpiry)
-    } catch (e) { fiTrack('inbound:save', false, Date.now() - t0); toast('入库失败: ' + e.message) }
+      }
+      if (EXPIRY_REQUIRED_CATEGORIES.includes(p.category)) { await doInbound(defaultExpiryDate(p.category)); return }
+      promptDate('到期日（标品可不填）', doInbound, false)
+    } catch (e) { toast('入库失败: ' + e.message) }
   }
 
   // 到期日标签联动：选中保质期品类时显示"必填"并变红，否则"可选"
@@ -408,7 +408,9 @@ page('inbound', function (app) {
     const label = document.getElementById('f-expiry-label')
     if (!label) return
     const need = EXPIRY_REQUIRED_CATEGORIES.includes(cat)
-    label.textContent = need ? '到期日（必填）' : '到期日（可选）'
+    // 保质期品类：直接按「今天+2年」预填，不再逼老板手填（老板 2026-09-21）
+    label.textContent = need ? '到期日（默认两年后，可改）' : '到期日（可选，标品可不填）'
+    fillExpiryDefault(cat)
     label.style.color = need ? '#ff6b6b' : ''
   }
 
@@ -436,12 +438,19 @@ page('inbound', function (app) {
     // 存 code 到临时属性
     form.setAttribute('data-code', code)
     updateExpiryLabel()
+    fillExpiryDefault(document.getElementById('f-cat').value)   // 双保险：表单开出时就按分类预填默认到期日
     document.getElementById('f-qty').focus()
   }
 
-  // 品类下拉切换时联动到期日标签
-  const catSelect = document.getElementById('f-cat')
-  if (catSelect) catSelect.addEventListener('change', updateExpiryLabel)
+  // 到期日联动：用**事件委托挂在 app 上**，而不是挂在 #f-cat 上 ——
+  // render() 每次都会重建表单，直接挂在元素上的监听会随重建丢掉（规格下拉也是异步重建的）。
+  // 委托挂在 app（它不被重建），只挂一次。
+  if (!app.__expiryHooked) {
+    app.__expiryHooked = true
+    app.addEventListener('change', function (e) {
+      if (e && e.target && e.target.id === 'f-cat') updateExpiryLabel()
+    })
+  }
 
   // 批量入库：把 AI 识别出的每个商品入进去（已匹配的直接入，没匹配的先建档再入）
   async function batchInbound(items) {
@@ -456,11 +465,8 @@ page('inbound', function (app) {
         let productId = it.product_id
         // 到期日：保质期商品（饵料/小药/活饵/路亚假饵）必填
         let expiry = undefined
-        if (EXPIRY_REQUIRED_CATEGORIES.includes(it.category)) {
-          const v = prompt('「' + name + '」是' + it.category + '，这批到期日？（YYYY-MM-DD）', '')
-          if (!v) { failCount++; failNames.push(name + '(没填到期日)'); continue }
-          expiry = v
-        }
+        // 保质期品类按「今天 + 2 年」自动落，不再逐行弹窗问（老板：不该让人手填保质期）
+        if (EXPIRY_REQUIRED_CATEGORIES.includes(it.category)) expiry = defaultExpiryDate(it.category)
         if (!productId) {
           // 建档新商品
           const r = await api('product:create', {
@@ -559,7 +565,12 @@ page('inbound', function (app) {
           // 分类要归一成下拉里真实存在的那个：AI 可能回「线组钩漂 > 鱼钩」这种带大分类前缀的，
           // 直接 setValue 会匹配不到任何 <option>，下拉静默落回第一项 = 自动分类看着没生效。
           const cat = fiNormalizeCategory(it.category, document.getElementById('f-cat'))
-          if (cat) setV('f-cat', cat)
+          if (cat) {
+            setV('f-cat', cat)
+            // AI 认出来的分类要**顺手触发一次联动** —— 否则到期日不会按分类预填（老板看到的会是空框）。
+            // 程序化 setValue 不会触发 change 事件，这里显式补一次。
+            updateExpiryLabel()
+          }
           setV('f-cost', it.cost_price_yuan)
           setV('f-price', it.selling_price_yuan)
           if (it.quantity) setV('f-qty', it.quantity)
@@ -647,17 +658,10 @@ page('inbound', function (app) {
     const price = priceStr ? Math.round(parseFloat(priceStr) * 100) : 0
     if (priceStr && !(price > 0)) { toast('售价填个大于 0 的数（元）'); return }
     const code = form.getAttribute('data-code') || ''
-    // 保质期商品（饵料/小药/活饵/路亚假饵）必须填到期日，与电脑端 requiresExpiry 同口径
-    if (EXPIRY_REQUIRED_CATEGORIES.includes(cat)) {
-      const expiryEl = document.getElementById('f-expiry')
-      if (!expiryEl || !expiryEl.value) {
-        toast('保质期商品（饵料/小药/活饵/路亚假饵）必须填到期日')
-        expiryEl && expiryEl.focus()
-        return
-      }
-    }
+    // 保质期商品不再拦人：没填就按「今天 + 2 年」自动落（老板 2026-09-21：
+    // 「应该从建档日期往后两年去推，而不是自己手动去填保质期」）。老板真想改还能改，但不会被卡住。
     const expiryEl = document.getElementById('f-expiry')
-    const expiry = expiryEl && expiryEl.value ? expiryEl.value : undefined
+    const expiry = (expiryEl && expiryEl.value) || defaultExpiryDate(cat) || undefined
     try {
       const r = await api('product:create', {
         sku_code: code, barcode: code, category: cat, brand: '', model: name,
