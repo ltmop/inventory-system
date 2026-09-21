@@ -3,6 +3,7 @@
 page('stock', function (app) {
   let keyword = ''
   let cat = ''            // 选中的分类（'' = 全部）
+  let brandView = ''      // 选中的品牌（'' = 还在品牌列表这一层）
   let lowOnly = false     // 只看低库存
   let all = apiCached('product:list', { keyword: '', limit: 500 }) || [] // 首帧先用上次缓存
   let results = all
@@ -18,9 +19,12 @@ page('stock', function (app) {
     }, 250)
   }
 
+  function brandOf(p) { return String(p.brand || '').trim() || '（没填品牌）' }
+
   function applyFilter() {
     results = all.filter(p => {
       if (cat && (p.category || '其他') !== cat) return false
+      if (brandView && brandOf(p) !== brandView) return false
       if (lowOnly && !((p.total_stock || 0) < (p.min_stock || 5))) return false
       return true
     })
@@ -118,12 +122,59 @@ page('stock', function (app) {
       sticky.appendChild(bar)
     }
 
+    // ===== 两级视图第一层：只列品牌（老板要的：先看品牌，点进去才看规格）=====
+    if (!brandView) {
+      const byBrand = {}
+      results.forEach(p => { const b = brandOf(p); (byBrand[b] = byBrand[b] || []).push(p) })
+      const names = Object.keys(byBrand).sort((a, b) => byBrand[b].length - byBrand[a].length)
+      if (names.length === 0) {
+        const empty0 = document.createElement('div'); empty0.className = 'empty'
+        empty0.textContent = keyword ? ('没有找到「' + keyword + '」') : '加载中...'
+        app.appendChild(empty0)
+        return
+      }
+      names.forEach((b, bi) => {
+        const list = byBrand[b]
+        const stock = list.reduce((s, p) => s + (p.total_stock || 0), 0)
+        const prices = list.map(p => p.suggest_price).filter(v => v > 0)
+        const avg = prices.length ? Math.round(prices.reduce((s, v) => s + v, 0) / prices.length) : 0
+        const lowN = list.filter(p => (p.total_stock || 0) < (p.min_stock || 5)).length
+        const row = document.createElement('div')
+        row.className = 'card tap'
+        row.style.cssText = 'padding:12px 14px;cursor:pointer;animation:cardIn .34s var(--ease) both;animation-delay:' + (bi * 16) + 'ms'
+        row.innerHTML =
+          '<div class="flex" style="align-items:center;gap:11px">' +
+            '<div style="width:38px;height:38px;border-radius:11px;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;flex:none">' + escHtml(b.slice(0, 1)) + '</div>' +
+            '<div style="flex:1;min-width:0">' +
+              '<div class="font-bold" style="font-size:15px">' + escHtml(b) + '</div>' +
+              '<div class="text-xs text-muted" style="margin-top:2px">' + list.length + ' 种规格 · 库存 ' + stock +
+                (avg ? ' · 均价 ' + fmt(avg) : '') + (lowN ? ' · <span class="text-red">' + lowN + ' 种缺货</span>' : '') + '</div>' +
+            '</div>' +
+            '<div style="color:#c3ccd8;display:flex">' + FiIcon('chevron', 16) + '</div>' +
+          '</div>'
+        row.onclick = function () { brandView = b; applyFilter() }   // 必须走 applyFilter，否则列表不会按品牌过滤
+        app.appendChild(row)
+      })
+      return
+    }
+
     if (results.length === 0) {
       const empty = document.createElement('div'); empty.className = 'text-center text-muted'; empty.style.padding = '30px'; empty.style.fontSize = '15px'
       empty.textContent = keyword ? '没有找到「' + keyword + '」' : (cat || lowOnly ? '这个筛选下没有商品' : '加载中...')
       app.appendChild(empty)
       return
     }
+
+    // 进到品牌里：顶部给一个明显的返回
+    const backRow = document.createElement('div')
+    backRow.className = 'card tap'
+    backRow.style.cssText = 'margin-top:10px;padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:9px'
+    backRow.innerHTML = '<span style="display:flex;color:var(--blue)">' + FiIcon('undo', 16) + '</span>' +
+      '<span class="font-bold" style="font-size:14px">' + escHtml(brandView) + '</span>' +
+      '<span class="text-xs text-muted">全部规格</span>' +
+      '<span class="text-xs" style="margin-left:auto;color:var(--blue)">← 返回品牌</span>'
+    backRow.onclick = function () { brandView = ''; applyFilter() }
+    app.appendChild(backRow)
 
     // 顶部统计（大字）
     const lowCount = results.filter(p => (p.total_stock || 0) < (p.min_stock || 5)).length

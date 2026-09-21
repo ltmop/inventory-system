@@ -1,15 +1,28 @@
 // inbound.js: 入库页 —— 拍照建档 / 扫码入库 双入口 → 已入库印章
 page('inbound', function (app) {
   let recentInbounds = []
+  let justAdded = 0            // 刚入库的行数（用来做高亮）
   let pendingPhoto = null // 已选好、还没入库的商品图（base64）；入库拿到 id 后再挂到商品上
   loadRecents()
 
-  async function loadRecents() {
+  // newItems：刚入库的那几行，直接插到列表最上面并高亮 —— 老板要"新建档的商品出现在下面空白处"
+  async function loadRecents(newItems) {
     try {
       const tx = await api('report:today')
       recentInbounds = (tx.recent || []).filter(t => t.type === 'in').slice(0, 10)
     } catch { recentInbounds = [] }
+    if (Array.isArray(newItems) && newItems.length) {
+      recentInbounds = newItems.concat(recentInbounds).slice(0, 10)
+      justAdded = newItems.length
+    }
     render()
+    if (Array.isArray(newItems) && newItems.length) {
+      // 滚到刚入库的位置，让人一眼看到"进去了"
+      setTimeout(function () {
+        const el = document.querySelector('.rec.new') || document.getElementById('recent-inbound')
+        if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      }, 120)
+    }
   }
 
   // ===== 进货单整单入库（老板要的：有单据就该按单据一次入完）=====
@@ -93,7 +106,9 @@ page('inbound', function (app) {
         if (res.failed && res.failed.length) {
           alert('这些行没入库成功：\n' + res.failed.map(function (f) { return '· ' + (f.brand || '') + ' ' + (f.model || '') + '：' + f.reason }).join('\n'))
         }
-        loadRecents()
+        loadRecents(rows.filter(function (r) { return r.quantity > 0 }).map(function (r) {
+          return { brand: r.brand, model: r.model, quantity: r.quantity, timestamp: new Date().toISOString() }
+        }))
       } catch (e) {
         btn.disabled = false; btn.textContent = '全部入库'
         toast('入库失败：' + ((e && e.message) || ''))
@@ -184,16 +199,20 @@ page('inbound', function (app) {
       }
     }
 
-    // 今日入库记录
-    if (recentInbounds.length > 0) {
+    // 今日入库记录（永远渲染：没有记录时给一句提示，不留一大片空白）
+    {
       const recTitle = document.createElement('div'); recTitle.className = 'sectitle'
-      recTitle.innerHTML = '<span class="tag" style="background:var(--ink)">今日入库</span>'
+      recTitle.innerHTML = '<span class="tag" style="background:var(--ink)">今日入库</span><span>' +
+        (recentInbounds.length ? ('最近 ' + recentInbounds.length + ' 条') : '还没有记录') + '</span>'
       app.appendChild(recTitle)
-      const recs = document.createElement('div'); recs.style.padding = '0 16px 14px'
-      recentInbounds.forEach(t => {
+      const recs = document.createElement('div'); recs.id = 'recent-inbound'; recs.style.padding = '0 16px 14px'
+      if (!recentInbounds.length) {
+        recs.innerHTML = '<div class="empty">上面点「AI 拍照建档 / 手动建档 / 扫码入库 / 进货单入库」入库，<br>进来的货会一条条列在这里。</div>'
+      }
+      recentInbounds.forEach((t, ti) => {
         const name = (t.brand || '') + ' ' + (t.model || '') || t.sku_code || '-'
         const time = (t.timestamp || '').slice(11, 16)
-        const div = document.createElement('div'); div.className = 'rec'
+        const div = document.createElement('div'); div.className = 'rec' + (ti < justAdded ? ' new' : '')
         div.innerHTML =
           '<div class="ph" style="background:var(--green)">' + (name[0] || '?') + '</div>' +
           '<div class="info"><div class="n">' + name + '</div><div class="d">' + time + '</div></div>' +
@@ -259,7 +278,7 @@ page('inbound', function (app) {
         try {
           await api('inbound:create', payload)
           showStamp('已入库', name + ' × ' + qty, true)
-          loadRecents()
+          loadRecents([{ brand: p.brand, model: p.model, quantity: qty, timestamp: new Date().toISOString() }])
         } catch (e) { toast('入库失败: ' + e.message) }
       }, needExpiry)
     } catch (e) { toast('入库失败: ' + e.message) }

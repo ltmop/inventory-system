@@ -1049,11 +1049,20 @@ function initSafeArea() {
     top = Math.round(probe.getBoundingClientRect().height || 0)
     probe.remove()
   } catch (e) { top = 0 }
-  if (!top) {
-    const native = !!(window.Capacitor && (window.Capacitor.isNativePlatform ? window.Capacitor.isNativePlatform() : !!window.Capacitor.Plugins))
-    if (native) top = 28
-  }
+  const native = !!(window.Capacitor && (window.Capacitor.isNativePlatform ? window.Capacitor.isNativePlatform() : !!window.Capacitor.Plugins))
+  if (!top && native) top = 28
   try { document.documentElement.style.setProperty('--safe-top', top + 'px') } catch (e) {}
+  // 底部：安卓三键导航/手势条会盖住最下面的东西（老板说"看不到结账按钮"很可能就是这个）
+  let bottom = 0
+  try {
+    const probe2 = document.createElement('div')
+    probe2.style.cssText = 'position:fixed;left:0;bottom:0;width:0;height:env(safe-area-inset-bottom,0px);pointer-events:none'
+    document.body.appendChild(probe2)
+    bottom = Math.round(probe2.getBoundingClientRect().height || 0)
+    probe2.remove()
+  } catch (e) { bottom = 0 }
+  if (!bottom && native) bottom = 12   // 真机拿不到就给一点兜底，宁可多留白也别被系统条压住
+  try { document.documentElement.style.setProperty('--safe-bottom', bottom + 'px') } catch (e) {}
 }
 
 function renderAccountChip() {
@@ -1146,13 +1155,26 @@ page('more', (app) => {
   }
 
   // 分组渲染：一屏能扫完，不用在几十个入口里找
+  // 分组可折叠：点标题收起/展开，状态记在本机（老板要"分类能缩放"）
+  function collapsedGroups() {
+    try { return JSON.parse(localStorage.getItem('fi-more-collapsed') || '[]') } catch (e) { return [] }
+  }
+  function toggleGroup(name, on) {
+    try {
+      const cur = collapsedGroups().filter(function (x) { return x !== name })
+      if (on) cur.push(name)
+      localStorage.setItem('fi-more-collapsed', JSON.stringify(cur))
+    } catch (e) { /* 存不住不致命 */ }
+  }
   function block(title, rows) {
+    const isCollapsed = collapsedGroups().indexOf(title) >= 0
     const g = document.createElement('div')
-    g.className = 'group'
-    g.innerHTML = escHtml(title) + '<span class="ln"></span>'
+    g.className = 'group tap'
+    g.innerHTML = escHtml(title) + '<span class="ln"></span><span class="gr-arrow">' + FiIcon('chevron', 13) + '</span>'
+    g.style.cursor = 'pointer'
     app.appendChild(g)
     const list = document.createElement('div')
-    list.className = 'list'
+    list.className = 'list' + (isCollapsed ? ' collapsed' : '')
     rows.forEach(function (r) {
       const row = document.createElement('div')
       row.className = 'row'
@@ -1164,6 +1186,13 @@ page('more', (app) => {
       list.appendChild(row)
     })
     app.appendChild(list)
+    g.onclick = function () {
+      const nowCollapsed = !list.classList.contains('collapsed')
+      list.classList.toggle('collapsed', nowCollapsed)
+      g.classList.toggle('closed', nowCollapsed)
+      toggleGroup(title, nowCollapsed)
+    }
+    if (isCollapsed) g.classList.add('closed')
   }
 
   block('经营', [

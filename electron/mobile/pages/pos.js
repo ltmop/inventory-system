@@ -75,7 +75,21 @@ page('pos', function (app) {
     } catch (e) { /* 同上 */ }
     if (!hotProducts.length) { const c = fromCache(12); if (c.length) { hotProducts = c; hotBasis = 'cache' } }
     enrichHot()
+    hotProducts = dedupeByName(hotProducts)
     renderMid(true)
+  }
+
+  // 同名商品只留一件（老板反馈常卖货出现重复）：
+  // 库里确实有 4 条同名档案"倍利 伊势尼钩 有刺"，台面上连着排四张一模一样的卡。
+  // 这里按「品牌+型号」归一化去重，优先留有货的、货多的在前；真正的重复档案要合并（另做数据清理）。
+  function dedupeByName(list) {
+    const seen = {}
+    return (list || []).filter(function (p) {
+      const key = String(((p.brand || '') + ' ' + (p.model || '')).trim() || p.sku_code || p.id).replace(/\s+/g, ' ').toLowerCase()
+      if (seen[key]) return false
+      seen[key] = 1
+      return true
+    })
   }
 
   // 热销接口只回 销量用的字段；库存/图片/条码从全量列表里补上（离线也算得出来）
@@ -197,7 +211,9 @@ page('pos', function (app) {
   }
 
   function buildCatShelf(box, cat) {
-    const list = cat === '__all' ? allProducts : allProducts.filter(function (p) { return (p.category || '其他') === cat })
+    const raw = cat === '__all' ? allProducts : allProducts.filter(function (p) { return (p.category || '其他') === cat })
+    // 同名只留一个（有货的优先），否则分类里也会出现连排四张一样的卡
+    const list = dedupeByName([...raw].sort(function (a, b) { return (b.total_stock || 0) - (a.total_stock || 0) }))
     if (!list.length) {
       box.innerHTML = '<div class="empty" style="padding:26px 16px">这个分类下没找到商品' + (allProducts.length ? '' : '（商品还没同步下来，连上网再来）') + '</div>'
       return
@@ -569,6 +585,12 @@ page('pos', function (app) {
       })
       if (r && r.ok === false) { toast('开单被拦截：' + blockMsg(r)); return }
       const totalFen = cartTotal()
+      // 结账动画：先把清单「飞走」，再盖章 —— 老板要看得见的反馈
+      try {
+        const rows = document.querySelectorAll('.pos-cart .line')
+        rows.forEach(function (el, i) { el.style.animation = 'payFly .42s cubic-bezier(.22,1,.36,1) both'; el.style.animationDelay = (i * 55) + 'ms' })
+        await new Promise(function (r) { setTimeout(r, 260) })
+      } catch (e) { /* 动画失败不影响记账 */ }
       showStamp('收讫', fmt(totalFen) + ' · ' + method, false)
       cart.length = 0; resetIdem()
     } catch (e) { toast('结账失败: ' + e.message) } finally { busy = false; renderCart(); renderMid() }

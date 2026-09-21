@@ -2,6 +2,7 @@
 page('today', function (app) {
   let data = null
   let aiConfigured = false
+  let lowStockCount = 0     // 库存告急品种数（在 load 里取一次，render 直接用）
   let aiText = null
   let aiLoading = false
 
@@ -10,6 +11,7 @@ page('today', function (app) {
     try { data = await api('report:today') } catch { data = null }
     // AI 是否配置（配置了才显示日报卡片，否则隐藏 AI 成分）
     try { const s = await api('ai:status'); aiConfigured = !!s?.configured } catch { aiConfigured = false }
+    try { lowStockCount = (((await api('report:lowStock')) || []).length) } catch { lowStockCount = 0 }
     loaded = true
     render()
     // 有成交且 AI 可用 → 后台生成日报
@@ -88,9 +90,9 @@ page('today', function (app) {
       '<div class="today-fixed">' +
         '<div class="d">' + (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日 · ' + wd + ' · 今日经营</div>' +
         '<div class="row3">' +
-          '<div class="m"><div class="k">营业额</div><div class="v" style="color:var(--blue)">' + fmt(rev) + '</div></div>' +
-          '<div class="m"><div class="k">毛利</div><div class="v" style="color:var(--ok)">' + fmt(prof) + '</div></div>' +
-          '<div class="m"><div class="k">净利</div><div class="v" style="color:' + (net >= 0 ? 'var(--ok)' : 'var(--danger)') + '">' + fmt(net) + '</div></div>' +
+          '<div class="m"><div class="k">营业额</div><div class="v" id="tv-rev" data-fen="' + rev + '" style="color:var(--blue)">' + fmt(rev) + '</div></div>' +
+          '<div class="m"><div class="k">毛利</div><div class="v" id="tv-prof" data-fen="' + prof + '" style="color:var(--ok)">' + fmt(prof) + '</div></div>' +
+          '<div class="m"><div class="k">净利</div><div class="v" id="tv-net" data-fen="' + net + '" style="color:' + (net >= 0 ? 'var(--ok)' : 'var(--danger)') + '">' + fmt(net) + '</div></div>' +
         '</div>' +
         '<div class="d" style="margin-top:5px">毛利率 ' + margin + '% · 支出 ' + fmt(expense) + ' · 应收 ' + fmt(recv) + '</div>' +
       '</div>'
@@ -126,6 +128,80 @@ page('today', function (app) {
       }
       app.appendChild(c2)
     }
+
+    // ===== 数据分析图：收款方式占比 + 今日时段分布（老板看的就是这个）=====
+    const methodsArr = methods.map(function (kv) { return { name: kv[0], val: kv[1] } }).sort(function (a, b) { return b.val - a.val })
+    const outTx = (data.recent || []).filter(function (t) { return t.type === 'out' })
+    const buckets = []
+    for (let h = 0; h < 24; h += 3) buckets.push({ label: h + '点', val: 0 })
+    outTx.forEach(function (t) {
+      const hh = parseInt(String(t.timestamp || '').slice(11, 13), 10)
+      if (!isNaN(hh)) buckets[Math.floor(hh / 3)].val += (t.selling_price || 0) * (t.quantity || 0)
+    })
+    const maxBucket = Math.max(1, ...buckets.map(function (b) { return b.val }))
+    const totalOut = Math.max(1, methodsArr.reduce(function (s, m) { return s + m.val }, 0))
+
+    const cChart = document.createElement('div'); cChart.className = 'card'
+    cChart.style.animation = 'cardIn .4s var(--ease) both'
+    cChart.innerHTML =
+      '<div class="flex" style="align-items:center;gap:7px;margin-bottom:10px">' +
+        '<span style="color:var(--blue);display:flex">' + FiIcon('chart', 17) + '</span>' +
+        '<div class="font-bold" style="font-size:14.5px">今日数据分析</div>' +
+        '<span class="text-xs text-muted" style="margin-left:auto">' + (outTx.length ? (outTx.length + ' 笔成交') : '今天还没卖出') + '</span>' +
+      '</div>' +
+      (methodsArr.length
+        ? '<div class="text-xs text-muted" style="margin-bottom:6px">收款方式</div>' +
+          methodsArr.map(function (m, i) {
+            const pct = Math.round((m.val / totalOut) * 100)
+            return '<div style="margin-bottom:9px">' +
+              '<div class="flex" style="justify-content:space-between;font-size:12.5px"><span>' + escHtml(m.name) + '</span>' +
+              '<span class="text-muted">' + fmt(m.val) + ' · ' + pct + '%</span></div>' +
+              '<div class="bar"><i style="width:' + pct + '%;animation-delay:' + (i * 90) + 'ms"></i></div></div>'
+          }).join('')
+        : '<div class="empty" style="padding:10px 0">今天还没有收款记录，图表会随着开单自动长出来。</div>') +
+      '<div class="text-xs text-muted" style="margin:12px 0 6px">今日各时段营业额</div>' +
+      '<div class="barchart">' +
+        buckets.map(function (b, i) {
+          const h = Math.round((b.val / maxBucket) * 100)
+          return '<div class="bc-col"><div class="bc-bar" style="height:' + Math.max(2, h) + '%;animation-delay:' + (i * 45) + 'ms"></div>' +
+            '<div class="bc-lab">' + (i % 2 === 0 ? b.label : '') + '</div></div>'
+        }).join('') +
+      '</div>'
+    app.appendChild(cChart)
+
+    // ===== 运营额度：一眼看清"账上还欠多少 / 哪些货告急 / AI 还能不能用" =====
+    const lowStockN = lowStockCount
+    const ops = document.createElement('div'); ops.className = 'card'
+    ops.style.animation = 'cardIn .45s var(--ease) both'
+    ops.innerHTML =
+      '<div class="flex" style="align-items:center;gap:7px;margin-bottom:10px">' +
+        '<span style="color:var(--blue);display:flex">' + FiIcon('pulse', 17) + '</span>' +
+        '<div class="font-bold" style="font-size:14.5px">运营额度</div>' +
+      '</div>' +
+      '<div class="stat-grid">' +
+        '<div class="stat"><div class="k">客户欠款（应收）</div><div class="v" style="color:' + (recv > 0 ? 'var(--warn)' : 'var(--ok)') + '">' + fmt(recv) + '</div></div>' +
+        '<div class="stat"><div class="k">库存告急</div><div class="v" style="color:' + (lowStockN > 0 ? 'var(--danger)' : 'var(--ok)') + '">' + lowStockN + ' 种</div></div>' +
+        '<div class="stat"><div class="k">今日支出</div><div class="v">' + fmt(expense) + '</div></div>' +
+        '<div class="stat"><div class="k">AI 助手</div><div class="v" style="font-size:15px;color:' + (aiConfigured ? 'var(--ok)' : 'var(--sub)') + '">' + (aiConfigured ? '已接通' : '未配置') + '</div></div>' +
+      '</div>'
+    app.appendChild(ops)
+
+    // 数字滚动动画（营收/毛利/净利从 0 长上去）
+    try {
+      ;['tv-rev', 'tv-prof', 'tv-net'].forEach(function (id) {
+        const el = document.getElementById(id)
+        if (!el) return
+        const target = Number(el.getAttribute('data-fen')) || 0
+        const t0 = Date.now()
+        const tick = function () {
+          const k = Math.min(1, (Date.now() - t0) / 650)
+          const ease = 1 - Math.pow(1 - k, 3)
+          el.textContent = fmt(Math.round(target * ease))
+          if (k < 1) requestAnimationFrame(tick)
+        }
+        requestAnimationFrame(tick)
+      })
+    } catch (e) { /* 动画失败不影响数字 */ }
 
     // 最近流水
     const recent = data.recent || []

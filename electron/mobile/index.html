@@ -31,9 +31,15 @@
   --ease:cubic-bezier(.22,1,.36,1);
   --spring:cubic-bezier(.34,1.4,.64,1);
   --s:1; font-size:15px;
-  /* 顶部安全区：安卓 15+ 强制全屏（edge-to-edge），不垫开就会被手机状态栏盖住标题。
+  /* 全屏弹层（登录/连接/操作员/扫码/选择客户/底部弹层…）都是挂在 body 上的 fixed 层，
+   它们不在 .phone 里，所以必须单独让开状态栏 —— 2026-09-21 在 Android 15 真机模拟器上复现：
+   登录面板标题被状态栏压住就是这条漏了。用 !important 盖住各面板的内联 padding。 */
+body > div:not(.phone){padding-top:calc(var(--safe-top,0px) + 16px) !important;padding-bottom:calc(var(--safe-bottom,0px) + 12px) !important}
+/* 顶部安全区：安卓 15+ 强制全屏（edge-to-edge），不垫开就会被手机状态栏盖住标题。
      真机拿不到系统安全区时，app.js 会把它兜成常见状态栏高度。 */
   --safe-top:env(safe-area-inset-top,0px);
+  /* 底部同样要垫：安卓三键导航/手势条会盖住最下面的东西（老板说"看不到结账按钮"很可能就是这个） */
+  --safe-bottom:env(safe-area-inset-bottom,0px);
   color-scheme:light;
 }
 body.size-s{--s:.9}
@@ -64,7 +70,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro SC","PingFang SC","Mic
 .pos{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--bg)}
 .pos-top{flex:none;background:var(--card);border-bottom:1px solid var(--line);position:relative;z-index:3}
 .pos-mid{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
-.pos-cart{flex:none;display:flex;flex-direction:column;background:var(--card);border-radius:var(--r-xl) var(--r-xl) 0 0;box-shadow:0 -8px 28px rgba(16,24,40,.10);max-height:58%;transition:max-height .32s var(--ease)}
+.pos-cart{flex:none;display:flex;flex-direction:column;background:var(--card);border-radius:var(--r-xl) var(--r-xl) 0 0;box-shadow:0 -8px 28px rgba(16,24,40,.10);max-height:min(58%,560px);overflow:hidden;transition:max-height .32s var(--ease)}
 .pos-cart .chead{flex:none;display:flex;align-items:center;gap:8px;padding:14px 16px 10px;cursor:pointer}
 .pos-cart .chead .t{display:flex;align-items:center;gap:7px;font-size:calc(var(--s)*14px);font-weight:800}
 .pos-cart .chead .t .pill{background:var(--blue);color:#fff;border-radius:999px;min-width:18px;height:18px;padding:0 5px;font-size:calc(var(--s)*11px);font-weight:800;display:flex;align-items:center;justify-content:center}
@@ -72,12 +78,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro SC","PingFang SC","Mic
 .pos-cart .chead .chev{display:flex;color:var(--sub);transition:transform .3s var(--spring)}
 .pos-cart.collapsed .chead .chev{transform:rotate(-90deg)}
 .pos-cart .chead .clr{display:flex;align-items:center;gap:3px;font-size:calc(var(--s)*11px);color:var(--sub);border:1px solid var(--line);border-radius:999px;padding:3px 9px;background:#fff;font-weight:700}
-.pos-cart .clist{overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0;padding:0 16px}
+.pos-cart .clist{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0;padding:0 16px}
 .pos-cart.collapsed .clist{display:none}
-.pos-cart .ctail{flex:none;padding:10px 16px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--line2)}
+.pos-cart .ctail{flex:none;padding:10px 16px calc(8px + var(--safe-bottom,0px));border-top:1px solid var(--line2)}
 .pos-cart .empty{color:var(--sub);font-size:calc(var(--s)*12.5px);text-align:center;padding:18px 8px;line-height:1.7}
 .line{display:flex;align-items:center;gap:9px;padding:10px 0;border-bottom:1px solid var(--line2);animation:lineIn .3s var(--spring) both}
 @keyframes lineIn{from{opacity:0;transform:translate3d(16px,0,0)}to{opacity:1;transform:none}}
+/* 刚入库的那几条：高亮 + 弹一下，让人看见"进去了" */
+.rec.new{border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-l);animation:newIn .5s var(--spring) both}
+@keyframes newIn{from{opacity:0;transform:translate3d(0,14px,0) scale(.97)}to{opacity:1;transform:none}}
+/* 结账时清单行「飞走」 */
+@keyframes payFly{from{opacity:1;transform:none}to{opacity:0;transform:translate3d(38%,-14px,0) scale(.94)}}
 .line:last-child{border-bottom:none}
 .line .del{flex:none;width:calc(var(--s)*30px);height:calc(var(--s)*30px);border-radius:50%;border:none;background:var(--danger-l);color:var(--danger);display:flex;align-items:center;justify-content:center}
 .line .ph{width:calc(var(--s)*42px);height:calc(var(--s)*42px);border-radius:var(--r-md);flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:calc(var(--s)*16px);font-weight:800}
@@ -153,7 +164,7 @@ mark{background:var(--blue-l2);color:var(--blue-d);border-radius:3px;padding:0 2
 .pay[disabled]{opacity:.45}
 
 /* ---------- 底部导航 ---------- */
-.tabs{display:grid;grid-template-columns:repeat(5,1fr);background:var(--card);border-top:1px solid var(--line);flex:none;padding-bottom:env(safe-area-inset-bottom)}
+.tabs{display:grid;grid-template-columns:repeat(5,1fr);background:var(--card);border-top:1px solid var(--line);flex:none;padding-bottom:max(var(--safe-bottom,0px), 2px)}
 .tab{padding:8px 0 7px;text-align:center;font-size:calc(var(--s)*11px);color:var(--sub);font-weight:700;cursor:pointer;text-decoration:none;position:relative;transition:color .22s var(--ease)}
 .tab .ico-box{width:100%;display:flex;justify-content:center;margin-bottom:3px}
 .tab svg{width:calc(var(--s)*21px);height:calc(var(--s)*21px);transition:transform .32s var(--spring)}
@@ -166,7 +177,12 @@ mark{background:var(--blue-l2);color:var(--blue-d);border-radius:3px;padding:0 2
 .card{background:var(--card);border-radius:var(--r-lg);padding:14px;margin:0 14px 10px;border:1px solid var(--line);box-shadow:var(--sh-1);transition:transform .2s var(--spring),box-shadow .2s var(--ease)}
 .card.tap:active{transform:scale(.985)}
 .card .split{display:flex;justify-content:space-between;align-items:center}
-.list{background:var(--card);border-radius:var(--r-lg);border:1px solid var(--line);box-shadow:var(--sh-1);margin:0 14px 10px;overflow:hidden}
+.list{background:var(--card);border-radius:var(--r-lg);border:1px solid var(--line);box-shadow:var(--sh-1);margin:0 14px 10px;overflow:hidden;transition:max-height .32s var(--ease),opacity .24s var(--ease)}
+/* 分组折叠（更多页）：收起时整块淡出收起 */
+.list.collapsed{max-height:0;opacity:0;margin-bottom:0;border-color:transparent;pointer-events:none}
+.group.tap .gr-arrow{display:flex;color:var(--sub);transition:transform .3s var(--spring)}
+.group.tap.closed .gr-arrow{transform:rotate(-90deg)}
+.group.closed{color:var(--sub)}
 .row{display:flex;align-items:center;gap:11px;padding:13px 14px;cursor:pointer;position:relative;transition:background .2s var(--ease)}
 .row:active{background:var(--card2)}
 .row+.row::after{content:'';position:absolute;top:0;left:54px;right:0;height:1px;background:var(--line2)}
@@ -213,6 +229,12 @@ mark{background:var(--blue-l2);color:var(--blue-d);border-radius:3px;padding:0 2
 .stat .k{font-size:calc(var(--s)*11.5px);color:var(--sub);font-weight:600}
 .stat .v{font-size:calc(var(--s)*20px);font-weight:800;margin-top:3px;font-variant-numeric:tabular-nums}
 .bar{height:6px;border-radius:999px;background:var(--line2);overflow:hidden;margin-top:8px}
+/* 今日页：各时段营业额柱状图（纯 CSS，入场时从 0 长上来） */
+.barchart{display:flex;align-items:flex-end;gap:5px;height:86px;padding:6px 2px 0;border-bottom:1px solid var(--line2)}
+.bc-col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%}
+.bc-bar{width:100%;max-width:22px;border-radius:6px 6px 2px 2px;background:linear-gradient(180deg,#93c5fd,#2563eb);transform-origin:bottom;animation:grow .7s var(--ease) both}
+.bc-lab{font-size:9.5px;color:var(--sub);margin-top:4px;white-space:nowrap}
+@keyframes grow{from{transform:scaleY(0);opacity:.4}to{transform:scaleY(1);opacity:1}}
 .bar i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#60a5fa,#2563eb);animation:grow .6s var(--ease) both}
 @keyframes grow{from{width:0}}
 .text-sm{font-size:calc(var(--s)*12px)}.text-xs{font-size:calc(var(--s)*11px)}.text-lg{font-size:calc(var(--s)*15px)}.text-xl{font-size:calc(var(--s)*17px)}.text-2xl{font-size:calc(var(--s)*21px)}
