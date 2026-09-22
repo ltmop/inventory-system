@@ -70,8 +70,13 @@ const STATIC_MIME = {
   '.woff2': 'font/woff2',
 }
 // /app 的 CSP 比手机页放宽：要加载自己的 js/css 文件，图片允许 data/blob（拍照预览）
+// 官方 AI 网关的地址。手机端有四处直接打它：更新检查、埋点、反馈提交、反馈回复。
+// 2026-09-22 验收发现：下面 connect-src 只放了 'self'，浏览器版 /m/ 打它是被 CSP 拦掉的 ——
+// 表现是「反馈提交了没人回、更新提示永远不弹」，而且控制台才看得到，页面上完全静默。
+// APP 内不受影响（www/index.html 没有 CSP meta，WebView 也不吃服务器的响应头）。
+const GATEWAY_ORIGIN = process.env.FI_GATEWAY_ORIGIN || 'http://43.128.20.39:17533'
 const APP_CSP =
-  "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' data:"
+  "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' " + GATEWAY_ORIGIN + "; font-src 'self' data:"
 
 // ---------- 统计查询（口径参照 DashboardPage：金额单位分，退货冲减营业额/毛利） ----------
 
