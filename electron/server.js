@@ -28,6 +28,7 @@ const { productNamesForSearch, localSearchHit } = search
 import { saveInsight, listInsights, updateInsight, deleteInsight } from './db.js'
 const { analyticsTrend, analyticsCategory, analyticsTop, analyticsStockValue, analyticsOverview } = analytics
 import { createPhotoStore } from './photo.js'
+import { createHash } from 'node:crypto'
 // 授权档位（v3.0）：中心库也要能读/写这份档位 —— 手机端走中心库那份，
 // 它决定 AI 每日额度之类的分级能力。以前中心库完全没有授权概念，永远停在免费档。
 import { readLevelFromDb, saveLevelToDb } from './license.js'
@@ -786,6 +787,19 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
   const configPath = path.join(dataDir, 'server-config.json')
   // 商品图片只读出口：/api/photo?path=<相对文件名>，路径校验与桌面端 fi-img 协议共用 photo.js
   const photoStore = createPhotoStore(path.join(dataDir, 'images'))
+  // ---- 品牌图片（老板 2026-09-22：「库存里面的品牌也可以插入图片」）----
+  // 品牌不是商品、没有 id，所以用一张「品牌名 → 文件名」的小索引；图片本体还是走同一套
+  // images 目录和 /api/photo URL（不另起一套存储，免得两处都能挂图、两处都对不上）。
+  const BRAND_IMG_INDEX = path.join(dataDir, 'brand-images.json')
+  function readBrandImages() {
+    try { const v = JSON.parse(fs.readFileSync(BRAND_IMG_INDEX, 'utf8')); return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {} } catch (e) { return {} }
+  }
+  function writeBrandImages(o) {
+    try { fs.mkdirSync(dataDir, { recursive: true }); fs.writeFileSync(BRAND_IMG_INDEX, JSON.stringify(o)) } catch (e) { /* 存不下不影响用 */ }
+  }
+  function brandKeyOf(brand) {
+    return 'b' + createHash('sha1').update(String(brand)).digest('hex').slice(0, 12)
+  }
   let server = null
   let port = null
   // HTTPS 服务（v2.8）：手机浏览器要麦克风/摄像头必须走 HTTPS，这里起一个加密服务给语音识别用
@@ -880,7 +894,7 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     // 注：receipt:reconcile 是纯查询（commands/receipt.js 里只有 SELECT），原来误放在写通道，
     // 会让只读账号（财务）点「收款对账」直接 403。已移出。
     'part:set','part:setMany','kit:save','kit:delete','receipt:register',
-    'po:create','po:receive','po:cancel','priceTier:set','priceTier:delete','photo:save','photo:delete',
+    'po:create','po:receive','po:cancel','priceTier:set','priceTier:delete','photo:save','photo:delete','brand:photo:save','brand:photo:delete',
     // 分类管理（2026-09-13 补）：这几条一直是写操作，但漏在白名单外 ——
     // 后果是**只读/视图令牌也能改分类**。顺手补齐（与 receipt:reconcile 那条注释同一个道理）。
     'category:create','category:rename','category:delete','category:move','category:setParent',
@@ -1286,6 +1300,26 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       return { wx: readQr('wx.jpg'), ali: readQr('ali.jpg') }
     },
     'photo:save': (d, p) => ({ ok: true, path: photoStore.save(p?.productId, p?.base64, p?.ext ?? 'jpg') }),
+    // 品牌图：读索引 / 存图 / 删图（写通道，见下面的白名单）
+    'brand:photos': () => readBrandImages(),
+    'brand:photo:save': (d, p) => {
+      const brand = String(p?.brand ?? '').trim().slice(0, 40)
+      if (!brand) throw new Error('品牌名不能空')
+      const file = photoStore.saveNamed(brandKeyOf(brand), p?.base64, p?.ext ?? 'jpg')
+      const idx = readBrandImages()
+      idx[brand] = file
+      writeBrandImages(idx)
+      return { ok: true, brand, path: file }
+    },
+    'brand:photo:delete': (d, p) => {
+      const brand = String(p?.brand ?? '').trim()
+      if (!brand) return { ok: false }
+      try { photoStore.removeNamed(brandKeyOf(brand)) } catch (e) { /* 忽略 */ }
+      const idx = readBrandImages()
+      delete idx[brand]
+      writeBrandImages(idx)
+      return { ok: true }
+    },
     'photo:delete': (d, p) => {
       photoStore.remove(p?.productId)
       cmds.updateProduct(d, p?.productId, { photo_path: null })
@@ -1655,6 +1689,8 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     'category:listWithCount': (d) => cmds.listCategoriesWithCount(d),
 
     // 清仓 / 定价建议（纯读；与桌面端同为 commands.buildXxx）
+    // 店铺活动策划（老板 2026-09-22）：按现有商品 + 折扣 + 天数，算活动方案与预计收益
+    'promo:plan': (d, p) => cmds.buildPromoPlan(d, p || {}),
     'clearance:get': (d) => cmds.buildClearance(d),
     'pricing:get': (d) => cmds.buildPricing(d),
 

@@ -51,6 +51,33 @@ export function createPhotoStore(imagesDir) {
     return fileName
   }
 
+  // ---- 命名图：品牌图、店招这类"不是商品"的图，走同一个目录、同一套 URL ----
+  // 老板 2026-09-22：「库存里面的品牌也可以插入图片」。
+  // key 由服务端按品牌名生成（b + 短哈希），只允许 [a-z0-9_-]，避免路径穿越。
+  const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/
+  function saveNamed(key, base64, ext = 'jpg') {
+    const k = String(key ?? '')
+    if (!NAME_RE.test(k)) throw new Error('非法图片名：' + key)
+    const e = String(ext ?? '').toLowerCase()
+    if (!PHOTO_EXTS.includes(e)) throw new Error('不支持的图片格式：' + ext)
+    if (typeof base64 !== 'string' || base64 === '') throw new Error('图片数据为空')
+    const buf = Buffer.from(base64, 'base64')
+    if (buf.length === 0) throw new Error('图片数据不是合法 base64')
+    if (buf.length > MAX_PHOTO_BYTES) throw new Error('图片超过 ' + (MAX_PHOTO_BYTES / 1024 / 1024) + 'MB 上限')
+    fs.mkdirSync(imagesDir, { recursive: true })
+    for (const n of filesOf(k)) fs.rmSync(path.join(imagesDir, n), { force: true })
+    const fileName = k + '.' + e
+    fs.writeFileSync(path.join(imagesDir, fileName), buf)
+    return fileName
+  }
+  function removeNamed(key) {
+    const k = String(key ?? '')
+    if (!NAME_RE.test(k)) return 0
+    let n = 0
+    for (const name of filesOf(k)) { fs.rmSync(path.join(imagesDir, name), { force: true }); n++ }
+    return n
+  }
+
   /** 删图：清掉该商品所有扩展名的图片文件，返回删了几个（没有图也不报错） */
   function remove(productId) {
     assertProductId(productId)
@@ -73,5 +100,5 @@ export function createPhotoStore(imagesDir) {
     return abs
   }
 
-  return { save, remove, resolvePath, filesOf }
+  return { saveNamed, removeNamed, save, remove, resolvePath, filesOf }
 }
