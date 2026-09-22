@@ -73,14 +73,42 @@ page('stock', function (app) {
 
   // 商品图片：拍照/相册 → 存到账本机器 + 挂到商品。已有商品补图、换图都走这里。
   // 换图后文件名不变，靠列表重拉后 URL 带上新的 updated_at 穿透浏览器缓存。
+  //
+  // 老板 2026-09-22：「有图片了，但状态老是显示待盘点，已经有图片证明已经盘点过了」。
+  // 拍照本来就等于"我亲手看过这件货了"，所以这里顺手问一句数量：
+  //   填了数量 → 记一笔 inbound:create（批次 + 库存 + 状态「已盘点」一次到位）；
+  //   留空或取消 → 只换图，不动库存也不动状态（只想换张图的人照样能用）。
   async function pickProductPhoto(p) {
     const name = prodName(p)
+    const unit = p.unit || '件'
     try {
       const b64 = await FiPhoto.pickPhoto()
       if (!b64) return
+
+      let qty = 0
+      try {
+        const allowDec = await unitAllowsDecimal(unit)
+        const qtyStr = prompt('「' + name + '」你数了多少' + unit + '？\n（留空＝只换图，不改库存和状态）', '')
+        const v = qtyStr === null ? 0 : (parseFloat(qtyStr) || 0)
+        qty = allowDec ? Math.round(v * 100) / 100 : Math.round(v)
+      } catch (e) { qty = 0 }
+
       toast('正在上传「' + name + '」的图片…')
+      // 先把图存好再入库：入库万一失败，照片也不能丢（照片比数字更难补）
       await FiPhoto.saveProductPhoto(p.id, b64)
-      toast('图片已保存')
+
+      if (qty > 0) {
+        try {
+          const payload = { productId: p.id, quantity: qty, costPrice: p.cost_price, location: p.location || '', operator: getOperator() }
+          if (EXPIRY_REQUIRED_CATEGORIES.indexOf(p.category) >= 0) payload.expiryDate = defaultExpiryDate(p.category)
+          await api('inbound:create', payload)
+          toast('已入库 ' + qty + unit + '，状态已变「已盘点」')
+        } catch (e) {
+          toast('图片已存，但入库没成功：' + (e.message || '') + '（可再点一次📷补数）')
+        }
+      } else {
+        toast('图片已保存')
+      }
       await search(keyword)
     } catch (e) { toast('图片保存失败：' + (e.message || '')) }
   }

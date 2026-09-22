@@ -3441,5 +3441,43 @@ ok('preload 白名单含 expense 三通道',
     fakeMissing.includes('ai:setEndpoint') && fakeMissing.length === 1)
 }
 
+// ============ 盘点状态：手机端不许再把 status 写死 + 拍照要能顺手记数（2026-09-22）============
+// 起因（老板原话）：「有图片了，但状态老是显示待盘点，已经有图片证明已经盘点过了」。
+//   查真库（178 商品）：42 个「待盘点」**全部一条库存批次都没有**（= 建档时没录数量），其中 5 个有照片。
+//   而 2026-09-22 定的规则是：**只要有数量≠0 的批次就算「已盘点」** —— 判据是数量，不是照片。
+//   另有 3 处手机端代码把 status 写死成 '待盘点'，会把新规则盖掉；只因后面紧跟 inbound:create
+//   又翻回「已盘点」才没暴露。这里全部钉住，并把"拍照 → 问数量 → 记入库"这条路也钉住。
+{
+  const mp = (p) => fs.readFileSync(path.resolve(p), 'utf8')
+  const stockJs = mp('electron/mobile/pages/stock.js')
+  const inboundJs = mp('electron/mobile/pages/inbound.js')
+  const posJs = mp('electron/mobile/pages/pos.js')
+  const productsJs = mp('electron/commands/products.js')
+
+  ok('盘点：手机端不再把 status 写死成「待盘点」（写了就会盖掉"有数量=已盘点"的规则）',
+    ![stockJs, inboundJs, posJs].some((s) => /status:\s*'待盘点'/.test(s)))
+
+  // 规则本身还在（防有人把判据改回去）
+  ok('盘点：新建商品「填了数量就算已盘点」的规则还在',
+    /initialQty > 0 \? '已盘点' : '待盘点'/.test(productsJs))
+  ok('盘点：编辑商品不许把有货的退回「待盘点」（statusOfUpdate 还在）',
+    /function statusOfUpdate/.test(productsJs) && /return r \? '已盘点' : '待盘点'/.test(productsJs))
+
+  // 拍照即盘点：取 pickProductPhoto 整个函数体（从声明行到第一个两空格缩进的右花括号）
+  const lines = stockJs.split('\n')
+  const s0 = lines.findIndex((l) => l.includes('async function pickProductPhoto'))
+  const s1 = lines.findIndex((l, i) => i > s0 && l === '  }')
+  const pickFn = lines.slice(s0, s1 + 1).join('\n')
+  ok('盘点：拍照流程确实取到了（防止断言取空导致假绿）', s0 >= 0 && s1 > s0 && pickFn.length > 500)
+  ok('盘点：拍照流程会问数量并记一笔入库（批次+库存+状态一次到位）',
+    /inbound:create/.test(pickFn) && /prompt\(/.test(pickFn))
+  ok('盘点：留空/取消只换图，不动库存（qty 为 0 不入库）',
+    /qtyStr === null \? 0/.test(pickFn) && /if \(qty > 0\)/.test(pickFn))
+  ok('盘点：先存图片再入库（入库失败也不丢照片）',
+    pickFn.indexOf('saveProductPhoto') >= 0 && pickFn.indexOf('saveProductPhoto') < pickFn.indexOf('inbound:create'))
+  ok('盘点：入库失败只提示、不抛（照片已存，人可以再补一次）',
+    /图片已存，但入库没成功/.test(pickFn))
+}
+
 fs.rmSync(tmp, { recursive: true, force: true })
 console.log(`\n全部 ${passed} 项断言通过`)

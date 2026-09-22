@@ -867,7 +867,7 @@ page('pos', function (app) {
     try {
       const r = await api('product:create', {
         sku_code: code, barcode: code, category: category, brand: '', model: name,
-        cost_price: cost, suggest_price: price, status: '待盘点', unit: unit,
+        cost_price: cost, suggest_price: price, unit: unit,
       })
       const qty = parseFloat(prompt(isMeter ? '大概多少斤？不准没关系，以后盘点会校正' : '大概多少个？不准没关系，以后盘点会校正', '1')) || 1
       await api('inbound:create', { productId: r.id, quantity: qty, costPrice: cost, location: '', operator: getOperator() })

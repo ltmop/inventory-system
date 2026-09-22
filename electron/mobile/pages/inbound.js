@@ -471,7 +471,7 @@ page('inbound', function (app) {
           // 建档新商品
           const r = await api('product:create', {
             sku_code: '', barcode: '', category: (fiNormalizeCategory(it.category, document.getElementById('f-cat')) || '其他'), brand: it.brand || '', model: it.model || '',
-            cost_price: cost, suggest_price: 0, status: '待盘点', unit: it.unit || '件',
+            cost_price: cost, suggest_price: 0, unit: it.unit || '件',
           })
           productId = r.id
         }
@@ -665,7 +665,7 @@ page('inbound', function (app) {
     try {
       const r = await api('product:create', {
         sku_code: code, barcode: code, category: cat, brand: '', model: name,
-        cost_price: cost, suggest_price: price || 0, status: '待盘点', unit: unit,
+        cost_price: cost, suggest_price: price || 0, unit: unit,
       })
       await api('inbound:create', { productId: r.id, quantity: qty, costPrice: cost, location: '', operator: getOperator(), expiryDate: expiry })
       // 商品照片：建档拿到 id 后再挂（photo:save 只落盘，photo_path 要单独更新一次）。
