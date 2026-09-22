@@ -26,7 +26,7 @@ import { AiModelCard } from './settings/AiModelCard'
 const SETTINGS_SECTIONS = [
   { id: 'appearance', label: '外观与操作', icon: '🎨', desc: '提示音、字号、深色模式' },
   { id: 'data', label: '数据与备份', icon: '💾', desc: '自动备份、从备份恢复' },
-  { id: 'connect', label: '连接与共享', icon: '📱', desc: '手机看店、收款码、员工账号' },
+  { id: 'connect', label: '连接与共享', icon: '📱', desc: '手机看店、手机端设置、员工账号' },
   { id: 'account', label: '账户与支持', icon: '👤', desc: '激活授权、意见反馈、关于' },
 ] as const
 
@@ -57,6 +57,12 @@ export function SettingsPage() {
   // 壁纸 SVG、行业模板、数据位置（还带 SQLite/WAL 这种词）都是**装机时折腾一次**的东西，
   // 老板和店员日常不看。owner 原话「太专业，除了开发者没人会用」——默认收起，需要时点开。
   const [adv, setAdv] = useState(false)
+
+  // 「手机端设置」折叠开关（老板 2026-09-23 定调：「桌面端不应该有收款码这种东西，
+  // 收款码应该是手机才需要的」）。收款码只服务于**手机端**开单时给顾客扫的那张图，
+  // 桌面端日常界面不该出现；但本机是唯一上传入口，直接删会让手机端那张图再也换不了，
+  // 所以收进这里的折叠里 —— 桌面端平时看不到，要用时点开。
+  const [mobileAdv, setMobileAdv] = useState(false)
 
   // 「关于」里那行部署方式（owner 2026-09-14 反馈：明明连着中心库，底下还写着「本地单机部署」）。
   // 事实源就是中心库配置本身（localStorage 的 fi-central-url/token），不是写死的文案。
@@ -491,8 +497,15 @@ export function SettingsPage() {
         onRegenerateToken={handleRegenerateToken}
       />
 
-      {/* 收款码：手机端开单选微信/支付宝时展示给顾客扫 */}
-      <PaymentQrCard />
+      {/* 手机端设置（默认收起）：收款码是手机端开单展示给顾客扫的图，桌面端日常不出现。
+          老板 2026-09-23 定调：桌面端要专业高效，不摆收款码这种手机才需要的东西。 */}
+      <button
+        onClick={() => setMobileAdv((v) => !v)}
+        className="w-full cursor-pointer rounded-xl border border-dashed border-slate-300 bg-white/60 px-4 py-2.5 text-sm font-medium text-slate-500 transition-colors hover:border-brand-400 hover:text-brand-700"
+      >
+        {mobileAdv ? '收起手机端设置 ↑' : '手机端设置（收款码：手机开单给顾客扫的那张图）↓'}
+      </button>
+      {mobileAdv && <PaymentQrCard />}
 
       {/* 云端中心库：常规只显示「连没连上 + 断开」，手填 URL/token 收进高级设置（方案C 2026-09-14） */}
       <CentralModeCard advanced={adv} />

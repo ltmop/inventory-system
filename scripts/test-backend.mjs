@@ -3443,6 +3443,17 @@ ok('preload 白名单含 expense 三通道',
   ok('显示名口径唯一：electron/commands/ 里没有第二处自己拼「品牌+型号」', offenders.length === 0)
 }
 
+// ============ 桌面端不摆收款码（老板 2026-09-23 定调「收款码应该是手机才需要的」）============
+// 收款码只服务于手机端开单时给顾客扫的那张图；但本机是**唯一上传入口**，
+// 直接删会让手机端那张图以后再也换不了 → 收进「手机端设置」折叠，桌面端日常不出现。
+{
+  const settingsSrc = fs.readFileSync(path.resolve('src/pages/SettingsPage.tsx'), 'utf8')
+  ok('桌面端设置页：收款码默认不出现（只在「手机端设置」折叠展开后渲染）',
+    /\{mobileAdv && <PaymentQrCard \/>\}/.test(settingsSrc))
+  ok('桌面端设置页：手机端收款码上传入口仍然留着（删了手机端那张图就再也换不了）',
+    /setMobileAdv/.test(settingsSrc))
+}
+
 // ============ 通道闸门：渲染层用到的通道必须全部在壳放行名单里（2026-09-21 补）============
 // 起因：src/pages/AiHubPage.tsx 与 src/pages/settings/AiModelCard.tsx 调 `ai:setEndpoint` /
 //   `ai:syncCentral`，而 electron/preload.cjs 的白名单里**从来没有**这两个（main.js:427-428 有实现）。
