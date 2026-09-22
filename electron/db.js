@@ -871,15 +871,27 @@ function migrateCustomerMember(db) {
 /** 分类/单位种子：categories 空时从商品表实际分类抽取（保数据不丢）；无商品灌通用默认；units 空灌默认 */
 function seedCategoriesAndUnits(db) {
   try {
-    const catCount = db.prepare('SELECT COUNT(*) AS n FROM categories').get()?.n ?? 0
-    if (catCount === 0) {
-      let names = []
-      try {
-        names = db.prepare("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND TRIM(category) <> '' AND TRIM(category) <> '其他' ORDER BY category").all().map((r) => r.category)
-      } catch { /* 老库无 products 也正常 */ }
-      if (names.length === 0) names = DEFAULT_CATEGORIES
+    // ⚠️ 2026-09-22 修一个一直没被发现的坑：
+    //   原来这里是「**categories 表为空**时才从商品抽取分类」。
+    //   但迁移链里 migrateCategoryParent 会先插一条「其他」进来（它在 seedCategoriesAndUnits 之前跑），
+    //   于是**表永远不为空 → 抽取这一步从来没执行过**。
+    //   症状：老库升级后 categories 只剩「其他」，手机端/桌面端的分类筛选跟着不对
+    //   （tests/db-migration.mjs 的「老分类从商品抽取迁移」这条红灯就是它）。
+    //   改成幂等：每次启动都把商品表里**真实用过的分类**补齐，已有的不动、顺序不动。
+    let names = []
+    try {
+      names = db.prepare("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND TRIM(category) <> '' AND TRIM(category) <> '其他' ORDER BY category").all().map((r) => r.category)
+    } catch { /* 老库无 products 也正常 */ }
+    if (names.length === 0) {
+      // 没有任何商品分类可抽，且确实是空库 → 灌通用默认分类（保持原行为）
+      const catCount = db.prepare('SELECT COUNT(*) AS n FROM categories').get()?.n ?? 0
+      if (catCount === 0) names = DEFAULT_CATEGORIES
+    }
+    if (names.length > 0) {
       const ins = db.prepare('INSERT OR IGNORE INTO categories (name, sort_order, template_type) VALUES (?, ?, ?)')
-      names.forEach((c, i) => ins.run(c, i, c === '其他' ? 'generic' : 'legacy'))
+      // 排到已有分类后面，不抢位
+      const base = Number(db.prepare('SELECT COALESCE(MAX(sort_order), -1) AS m FROM categories').get()?.m ?? -1)
+      names.forEach((c, i) => ins.run(c, base + 1 + i, c === '其他' ? 'generic' : 'legacy'))
     }
   } catch (e) { console.error('[db] 分类种子失败:', e.message) }
   try {
