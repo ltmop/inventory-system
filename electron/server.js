@@ -142,7 +142,7 @@ function querySummary(db) {
 /** 低库存商品列表（总库存 < 各自预警线 min_stock ?? 默认，升序，最缺的在前） */
 function queryLowStock(db) {
   return lowStockProducts(db).map((r) => ({
-    name: [r.brand, r.model].filter(Boolean).join(' ') || r.sku_code,
+    name: cmds.productLabel(r),
     sku: r.sku_code,
     stock: r.stock,
     threshold: r.threshold,
@@ -158,7 +158,7 @@ function queryInventory(db, q) {
   const tierStmt = db.prepare('SELECT tier, price FROM price_tiers WHERE product_id = ?')
   return db
     .prepare(
-      `SELECT p.id, p.brand, p.model, p.sku_code, p.barcode, p.location, p.cost_price, p.suggest_price,
+      `SELECT p.id, p.brand, p.model, p.sub_category, p.sku_code, p.barcode, p.location, p.cost_price, p.suggest_price,
               p.rod_length, p.rod_action, p.power_rating, p.line_number,
               p.hook_size, p.color, p.material, p.expiry_date, p.photo_path,
               COALESCE(s.q, 0) AS stock
@@ -173,7 +173,7 @@ function queryInventory(db, q) {
     .all(like, like, like, like)
     .map((r) => ({
       id: r.id,
-      name: [r.brand, r.model].filter(Boolean).join(' ') || r.sku_code,
+      name: cmds.productLabel(r),
       sku: r.sku_code,
       barcode: r.barcode ?? null,
       stock: r.stock,
@@ -216,7 +216,7 @@ function queryToday(db) {
   return db
     .prepare(
       `SELECT t.type, t.quantity, t.unit_price, t.selling_price, t.timestamp, t.notes,
-              p.brand, p.model, p.sku_code
+              p.brand, p.model, p.sub_category, p.sku_code
        FROM transactions t
        LEFT JOIN products p ON p.id = t.product_id
        WHERE t.timestamp >= ? AND t.timestamp < ?
@@ -227,7 +227,7 @@ function queryToday(db) {
     .map((r) => ({
       time: r.timestamp,
       type: r.type,
-      name: [r.brand, r.model].filter(Boolean).join(' ') || r.sku_code || '',
+      name: cmds.productLabel(r) || '',
       sku: r.sku_code ?? '',
       quantity: r.quantity,
       amount:
@@ -1205,7 +1205,7 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
         if (!hit) return Object.assign({}, it, { matched_by: null })
         return Object.assign({}, it, {
           product_id: hit.id, matched_by: 'local',
-          matched_name: [hit.brand, hit.model].filter(Boolean).join(' ') || hit.sku_code,
+          matched_name: cmds.productLabel(hit),
         })
       })
       return Object.assign({}, r, { items })
@@ -1425,9 +1425,9 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       const like = `%${kw}%`
       return d.prepare(
         `SELECT p.*, COALESCE((SELECT SUM(b2.quantity) FROM inventory_batches b2 WHERE b2.product_id = p.id),0) AS total_stock
-         FROM products p WHERE p.sku_code = ? OR p.barcode = ? OR p.brand LIKE ? OR p.model LIKE ? OR p.sku_code LIKE ?
+         FROM products p WHERE p.sku_code = ? OR p.barcode = ? OR p.barcode LIKE ? OR p.brand LIKE ? OR p.model LIKE ? OR p.sku_code LIKE ?
          LIMIT 20`
-      ).all(kw, kw, like, like, like)
+      ).all(kw, kw, like, like, like, like)
     },
     // 库存列表：keyword 空 = 全部商品（带总库存），非空 = 过滤；手机库存页"打开就看全部SKU"用
     'product:list': (d, p) => {
@@ -1437,8 +1437,8 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
          FROM products p`
       if (kw) {
         const like = `%${kw}%`
-        return d.prepare(`${base} WHERE p.sku_code = ? OR p.barcode = ? OR p.brand LIKE ? OR p.model LIKE ? OR p.sku_code LIKE ? ORDER BY p.category, p.brand, p.model LIMIT ?`)
-          .all(kw, kw, like, like, like, limit)
+        return d.prepare(`${base} WHERE p.sku_code = ? OR p.barcode = ? OR p.barcode LIKE ? OR p.brand LIKE ? OR p.model LIKE ? OR p.sku_code LIKE ? ORDER BY p.category, p.brand, p.model LIMIT ?`)
+          .all(kw, kw, like, like, like, like, limit)
       }
       return d.prepare(`${base} ORDER BY p.category, p.brand, p.model LIMIT ?`).all(limit)
     },
@@ -1651,12 +1651,12 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     'voice:transcribe': async (d, p) => {
       if (!voiceRef || !Array.isArray(p?.pcm)) return { ok: false, reason: 'no-pcm' }
       try {
-        // 把店里商品名（品牌+型号）拼成热词传进去，让识别器优先认商品名——口音识别不准时偏向商品
+        // 把店里商品名（品牌+型号+规格）拼成热词传进去，让识别器优先认商品名——口音识别不准时偏向商品
         const hotRows = d.prepare(
-          `SELECT brand, model FROM products WHERE status != '停产' ORDER BY id LIMIT 500`,
+          `SELECT brand, model, sub_category, sku_code FROM products WHERE status != '停产' ORDER BY id LIMIT 500`,
         ).all()
         const hotwords = hotRows
-          .map((r) => [r.brand, r.model].filter(Boolean).join(' ').trim())
+          .map((r) => cmds.productLabel(r).trim())
           .filter(Boolean)
           .join(' ')
           .slice(0, 500) // 热词串过长反而拖慢，截断

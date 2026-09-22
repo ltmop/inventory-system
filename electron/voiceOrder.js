@@ -8,6 +8,8 @@
 // 铁律：本模块只产 draft，不落库；落库走 commands.confirmCheckout（确认卡确认后）
 // ============================================================
 import { levenshtein } from './localSearch.js'
+// 商品显示名的唯一实现（含规格）：语音识别热词/候选名与全站一致，说「3.6米」才认得出来
+import { productLabel } from './lib/productName.js'
 
 // ---------- 中文数字 ----------
 const CN_DIGIT = { 零: 0, 一: 1, 二: 2, 两: 2, 俩: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 }
@@ -77,8 +79,8 @@ export function splitSegments(text) {
 }
 
 // ---------- 商品本地匹配：品牌段编辑距离 + 子串/前缀加分 ----------
-/** 单个商品的可搜名：品牌 + 型号（+SKU 兜底） */
-export const productNameOf = (p) => [p.brand, p.model].filter(Boolean).join(' ').trim() || p.sku_code || ''
+/** 单个商品的可搜名：品牌 + 型号 + 规格（+SKU 兜底）—— 与全站显示名同一份实现 */
+export const productNameOf = (p) => productLabel(p)
 
 function scoreOne(text, name) {
   const t = text.toLowerCase()

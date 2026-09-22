@@ -6,6 +6,7 @@
 import { buildRangeReport, todayKey } from './lib/salesReport.js'
 import { splitTodayPayments } from './lib/paySplit.js'
 import { computeRestockAdvice } from './lib/restockAdvice.js'
+import { productLabel } from './lib/productName.js'
 
 /** 构建单次快照（t+ { from, to } 从 rangePreset 取口径） */
 export function buildSnapshot(db, storeName = '我的门店') {
@@ -85,7 +86,7 @@ export function buildSnapshot(db, storeName = '我的门店') {
 
 function productDisplayName(p) {
   if (!p) return '-'
-  return [p.brand, p.model].filter(Boolean).join(' ') || p.sku_code || '-'
+  return productLabel(p) || '-'
 }
 
 function loadTransactions(db, today, monthKey) {
@@ -122,7 +123,7 @@ function queryReceivable(db) {
 
 function loadRecent(db, today) {
   const txRows = db.prepare(
-    `SELECT t.type, t.quantity, t.selling_price, t.timestamp, p.brand, p.model, p.sku_code
+    `SELECT t.type, t.quantity, t.selling_price, t.timestamp, p.brand, p.model, p.sub_category, p.sku_code
      FROM transactions t JOIN products p ON p.id = t.product_id
      WHERE date(t.timestamp) = date(?)
      ORDER BY t.timestamp DESC LIMIT 20`

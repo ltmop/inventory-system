@@ -89,22 +89,8 @@ export function logAudit(db, action, entity, detail, operator) {
 
 /** 商品显示名：品牌 + 型号/系列 + 规格（子类），都没有才回退 SKU。
  *  全站唯一口径 —— 界面、接口、审计日志、AI 提示词都从这里取，不许再各自拼字符串。
- *  规格（sub_category）必须出现：同系列几十个尺码，只拼品牌+型号在列表里全是重名。 */
-export function productLabel(p) {
-  return joinNameParts(p.brand, p.model, p.sub_category) || p.sku_code
-}
-
-/** 按「品牌 → 型号/系列 → 规格」顺序拼接，跳过空值与已被包含的重复词 */
-export function joinNameParts(...parts) {
-  const kept = []
-  for (const raw of parts) {
-    const part = String(raw ?? '').trim()
-    if (!part) continue
-    if (kept.some((x) => x === part || x.includes(part) || part.includes(x))) continue
-    kept.push(part)
-  }
-  return kept.join(' ')
-}
+ *  实现在 electron/lib/productName.js（非命令层模块也要用同一份，注释见那里）。 */
+export { productLabel, joinNameParts } from '../lib/productName.js'
 
 export function pad(n, w = 3) {
   return String(n).padStart(w, '0')

@@ -3433,14 +3433,45 @@ ok('preload 白名单含 expense 三通道',
   ok('显示名：全空回退 SKU，绝不出现 "null"', P({}) === 'SKU-1', P({}))
   ok('显示名：只填品牌或只填型号时不带多余空格',
     P({ brand: '光威' }) === '光威' && P({ model: '赤刃' }) === '赤刃')
-  // 源码级防回退：口径只留 helpers.productLabel 一处
-  const cmdDir = path.resolve('electron/commands')
-  const offenders = fs
-    .readdirSync(cmdDir)
-    .filter((f) => f.endsWith('.js'))
-    .filter((f) => /\[[A-Za-z_.$]+\.brand,\s*[A-Za-z_.$]+\.model\]/.test(fs.readFileSync(path.join(cmdDir, f), 'utf8')))
+  // 源码级防回退：口径只留 electron/lib/productName.js 一处，整个 electron/ 都不许再各拼一套
+  const offenders = []
+  const scan = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === 'mobile' || e.name === 'node_modules') continue // 手机端不归本线管
+      const full = path.join(dir, e.name)
+      if (e.isDirectory()) { scan(full); continue }
+      if (!e.name.endsWith('.js')) continue
+      if (/\[[A-Za-z_.$]+\.brand,\s*[A-Za-z_.$]+\.model\]/.test(fs.readFileSync(full, 'utf8'))) {
+        offenders.push(path.relative(path.resolve('.'), full))
+      }
+    }
+  }
+  scan(path.resolve('electron'))
   if (offenders.length) console.error('  ✗ 还在自己拼显示名：' + offenders.join(' '))
-  ok('显示名口径唯一：electron/commands/ 里没有第二处自己拼「品牌+型号」', offenders.length === 0)
+  ok('显示名口径唯一：整个 electron/ 里没有第二处自己拼「品牌+型号」（口径层只 re-export lib/productName.js）',
+    offenders.length === 0)
+  // 命令层仍然只认这一份：helpers.js 必须是 re-export，不能自己再写一遍
+  ok('命令层 helpers.productLabel 来自 lib/productName.js（re-export，不是复制一份）',
+    /export \{ productLabel, joinNameParts \} from '\.\.\/lib\/productName\.js'/.test(
+      fs.readFileSync(path.resolve('electron/commands/helpers.js'), 'utf8')))
+  // 双胞胎防漂移：electron/lib/productName.js（主进程/服务端/手机端）与 src/lib/formatters.ts（界面）
+  const lib = await import('../electron/lib/productName.js')
+  const cases = [
+    { brand: '光威', model: '赤刃', sub_category: '3.6m', sku_code: 'FG-1' },
+    { brand: '光威', model: '赤刃 3.6m', sub_category: '3.6m', sku_code: 'FG-1' },
+    { brand: null, model: null, sub_category: '5.0号', sku_code: 'XL-1' },
+    { brand: '达亿瓦', model: null, sub_category: null, sku_code: 'DW-9' },
+    { brand: null, model: null, sub_category: null, sku_code: 'NONE-1' },
+  ]
+  const libOut = cases.map((c) => lib.productLabel(c))
+  const expectOut = ['光威 赤刃 3.6m', '光威 赤刃 3.6m', '5.0号', '达亿瓦', 'NONE-1']
+  if (JSON.stringify(libOut) !== JSON.stringify(expectOut)) console.error('  ✗ lib/productName.js 输出：' + libOut.join(' | '))
+  ok('显示名双胞胎：electron/lib/productName.js 逐例输出正确（服务端/主进程/手机端那一份）',
+    JSON.stringify(libOut) === JSON.stringify(expectOut))
+  // 界面那份是 .ts，纯 Node 里 import 不了，只能按源码判：同样把 sub_category 拼进名字
+  const feSrc = fs.readFileSync(path.resolve('src/lib/formatters.ts'), 'utf8')
+  ok('显示名双胞胎：界面那份 src/lib/formatters.ts 同样把规格(sub_category)拼进名字（改一边不改另一边就红）',
+    /joinNameParts\(p\.brand, p\.model, p\.sub_category\)/.test(feSrc) && /sub_category\?:/.test(feSrc))
 }
 
 // ============ 桌面端不摆收款码（老板 2026-09-23 定调「收款码应该是手机才需要的」）============

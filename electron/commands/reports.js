@@ -15,7 +15,7 @@ export const DEFAULT_MIN_STOCK = 5
 export function lowStockProducts(db) {
   return db
     .prepare(
-      `SELECT p.id, p.sku_code, p.brand, p.model, p.location, p.min_stock,
+      `SELECT p.id, p.sku_code, p.brand, p.model, p.sub_category, p.location, p.min_stock,
               COALESCE(s.q, 0) AS stock, COALESCE(p.min_stock, ?) AS threshold
        FROM products p
        LEFT JOIN (SELECT product_id, SUM(quantity) AS q FROM inventory_batches GROUP BY product_id) s

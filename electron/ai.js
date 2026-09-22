@@ -5,6 +5,8 @@
 // 2. 库存与经营数字必须来自本地 SQLite 工具查询，AI 不碰数据库连接以外的任何状态
 // 3. 写操作只产草稿（draft_*），由前端确认卡确认后才走既有 commands 落库
 import { createRequire } from 'node:module'
+// 商品显示名的唯一实现（含规格）：AI 工具返回给模型/界面的商品名必须与全站一致
+import { productLabel } from './lib/productName.js'
 // safeStorage 只在 Electron 里有。中心库服务器是纯 Node（没有 Electron），
 // 原来这里写死 import 'electron' → 服务器一加载就挂，所以 AI 从来没在中心库上跑起来过。
 // 改成惰性获取：桌面端照旧用系统钥匙串加密；中心库取不到就用明文兜底（内部服务、文件权限可控）。
@@ -578,7 +580,7 @@ export async function parseInboundNote({ imageBase64, mimeType, light } = {}) {
 
 // ---------- 工具集（Agent 的手）：6 只读 + 2 草稿 ----------
 
-const nameOf = (r) => [r.brand, r.model].filter(Boolean).join(' ') || r.sku_code
+const nameOf = (r) => productLabel(r)
 
 const toolImpls = {
   /** 按名称/品牌/条码/编号模糊找商品，附带当前总库存 */
@@ -1138,11 +1140,11 @@ export async function correctSearchTerm(rawText) {
   // 取店里商品名（品牌+型号 + SKU），最多 300 个，喂给模型当对照表
   const rows = db
     .prepare(
-      `SELECT p.brand, p.model, p.sku_code FROM products p
+      `SELECT p.brand, p.model, p.sub_category, p.sku_code FROM products p
        WHERE p.status != '停产' ORDER BY p.id LIMIT 300`,
     )
     .all()
-  const productNames = rows.map((r) => [r.brand, r.model].filter(Boolean).join(' ') || r.sku_code || '').filter(Boolean)
+  const productNames = rows.map((r) => productLabel(r)).filter(Boolean)
   // 没有商品清单就不纠，原样返回
   if (productNames.length === 0) return { ok: true, corrected: text, matched: false }
 
