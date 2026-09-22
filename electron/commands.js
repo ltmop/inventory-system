@@ -26,6 +26,7 @@ export * from './commands/units.js'
 export * from './commands/templates.js'
 export * from './commands/clearance.js'
 export * from './commands/promo.js'
+export * from './commands/specTemplates.js'
 export * from './commands/pricing.js'
 // AI 简报（2026-09-15，第一阶段"只算不推"）：把已有口径合成"这周该做什么"。
 // 放命令层是为了口径单一 —— 它只调 reports/analytics 的既有口径，不自己发明。

@@ -16,14 +16,13 @@ export function createPhotoStore(imagesDir) {
     }
   }
 
+  /** 目录里的文件名（目录还没建就返回空）—— 多图那套按槽位前缀自己筛，不能用 filesOf */
+  function namesInDir() {
+    try { return fs.readdirSync(imagesDir) } catch { return [] }
+  }
   /** 该商品所有扩展名的现存图片文件（换图/删图前先清掉，避免 12.jpg 和 12.png 并存） */
   function filesOf(productId) {
-    let names
-    try {
-      names = fs.readdirSync(imagesDir)
-    } catch {
-      return [] // 目录还没建（一张图都没存过）
-    }
+    const names = namesInDir()
     const prefix = `${productId}.`
     return names.filter(
       (n) => n.startsWith(prefix) && PHOTO_EXTS.includes(n.slice(prefix.length).toLowerCase()),
@@ -49,6 +48,56 @@ export function createPhotoStore(imagesDir) {
     const fileName = `${productId}.${e}`
     fs.writeFileSync(path.join(imagesDir, fileName), buf)
     return fileName
+  }
+
+  // ---- 一个商品最多 3 张图（老板 2026-09-22：「照片可以限制为子商品3张照片」）----
+  // 第 1 张沿用老命名 <id>.<ext>（老数据一张都不用迁），第 2/3 张是 <id>_2.<ext> / <id>_3.<ext>。
+  // 上限写死在 MAX_SLOTS，服务端和界面都用它，别各写各的。
+  const MAX_SLOTS = 3
+  function slotOf(slot) { return Math.max(1, Math.min(MAX_SLOTS, Number(slot) || 1)) }
+  function prefixOf(productId, slot) { return slot === 1 ? productId + '.' : productId + '_' + slot + '.' }
+  function nameOfSlot(productId, slot, ext) { return prefixOf(productId, slotOf(slot)) + ext }
+  /** 这个商品现有的图（按槽位 1→2→3 顺序；缺哪槽就跳过） */
+  function listOf(productId) {
+    assertProductId(productId)
+    const names = namesInDir()
+    const out = []
+    for (let s = 1; s <= MAX_SLOTS; s++) {
+      const prefix = prefixOf(productId, s)
+      const hit = names.find((n) => n.startsWith(prefix) && PHOTO_EXTS.includes(n.slice(prefix.length).toLowerCase()))
+      if (hit) out.push(hit)
+    }
+    return out
+  }
+  /** 存到指定槽位（1..3）；只清这一槽的旧文件，不动别的槽 */
+  function saveAt(productId, base64, ext = 'jpg', slot = 1) {
+    assertProductId(productId)
+    const e = String(ext ?? '').toLowerCase()
+    if (!PHOTO_EXTS.includes(e)) throw new Error('不支持的图片格式：' + ext)
+    if (typeof base64 !== 'string' || base64 === '') throw new Error('图片数据为空')
+    const buf = Buffer.from(base64, 'base64')
+    if (buf.length === 0) throw new Error('图片数据不是合法 base64')
+    if (buf.length > MAX_PHOTO_BYTES) throw new Error('图片超过 ' + (MAX_PHOTO_BYTES / 1024 / 1024) + 'MB 上限')
+    fs.mkdirSync(imagesDir, { recursive: true })
+    const s = slotOf(slot)
+    const prefix = prefixOf(productId, s)
+    for (const n of namesInDir()) {
+      if (n.startsWith(prefix) && PHOTO_EXTS.includes(n.slice(prefix.length).toLowerCase())) fs.rmSync(path.join(imagesDir, n), { force: true })
+    }
+    const fileName = nameOfSlot(productId, s, e)
+    fs.writeFileSync(path.join(imagesDir, fileName), buf)
+    return fileName
+  }
+  /** 删某一槽的图 */
+  function removeAt(productId, slot) {
+    assertProductId(productId)
+    const s = slotOf(slot)
+    const prefix = prefixOf(productId, s)
+    let n = 0
+    for (const name of namesInDir()) {
+      if (name.startsWith(prefix) && PHOTO_EXTS.includes(name.slice(prefix.length).toLowerCase())) { fs.rmSync(path.join(imagesDir, name), { force: true }); n++ }
+    }
+    return n
   }
 
   // ---- 命名图：品牌图、店招这类"不是商品"的图，走同一个目录、同一套 URL ----
@@ -100,5 +149,5 @@ export function createPhotoStore(imagesDir) {
     return abs
   }
 
-  return { saveNamed, removeNamed, save, remove, resolvePath, filesOf }
+  return { saveNamed, removeNamed, save, remove, saveAt, removeAt, listOf, resolvePath, filesOf, MAX_SLOTS }
 }

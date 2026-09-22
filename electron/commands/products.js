@@ -17,6 +17,8 @@ import { assertOwnerAction } from './users.js'
 import { pushUndo } from './undo.js'
 import { ensureUnit } from './units.js'
 import { ensureCategory } from './categories.js'
+import { createInbound } from './inbound.js'
+import { normalizeSpecName } from './specTemplates.js'
 
 /** 新增商品（会校验 SKU 额度；单位/分类不存在时会自动建档）。 */
 export function createProduct(db, input) {
@@ -293,4 +295,89 @@ export function markProduct(db, { id, is_hot = null, is_clearance = null, operat
   params.push(new Date().toISOString(), id)
   db.prepare(`UPDATE products SET ${set.join(', ')}, updated_at = ? WHERE id = ?`).run(...params)
   return { ok: true, id, is_hot: is_hot === null ? cur.is_hot : is_hot ? 1 : 0, is_clearance: is_clearance === null ? cur.is_clearance : is_clearance ? 1 : 0 }
+}
+
+
+/**
+ * 一次建好一个商品的多个规格 —— 老板 2026-09-22 的核心诉求。
+ *
+ * 他的原话：「一个品牌的产品，规格很多，但却要每一个都录入，而且还得拍照，规格命名格式不同一」
+ *          「我点击了一个狼王的鱼竿的一个商品，商品下面就可以出来很多规格让我选择」
+ *          「就像一个文件夹一样…而且名字是统一的」
+ *
+ * 设计（对着他的话来的）：
+ *   · 品牌 + 商品名 = **文件夹名**；规格 = 文件夹里的文件；名字统一由 specTemplates 归一；
+ *   · brand / model / category / unit / 进价 / 售价 / **照片** 是这一族共用的，填一次；
+ *   · 每个规格只填「名字 + 数量」（价格可以单独覆盖）；
+ *   · **共用一张照片**：同款不同规格本来长得一样，不用一个一个拍（这就是他最烦的那步）；
+ *   · 全部先校验再建：规格名去重、同族已有规格拦截、SKU 配额一次性查；
+ *     中途某条失败不会把前面的回滚掉（inTransaction 不支持嵌套），所以逐条报清楚哪条失败。
+ */
+export function createProductSpecs(db, input) {
+  const brand = String(input?.brand ?? '').trim()
+  const model = String(input?.model ?? '').trim()
+  if (!brand) throw new Error('先填品牌 —— 「品牌 + 商品名」就是这一族的文件夹名')
+  if (!model) throw new Error('先填商品名（型号），规格都挂在它下面')
+  const raw = Array.isArray(input?.specs) ? input.specs : []
+  const specs = raw
+    .map((s) => ({
+      name: normalizeSpecName(input.category, s && s.name),
+      qty: Math.max(0, Number(s && s.quantity) || 0),
+      price: s && s.suggest_price != null && s.suggest_price !== '' ? s.suggest_price : null,
+      cost: s && s.cost_price != null && s.cost_price !== '' ? s.cost_price : null,
+    }))
+    .filter((s) => s.name)
+  if (!specs.length) throw new Error('至少要填一个规格')
+  const seen = new Set()
+  for (const s of specs) {
+    if (seen.has(s.name)) throw new Error('规格「' + s.name + '」填了两次 —— 同一族里规格名不能重复')
+    seen.add(s.name)
+  }
+  // 同族已有的规格拦下来，别悄悄建出重复档案
+  const dup = []
+  for (const s of specs) {
+    const hit = db
+      .prepare("SELECT id FROM products WHERE COALESCE(brand,'') = ? AND COALESCE(model,'') = ? AND COALESCE(sub_category,'') = ?")
+      .get(brand, model, s.name)
+    if (hit) dup.push(s.name)
+  }
+  if (dup.length) throw new Error('这几个规格已经有了：' + dup.join('、') + '（要改就到库存里点它）')
+  enforceSkuQuota(db, specs.length)   // 配额一次性查，别建到一半才报
+
+  const photo = input?.photo_path ? String(input.photo_path) : null
+  const ok = []
+  const failed = []
+  for (const s of specs) {
+    try {
+      const row = createProduct(db, {
+        brand,
+        model,
+        category: input.category,
+        sub_category: s.name,
+        unit: input.unit || '件',
+        cost_price: s.cost != null ? s.cost : input.cost_price,
+        suggest_price: s.price != null ? s.price : input.suggest_price,
+        quantity: s.qty,
+        status: input.status,
+        operator: input.operator,
+      })
+      // 共用一张图：整族都挂同一张，省掉 N 次拍照
+      if (photo) db.prepare('UPDATE products SET photo_path = ? WHERE id = ?').run(photo, row.id)
+      if (s.qty > 0) {
+        createInbound(db, {
+          productId: row.id,
+          quantity: s.qty,
+          costPrice: s.cost != null ? s.cost : input.cost_price,
+          operator: input.operator,
+        })
+      }
+      ok.push({ id: row.id, name: s.name, quantity: s.qty, sku_code: row.sku_code })
+    } catch (e) {
+      failed.push({ name: s.name, reason: String(e?.message ?? e) })
+    }
+  }
+  if (ok.length) {
+    logAudit(db, '批量建规格', brand + ' ' + model, { brand, model, count: ok.length, specs: ok.map((x) => x.name + '×' + x.quantity) }, input.operator)
+  }
+  return { ok: true, brand, model, photo_path: photo, created: ok, failed }
 }

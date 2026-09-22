@@ -897,7 +897,7 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     'po:create','po:receive','po:cancel','priceTier:set','priceTier:delete','photo:save','photo:delete','brand:photo:save','brand:photo:delete',
     // 分类管理（2026-09-13 补）：这几条一直是写操作，但漏在白名单外 ——
     // 后果是**只读/视图令牌也能改分类**。顺手补齐（与 receipt:reconcile 那条注释同一个道理）。
-    'category:create','category:rename','category:delete','category:move','category:setParent',
+    'product:createSpecs','category:create','category:rename','category:delete','category:move','category:setParent',
     // 员工账号与单位管理（2026-09-14 补进服务端时，一起登记为**写通道**）：
     // 漏在这里的后果与上面分类那批一样 —— **只读/视图令牌也能改员工和单位**。
     'user:create','user:update','user:delete','user:setStaffLogin',
@@ -1104,6 +1104,9 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
   // 语音/模型下载/系统对话框/本机备份恢复/AI 等主机本地能力不开放给局域网。
   const INVOKE_CHANNELS = {
     'data:loadAll': (d, p) => cmds.loadAll(d),
+    // 一次建好一个商品的多个规格（老板 2026-09-22：规格要像文件夹一样整齐、共用一张图）
+    'product:createSpecs': (d, p) => cmds.createProductSpecs(d, p),
+    'spec:templates': () => cmds.allSpecTemplates(),
     'product:create': (d, p) => cmds.createProduct(d, p),
     'product:update': (d, p) => cmds.updateProduct(d, p.id, p),
     'product:batchUpdate': (d, p) => cmds.batchUpdateProducts(d, p),
@@ -1299,7 +1302,10 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       }
       return { wx: readQr('wx.jpg'), ali: readQr('ali.jpg') }
     },
-    'photo:save': (d, p) => ({ ok: true, path: photoStore.save(p?.productId, p?.base64, p?.ext ?? 'jpg') }),
+    // 一个商品最多 3 张图（老板 2026-09-22：「照片可以限制为子商品3张照片」）。
+    // slot 1 沿用老命名（<id>.jpg）——列表页读的 photo_path 就是它，老数据不用迁。
+    'photo:save': (d, p) => ({ ok: true, path: photoStore.saveAt(p?.productId, p?.base64, p?.ext ?? 'jpg', p?.slot ?? 1) }),
+    'photo:list': (d, p) => ({ ok: true, files: photoStore.listOf(Number(p?.productId)) }),
     // 品牌图：读索引 / 存图 / 删图（写通道，见下面的白名单）
     'brand:photos': () => readBrandImages(),
     'brand:photo:save': (d, p) => {
@@ -1321,9 +1327,17 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       return { ok: true }
     },
     'photo:delete': (d, p) => {
-      photoStore.remove(p?.productId)
-      cmds.updateProduct(d, p?.productId, { photo_path: null })
-      return { ok: true }
+      // 带 slot 就只删那一张；不带（老调用）＝把整个商品所有图删掉。
+      // 只有删掉**第 1 张**时才需要清商品档案上的 photo_path —— 列表页读的就是它。
+      const slot = p?.slot == null ? null : Number(p.slot)
+      if (slot == null) {
+        photoStore.remove(p?.productId)
+        cmds.updateProduct(d, p?.productId, { photo_path: null })
+      } else {
+        photoStore.removeAt(p?.productId, slot)
+        if (slot === 1) cmds.updateProduct(d, p?.productId, { photo_path: null })
+      }
+      return { ok: true, files: photoStore.listOf(Number(p?.productId)) }
     },
     // ---- v1.15 手机端新通道（只读/桥接，零新业务逻辑） ----
     // ---- 安装/使用统计（2026-09-21）----
