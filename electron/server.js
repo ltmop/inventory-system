@@ -1302,13 +1302,19 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       try {
         d.exec(`CREATE TABLE IF NOT EXISTS app_installs (
           install_id TEXT PRIMARY KEY, first_at TEXT, last_at TEXT, launches INTEGER DEFAULT 0,
-          version TEXT, web_version TEXT, platform TEXT, device TEXT)`)
-        d.prepare(`INSERT INTO app_installs (install_id, first_at, last_at, launches, version, web_version, platform, device)
-            VALUES (?, ?, ?, 1, ?, ?, ?, ?)
+          version TEXT, web_version TEXT, platform TEXT, device TEXT, device_key TEXT)`)
+        // 老库补列：device_key = 跨重装稳定的设备指纹（老板 2026-09-22：按安装号数不准，重装就算新设备）
+        try {
+          const cols = d.prepare('PRAGMA table_info(app_installs)').all().map((c) => c.name)
+          if (!cols.includes('device_key')) d.exec('ALTER TABLE app_installs ADD COLUMN device_key TEXT')
+        } catch (e) { /* 忽略：补列失败不影响心跳 */ }
+        d.prepare(`INSERT INTO app_installs (install_id, first_at, last_at, launches, version, web_version, platform, device, device_key)
+            VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)
             ON CONFLICT(install_id) DO UPDATE SET last_at = excluded.last_at, launches = launches + 1,
               version = excluded.version, web_version = excluded.web_version,
-              platform = excluded.platform, device = excluded.device`)
-          .run(id, ts, ts, String(p?.version ?? ''), String(p?.webVersion ?? ''), String(p?.platform ?? ''), String(p?.device ?? ''))
+              platform = excluded.platform, device = excluded.device,
+              device_key = CASE WHEN COALESCE(excluded.device_key,'') <> '' THEN excluded.device_key ELSE app_installs.device_key END`)
+          .run(id, ts, ts, String(p?.version ?? ''), String(p?.webVersion ?? ''), String(p?.platform ?? ''), String(p?.device ?? ''), String(p?.deviceKey ?? ''))
       } catch (e) { return { ok: false, reason: 'db-error', detail: String(e?.message ?? e) } }
       try {
         fetch('http://127.0.0.1:17533/api/v1/app/ping', {
@@ -1333,7 +1339,13 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
         //      · 装机设备 → 只数**原生 APP**（platform 不是 web）
         //      · 浏览器打开的次数单独给一个数，不混进装机数
         //      · 机型数按 device 去重（有机型才数），给一个"看得见"的旁证
+        try {
+          const cols = d.prepare('PRAGMA table_info(app_installs)').all().map((c) => c.name)
+          if (!cols.includes('device_key')) d.exec('ALTER TABLE app_installs ADD COLUMN device_key TEXT')
+        } catch (e) { /* 忽略 */ }
         const NATIVE = "COALESCE(platform,'') <> 'web'"
+        // 设备身份：优先用跨重装稳定的指纹；老记录没有指纹就退回机型；两者都没有的算"认不出来"。
+        const KEY = "COALESCE(NULLIF(device_key,''), CASE WHEN COALESCE(device,'') <> '' THEN 'm:' || device ELSE '' END)"
         const days = []
         for (let i = 6; i >= 0; i--) {
           const dd = day(i)
@@ -1344,9 +1356,13 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
           })
         }
         return {
-          devices: one('SELECT COUNT(*) FROM app_installs WHERE ' + NATIVE),
+          // 装机设备 = **去重后的真实设备**：同型号/同指纹的重装记录只算一台
+          devices: one('SELECT COUNT(DISTINCT ' + KEY + ") FROM app_installs WHERE " + NATIVE + " AND " + KEY + " <> ''"),
+          // 认不出来的旧记录（旧版本没上报机型/指纹）：单独给个数，别混进"装机设备"里充数
+          unknown: one('SELECT COUNT(*) FROM app_installs WHERE ' + NATIVE + " AND " + KEY + " = ''"),
+          installs: one('SELECT COUNT(*) FROM app_installs WHERE ' + NATIVE),
           webOpen: one("SELECT COUNT(*) FROM app_installs WHERE platform = 'web'"),
-          named: one("SELECT COUNT(DISTINCT device) FROM app_installs WHERE " + NATIVE + " AND COALESCE(device,'') <> ''"),
+          named: one("SELECT COUNT(DISTINCT " + KEY + ") FROM app_installs WHERE " + NATIVE + " AND " + KEY + " <> ''"),
           today: one("SELECT COUNT(*) FROM app_installs WHERE " + NATIVE + " AND date(last_at,'localtime') = ?", day(0)),
           week: one("SELECT COUNT(*) FROM app_installs WHERE " + NATIVE + " AND date(last_at,'localtime') >= ?", day(6)),
           launches: one('SELECT COALESCE(SUM(launches),0) FROM app_installs'),
