@@ -22,20 +22,16 @@ import {
 } from '@/components/ui/select'
 import { pickCompressedPhoto } from '@/lib/photo'
 import { subCategoryOptions } from '@/lib/subCategories'
+import { BrandField } from './BrandField'
 import { useAppStore } from '@/store/appStore'
 import {
   SPEC_LABELS, SPEC_PLACEHOLDERS, specFieldsFor, type SpecField,
 } from '@/lib/productSpecs'
 import { type Category, type Unit } from '@/types'
 
-// 品牌预选列表（通用常见品牌），"自定义"选项触发自由输入
-const BRAND_PRESETS = [
-  '__custom__', '光威', '汉鼎', '化氏', '天元', '宝飞龙', '名伦', '开沃',
-  '农夫山泉', '可口可乐', '心相印', '晨光', '得力', '蓝月亮',
-  '阿布加西亚', '美人鱼', '大力马', 'YGK', '东丽', '龙王恨', '老鬼',
-  '西部风', '丸九', '土肥富', '欧娜', '慕斯达', '千秋', 'BKK',
-  'Megabass', '连球', '阿卢', 'Shimano', 'Abu Garcia',
-]
+// 品牌：改用 BrandField（以"店里用过的品牌"为主 + 允许自由输入）。
+// 原来那张写死的预设表（光威/老鬼/龙王恨…）里没有「狼王」这类店里真在卖的大牌，
+// 店员只能点"+ 自定义品牌"手打或干脆不填 —— 这是 57% 品牌为空的一个直接成因，已拆掉。
 
 /** 新建商品表单（元字符串；提交时页面统一转分） */
 export interface NewProductForm {
@@ -149,26 +145,13 @@ export function NewProductDialog({
           </div>
           <div className="space-y-1">
             <Label>品牌</Label>
-            <Select value={form.brand} onValueChange={(v) => onFormChange({ brand: v })}>
-              <SelectTrigger>
-                <SelectValue placeholder="选择品牌..." />
-              </SelectTrigger>
-              <SelectContent className="max-h-64">
-                {BRAND_PRESETS.map((b) => (
-                  <SelectItem key={b} value={b}>
-                    {b === '__custom__' ? '+ 自定义品牌' : b}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {form.brand === '__custom__' && (
-              <Input
-                className="mt-1"
-                value={form.brandCustom}
-                onChange={(e) => onFormChange({ brandCustom: e.target.value })}
-                placeholder="输入自定义品牌名"
-              />
-            )}
+            {/* 2026-09-22 改：不再用写死的预设下拉（里面没有「狼王」这种店里真在卖的牌子，
+                店员只能手打或干脆不填 → 57% 品牌为空）。现在以**店里用过的品牌**为主，且允许自由输入。 */}
+            <BrandField
+              value={form.brand === '__custom__' ? form.brandCustom : form.brand}
+              onChange={(v) => onFormChange({ brand: v, brandCustom: '' })}
+              listId="brand-choices-new"
+            />
           </div>
           <div className="space-y-1">
             <Label>型号/规格</Label>

@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { MatchedProductCard } from './inbound/MatchedProductCard'
 import { NewProductDialog, type NewProductForm } from './inbound/NewProductDialog'
+import { BatchSpecDialog } from './inbound/BatchSpecDialog'
 import { PhotoDraftDialog, type PhotoDraftItem } from './inbound/PhotoDraftDialog'
 import { TodayInboundTable } from './inbound/TodayInboundTable'
 
@@ -96,6 +97,8 @@ export function InboundPage() {
 
   // 新建商品 Dialog（元字符串表单；安全库存空串=不单独设，按默认 5 预警）
   const [dialogOpen, setDialogOpen] = useState(false)
+  /** 批量建一族规格（2026-09-22 老板要求：品牌/品类填一次，规格粘一列） */
+  const [batchOpen, setBatchOpen] = useState(false)
   const [npForm, setNpForm] = useState<NewProductForm>({
     category: '其他',
     subCategory: '',
@@ -507,6 +510,14 @@ export function InboundPage() {
         hint="扫码枪扫完自动回车；也可以打字搜"
       />
 
+      {/* 批量建一族规格（2026-09-22 老板要求）：
+          一个品牌几十个规格时，不再一个一个录入 —— 品牌/品类/价格填一次，规格名粘一列，一次建出来。 */}
+      <div className="flex justify-end">
+        <Button variant="outline" size="sm" onClick={() => setBatchOpen(true)}>
+          批量建一族规格
+        </Button>
+      </div>
+
       {success && <SuccessBanner>{success}</SuccessBanner>}
       {error && <ErrorBanner>{error}</ErrorBanner>}
 
@@ -616,6 +627,10 @@ export function InboundPage() {
         submitting={submitting}
         onSubmit={handleCreateProduct}
       />
+
+      {/* 批量建一族规格：只用已有通道（product:create / inbound:create 经 store），
+          刻意不新增 IPC —— 新增通道会让装过的旧壳不认。 */}
+      <BatchSpecDialog open={batchOpen} onOpenChange={setBatchOpen} />
 
       {/* 拍送货单识别草稿：人工逐行核对后确认入库 */}
       <PhotoDraftDialog

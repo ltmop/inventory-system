@@ -3479,5 +3479,37 @@ ok('preload 白名单含 expense 三通道',
     /图片已存，但入库没成功/.test(pickFn))
 }
 
+// ============ 录入即规范：品牌可选可输 + 批量建一族规格（2026-09-22，B 步）============
+// 起因：老板「一个品牌的产品，规格很多，但却要每一个都录入…规格命名格式不同一，名字不统一」。
+//   实测 223 个商品里品牌为空 127 个（57%）。一个直接成因：新建商品的品牌是**写死的预设下拉**，
+//   里面没有「狼王」这种店里真在卖的大牌 —— 店员只能点"+ 自定义品牌"手打，或者干脆不填。
+{
+  const rd = (p) => fs.readFileSync(path.resolve(p), 'utf8')
+  const brandField = rd('src/pages/inbound/BrandField.tsx')
+  const newDlg = rd('src/pages/inbound/NewProductDialog.tsx')
+  const batchDlg = rd('src/pages/inbound/BatchSpecDialog.tsx')
+  const inboundPage = rd('src/pages/InboundPage.tsx')
+
+  ok('录入规范：品牌输入以「店里用过的品牌」为主（从 products 累计，用得多排前面）',
+    /useAppStore\(\(s\) => s\.products\)/.test(brandField) && /used\.set\(b/.test(brandField))
+  ok('录入规范：品牌允许自由输入（datalist，不是只读下拉）',
+    /<datalist/.test(brandField) && /list=\{listId\}/.test(brandField))
+  ok('录入规范：新建商品不再用写死的预设品牌表（狼王这类牌子选不到，是品牌为空的成因之一）',
+    !/BRAND_PRESETS/.test(newDlg) && /BrandField/.test(newDlg))
+
+  ok('批量建族：对话框存在且能从入库页打开',
+    /export function BatchSpecDialog/.test(batchDlg) && /BatchSpecDialog/.test(inboundPage))
+  ok('批量建族：只走已有通道（store 的 addProduct/addInbound），**不新增 IPC** —— 新增通道旧壳不认',
+    /addProduct\(/.test(batchDlg) && /addInbound\(/.test(batchDlg) && !/invoke\(/.test(batchDlg))
+  ok('批量建族：建之前先查重（同品牌+同品类+同规格已存在就跳过），堵住"同一条规格建两遍"',
+    /existing\.has\(k\)/.test(batchDlg) && /将跳过/.test(batchDlg))
+  ok('批量建族：显示名统一由 productName() 产出，不自己拼字符串',
+    /productName\(\{/.test(batchDlg))
+  ok('批量建族：带数量的行顺手入库（库存与「已盘点」一起到位）',
+    /qty > 0/.test(batchDlg) && /addInbound\(/.test(batchDlg))
+  ok('批量建族：建档先挂「待盘点」，由入库去翻状态（不从名字/照片推断）',
+    /status: '待盘点'/.test(batchDlg))
+}
+
 fs.rmSync(tmp, { recursive: true, force: true })
 console.log(`\n全部 ${passed} 项断言通过`)
