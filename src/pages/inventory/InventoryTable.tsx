@@ -175,9 +175,9 @@ export function InventoryTable({
                   <TableHead>品类</TableHead>
                   {/* 子类：老板填了 152 个商品，以前**这张表里一个都看不见**
                       （同一字段在入库/出库搜索里反而有）。补列属于"身份别分裂"。 */}
-                  <TableHead>子类</TableHead>
+                  <TableHead>规格</TableHead>
                   <TableHead>品牌</TableHead>
-                  <TableHead>型号规格</TableHead>
+                  <TableHead>型号/系列</TableHead>
                   <TableHead>状态</TableHead>
                   <TableHead className="text-right">
                     <button

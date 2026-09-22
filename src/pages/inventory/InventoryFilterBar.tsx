@@ -210,10 +210,10 @@ export function InventoryFilterBar({
                 className="w-44"
                 title="子类候选来自库存里已经用过的子类（按品类收敛）"
               >
-                <SelectValue placeholder="子类" />
+                <SelectValue placeholder="规格" />
               </SelectTrigger>
               <SelectContent className="max-h-72">
-                <SelectItem value={allValue}>全部子类</SelectItem>
+                <SelectItem value={allValue}>全部规格</SelectItem>
                 {subCategories.map((v) => (
                   <SelectItem key={v} value={v}>
                     {v}

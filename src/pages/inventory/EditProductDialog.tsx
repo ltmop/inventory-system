@@ -187,7 +187,7 @@ export function EditProductDialog({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label>子类</Label>
+            <Label>规格</Label>
             <Input
               value={form.sub_category}
               onChange={(e) => onFormChange((f) => ({ ...f, sub_category: e.target.value }))}
@@ -208,7 +208,7 @@ export function EditProductDialog({
             />
           </div>
           <div className="space-y-2">
-            <Label>型号规格</Label>
+            <Label>型号/系列</Label>
             <Input
               value={form.model}
               onChange={(e) => onFormChange((f) => ({ ...f, model: e.target.value }))}

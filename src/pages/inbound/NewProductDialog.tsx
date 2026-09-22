@@ -128,7 +128,7 @@ export function NewProductDialog({
             </Select>
           </div>
           <div className="space-y-1">
-            <Label>子类</Label>
+            <Label>规格</Label>
             <Input
               value={form.subCategory}
               onChange={(e) => onFormChange({ subCategory: e.target.value })}
@@ -154,7 +154,7 @@ export function NewProductDialog({
             />
           </div>
           <div className="space-y-1">
-            <Label>型号/规格</Label>
+            <Label>型号/系列</Label>
             <Input value={form.model} onChange={(e) => onFormChange({ model: e.target.value })} placeholder="如：3.6m 28调" />
           </div>
           <div className="space-y-1">
