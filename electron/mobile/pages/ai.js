@@ -83,6 +83,15 @@ page('ai', function (app) {
     })
     app.appendChild(quick)
 
+    // 客服三层的第一层到第二层的桥（2026-09-21）：
+    // 小渔答不上 → 一键反馈给开发 → 回复能在「我的反馈」里看到。
+    // 没有这一条，「AI 客服」在用户眼里就是个答不上来还堵死路的哑助手。
+    const helpRow = document.createElement('div')
+    helpRow.style.cssText = 'padding:0 16px 10px'
+    helpRow.innerHTML = '<button id="ai-human" style="width:100%;height:40px;border-radius:10px;border:1px dashed var(--line);background:transparent;color:var(--sub);font-size:13px;font-weight:700">小渔答不上来？直接告诉我们（会有人看）</button>'
+    app.appendChild(helpRow)
+    helpRow.querySelector('#ai-human').onclick = function () { openFeedbackSheet() }
+
     // 输入区
     const inputRow = document.createElement('div'); inputRow.style.cssText = 'display:flex;gap:10px;padding:10px 16px calc(10px + env(safe-area-inset-bottom));position:sticky;bottom:0;background:var(--paper)'
     const inp = document.createElement('input'); inp.id = 'ai-input'; inp.className = 'search'; inp.style.flex = '1'; inp.placeholder = '问小渔...'

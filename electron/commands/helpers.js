@@ -170,6 +170,16 @@ export function specOrNull(v) {
 // 商品状态枚举（与 schema CHECK 一致）
 export const PRODUCT_STATUSES = ['待盘点', '已盘点', '在售', '已售罄', '停产']
 
+/**
+ * 成本兜底价（分）＝ ¥2。老板 2026-09-22：
+ *   「成本价可以先默认成本价为 2 块钱，当人去卖时不对再去改，需要提醒使用人，该价格为默认价格」。
+ *
+ * 为什么必须有个兜底：毛利 = 售价 − **批次成本**（流水 unit_price 取的就是批次成本，见 outbound.js）。
+ * 进价留空记成 0，卖出去的毛利就等于营业额 —— 老板看到的"今天赚了多少"是假的。
+ * 兜底只解决"没有数"的情况；商品上会打 cost_is_default 标记，界面提醒人去改成真进价。
+ */
+export const DEFAULT_COST_FEN = 200
+
 /** 退货/换货共用：把数量加回最近入库的批次；无批次则新建"退货回补"批次。返回 { batchId, unitCost } */
 export function addBackToLatestBatch(db, productId, quantity) {
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(productId)

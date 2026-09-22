@@ -1047,7 +1047,8 @@ function openFeedbackSheet() {
   const errs = fiRecentErrors()
   const pending = (function () { try { return Offline.pendingCount() } catch (e) { return 0 } })()
   const ov = sheet('反馈给开发',
-    '<div class="text-sm text-muted" style="margin-bottom:10px;line-height:1.75">哪里不对、想加什么，直接写一句就行。<br>会自动带上：当前页面、版本、最近报错 —— <b>不会带任何账目、客户、商品信息</b>。</div>' +
+    '<div class="text-sm text-muted" style="margin-bottom:6px;line-height:1.75">哪里不对、想加什么，直接写一句就行。<br>会自动带上：当前页面、版本、最近报错 —— <b>不会带任何账目、客户、商品信息</b>。</div>' +
+    '<div class="text-xs" style="margin-bottom:10px"><a href="#ai" style="color:var(--blue);font-weight:700;text-decoration:none">想先问一句？点这里找小渔 ›</a></div>' +
     '<textarea id="fb-text" rows="4" placeholder="例：改数量点了没反应 / 想加个打印小票" style="width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:12px;padding:12px;font-size:15px;font-family:inherit;background:var(--card2);color:var(--ink);outline:none"></textarea>' +
     '<input id="fb-contact" placeholder="怎么联系你？（可不填）" style="width:100%;box-sizing:border-box;margin-top:8px;height:46px;border:1px solid var(--line);border-radius:12px;padding:0 12px;font-size:15px;background:var(--card2);color:var(--ink);outline:none">' +
     '<div class="text-xs text-muted" style="margin-top:10px;line-height:1.8">将附带：页面 <b>' + escHtml(page) + '</b> · 网页层 <b>' + escHtml(WEB_VERSION_APPLIED || APP_VERSION) + '</b> · 壳 <b>' + escHtml(APP_VERSION) + '</b>' + (pending ? ' · 待上传 <b>' + pending + '</b> 单' : '') + (errs.length ? '<br>最近报错 ' + errs.length + ' 条' : '') + '</div>' +

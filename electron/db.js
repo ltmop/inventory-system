@@ -397,6 +397,8 @@ function runMigrations(db) {
     ['分类大分类补列（两级分类）', migrateCategoryParent],
     ['批次生产日期补列', migrateBatchProductionDate],
     ['会员字段补列', migrateCustomerMember],
+    ['成本价兜底（默认 ¥2）', migrateProductCostDefault],
+    ['盘点状态按数量回填', migrateStocktakeStatusFromQty],
     ['分类/单位种子', seedCategoriesAndUnits],
   ]
   const failures = []
@@ -834,6 +836,31 @@ function migrateBatchProductionDate(db) {
 }
 
 /** 会员字段补列（通用版）：member_no 会员号 / level 等级 / join_date 入会日期（仅会员价，无积分） */
+
+/**
+ * 成本价兜底（2026-09-22 老板口径）：
+ *   「先默认成本价为 2 块钱，当人去卖时不对再去改」。
+ *   为什么必须兜底：成本价 0 会让毛利 = 营业额（虚高），老板看到的"今天赚了多少"是假的。
+ *   cost_is_default = 1 表示"这是兜底价、不是真进价"，界面上要提醒人去改。
+ */
+function migrateProductCostDefault(db) {
+  const cols = db.prepare('PRAGMA table_info(products)').all().map((c) => c.name)
+  if (!cols.includes('cost_is_default')) db.exec('ALTER TABLE products ADD COLUMN cost_is_default INTEGER DEFAULT 0')
+  const r = db.prepare('UPDATE products SET cost_price = 200, cost_is_default = 1 WHERE cost_price IS NULL OR cost_price <= 0').run()
+  if (Number(r.changes) > 0) console.log('[migrate] 成本价兜底：' + r.changes + ' 个商品补为默认 ¥2')
+}
+
+/**
+ * 盘点状态回填（2026-09-22 老板口径）：
+ *   「我已经批量上传了商品的规格和数量，这种情况下应该是默认已盘点才对，但仍然显示待盘点」。
+ *   判据：只要有**数量不为 0 的批次**，就说明这个商品的数量是录进去过的，不该再挂着"待盘点"。
+ *   待盘点从此只留给"建了档但没有任何数量"的商品。
+ */
+function migrateStocktakeStatusFromQty(db) {
+  const r = db.prepare("UPDATE products SET status = '已盘点' WHERE status = '待盘点' AND EXISTS (SELECT 1 FROM inventory_batches b WHERE b.product_id = products.id AND b.quantity <> 0)").run()
+  if (Number(r.changes) > 0) console.log('[migrate] 盘点状态回填：' + r.changes + ' 个商品由「待盘点」改为「已盘点」')
+}
+
 function migrateCustomerMember(db) {
   const cols = db.prepare('PRAGMA table_info(customers)').all().map((c) => c.name)
   if (!cols.includes('member_no')) db.exec('ALTER TABLE customers ADD COLUMN member_no TEXT')

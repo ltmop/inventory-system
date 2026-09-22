@@ -13,6 +13,7 @@ import {
   PRODUCT_STATUSES,
   minStockOrNull,
   logAudit,
+  DEFAULT_COST_FEN,
 } from './helpers.js'
 import { enforceSkuQuota } from '../license.js'
 
@@ -83,7 +84,7 @@ export function importBatch(db, { rows, mode = 'skip' }) {
     enforceSkuQuota(db, newRows.length || 1)
     const insProduct = db.prepare(
       `INSERT INTO products (sku_code, barcode, category, sub_category, brand, model, cost_price, suggest_price, location, status, rod_length, rod_action, power_rating, line_number, hook_size, color, material, expiry_date, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '待盘点', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     const insBatch = db.prepare(
       `INSERT INTO inventory_batches (product_id, batch_no, quantity, cost_price, location, inbound_date, supplier_id)
@@ -96,17 +97,25 @@ export function importBatch(db, { rows, mode = 'skip' }) {
 
     const results = []
     for (const r of newRows) {
+      // 老板 2026-09-22：批量上传时**文件里带了数量**的，就说明这个数已经录进去了，
+      // 应当直接算「已盘点」—— 以前一律写死"待盘点"，导致盘过的货还天天提示要盘点。
+      const qty = Number(r.quantity ?? 0)
+      // 成本兜底：文件里没给成本价的，落默认 ¥2 并打标记（0 会让毛利虚高）
+      const rawCost = Number(r.cost_price)
+      const costIsDefault = rawCost > 0 ? 0 : 1
+      const costPrice = costIsDefault ? DEFAULT_COST_FEN : rawCost
+      const status = qty > 0 ? '已盘点' : '待盘点'
       const info = insProduct.run(
         r.sku_code, r.barcode ?? null, r.category, r.sub_category ?? null,
-        r.brand ?? null, r.model ?? null, r.cost_price, r.suggest_price ?? null,
-        r.location ?? null, ...SPEC_FIELDS.map((f) => specOrNull(r[f])), ts, ts,
+        r.brand ?? null, r.model ?? null, costPrice, r.suggest_price ?? null,
+        r.location ?? null, status, ...SPEC_FIELDS.map((f) => specOrNull(r[f])), ts, ts,
       )
       const productId = Number(info.lastInsertRowid)
+      if (costIsDefault) db.prepare('UPDATE products SET cost_is_default = 1 WHERE id = ?').run(productId)
       const batchNo = nextBatchNo(db) // 与手动入库同一套批次号规则
-      const qty = r.quantity ?? 0
-      const batchInfo = insBatch.run(productId, batchNo, qty, r.cost_price, r.location ?? null, today())
+      const batchInfo = insBatch.run(productId, batchNo, qty, costPrice, r.location ?? null, today())
       const batchId = Number(batchInfo.lastInsertRowid)
-      insTx.run(productId, batchId, qty, r.cost_price, ts, r.operator ?? '导入')
+      insTx.run(productId, batchId, qty, costPrice, ts, r.operator ?? '导入')
       results.push({ productId, batchId, batchNo, sku_code: r.sku_code })
     }
 

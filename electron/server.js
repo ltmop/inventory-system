@@ -1400,6 +1400,10 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       }
     },
     'report:lowStock': (d) => cmds.lowStockProducts(d),
+    // 「该补什么货」唯一口径（2026-09-22）：手机端入库页/补货清单/今日页都改调这个。
+    // 以前它们各调 report:lowStock（库存<5 就报），和「今天该做的事」算的不是一回事 →
+    // 同一天待办说"补货 0"、页面说"库存告急 68 种"，老板直接问"上传说过的没完成？"
+    'report:restock': (d, p) => cmds.restockForTodo(d, Math.min(Math.max(parseInt(p?.limit, 10) || 200, 1), 500)),
     // 「今天该做的事」：补货/催款/异常。规则算，不调大模型（确定的结果店主才信）
     'report:todo': (d) => cmds.dailyTodo(d),
     // 每日提醒配置（2026-09-21）：老板自己填机器人地址，不用找我改服务器

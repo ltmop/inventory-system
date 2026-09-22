@@ -10,6 +10,7 @@ import {
   productLabel,
   assertPositiveInt,
   PRODUCT_STATUSES,
+  DEFAULT_COST_FEN,
 } from './helpers.js'
 import { enforceSkuQuota } from '../license.js'
 import { assertOwnerAction } from './users.js'
@@ -21,6 +22,13 @@ import { ensureCategory } from './categories.js'
 export function createProduct(db, input) {
   const ts = now()
   const minStock = minStockOrNull(input.min_stock)
+  // 成本价：没填/填 0 一律落兜底价，并打标记让界面提醒人去改（0 会让毛利虚高成营业额）
+  const rawCost = Number(input.cost_price)
+  const costIsDefault = rawCost > 0 ? 0 : 1
+  const costPrice = costIsDefault ? DEFAULT_COST_FEN : rawCost
+  // 盘点状态：建档时填了数量（含批量上传）＝这个数已经录过了，直接算已盘点，不再要人手动点一次
+  const initialQty = Number(input.quantity ?? input.stock ?? 0)
+  const status = input.status ?? (initialQty > 0 ? '已盘点' : '待盘点')
   const unit = String(input.unit || '件').trim() || '件'
   // SKU 规则（简化版）：显式传入的原样用（如 CSV 导入、老五段式）；
   // 留空时有条码直接用条码（扫码枪扫出来就是它），无条码用纯数字编号（1001 起递增）
@@ -47,16 +55,17 @@ export function createProduct(db, input) {
         input.sub_category ?? null,
         input.brand ?? null,
         input.model ?? null,
-        input.cost_price,
+        costPrice,
         input.suggest_price ?? null,
         input.location ?? null,
-        input.status ?? '待盘点',
+        status,
         ...SPEC_FIELDS.map((f) => specOrNull(input[f])),
         minStock,
         unit,
         ts,
         ts,
       )
+    if (costIsDefault) db.prepare('UPDATE products SET cost_is_default = 1 WHERE id = ?').run(info.lastInsertRowid)
     const row = db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid)
     // 自定义分类/单位自动补录（分类管理、单位管理即时可见）
     ensureCategory(db, row.category)
@@ -66,27 +75,49 @@ export function createProduct(db, input) {
   })
 }
 
+
+/**
+ * 编辑商品时决定 status（2026-09-22 老板口径）：
+ *   「已经批量上传了商品的规格和数量，这种情况下应该是默认已盘点才对，但仍然显示待盘点」。
+ * 所以只要这个商品**有数量不为 0 的批次**，编辑动作就不许把它打回「待盘点」——
+ * 否则店主改个售价，盘点状态就莫名其妙退回去了。
+ */
+function statusOfUpdate(v, db, id) {
+  const want = v.status ?? '待盘点'
+  if (want !== '待盘点') return want
+  try {
+    const r = db.prepare('SELECT 1 FROM inventory_batches WHERE product_id = ? AND quantity <> 0 LIMIT 1').get(id)
+    return r ? '已盘点' : '待盘点'
+  } catch (e) { return want }
+}
+
 /** 修改商品基本信息；SKU 一经创建不可修改（避免历史流水对不上） */
 export function updateProduct(db, id, input) {
   const cur = db.prepare('SELECT * FROM products WHERE id = ?').get(id)
   if (!cur) throw new Error('商品不存在')
   // 与现有行合并，允许前端只传要改的字段；SKU 创建后不可改
   const v = { ...cur, ...input, id: cur.id, sku_code: cur.sku_code }
+  // 与新建同一条成本规则：人工填了真进价就采信并摘掉"默认价"标记；
+  // 留空/填 0 就落兜底 ¥2 并继续挂着标记，界面会提醒人去改（0 会让毛利虚高成营业额）。
+  const rawCost = Number(v.cost_price)
+  const costIsDefault = rawCost > 0 ? 0 : 1
+  const costPrice = costIsDefault ? DEFAULT_COST_FEN : rawCost
   const minStock = minStockOrNull(v.min_stock)
   const unit = String(v.unit || '件').trim() || '件'
   return inTransaction(db, () => {
     db.prepare(
-      `UPDATE products SET category = ?, sub_category = ?, brand = ?, model = ?, cost_price = ?, suggest_price = ?, location = ?, status = ?, rod_length = ?, rod_action = ?, power_rating = ?, line_number = ?, hook_size = ?, color = ?, material = ?, expiry_date = ?, min_stock = ?, unit = ?, photo_path = ?, updated_at = ?
+      `UPDATE products SET category = ?, sub_category = ?, brand = ?, model = ?, cost_price = ?, cost_is_default = ?, suggest_price = ?, location = ?, status = ?, rod_length = ?, rod_action = ?, power_rating = ?, line_number = ?, hook_size = ?, color = ?, material = ?, expiry_date = ?, min_stock = ?, unit = ?, photo_path = ?, updated_at = ?
        WHERE id = ?`,
     ).run(
       v.category,
       v.sub_category ?? null,
       v.brand ?? null,
       v.model ?? null,
-      v.cost_price,
+      costPrice,
+      costIsDefault,
       v.suggest_price ?? null,
       v.location ?? null,
-      v.status ?? '待盘点',
+      statusOfUpdate(v, db, id),
       ...SPEC_FIELDS.map((f) => specOrNull(v[f])),
       minStock,
       unit,

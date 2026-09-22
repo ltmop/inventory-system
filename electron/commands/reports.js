@@ -176,6 +176,59 @@ function revenueOfDay(db, dateOffset) {
 /**
  * @returns {{ date:string, restock:Array, collect:Array, anomalies:Array, counts:object, headline:string }}
  */
+/**
+ * 该补的货（**全站唯一口径**）。
+ *
+ * 老板 2026-09-22：「补货提醒这个问题，上传说过的没完成，或者说页面没有同步」——
+ * 病根是同一个问题有两套算法：
+ *   · 「今天该做的事」走这里（按近 90 天真实动销算「还能卖几天」，快断才提醒，贵货门槛更严）
+ *   · 入库页 / 补货清单 / 今日页走的是 report:lowStock（**只要库存 < 5 就报**）
+ * 于是同一天，待办说「补货 0」，页面说「库存告急 68 种」—— 68 全是库存 0 又从没卖过的货。
+ *
+ * 现在三处都只准调这里。低于警戒线但**卖不动**的货不进补货，而是进滞销（压着多少钱）。
+ *
+ * @param {number} limit 返回条数上限（桌面待办只要 5 条，手机端「看全部」要全量）
+ */
+export function restockForTodo(db, limit = 5) {
+  const advice = computeRestockAdvice(
+    db.prepare('SELECT * FROM products').all(),
+    db.prepare('SELECT * FROM inventory_batches').all(),
+    db.prepare('SELECT product_id, type, quantity, notes, timestamp FROM transactions').all(),
+  )
+  const pById = new Map(db.prepare('SELECT id, sku_code, brand, model, suggest_price, unit FROM products').all().map((x) => [x.id, x]))
+  // 品牌/型号在商品档案里可以只填一个，显示名统一在这里拼，调用方别各拼一套
+  const nameOf = (pid) => {
+    const pr = pById.get(pid) || {}
+    return [pr.brand, pr.model].filter(Boolean).join(' ') || pr.sku_code || '商品'
+  }
+  // 老板还说「可以按价格来区分」：贵货压的是大钱，不到快断不催（<15 天才提醒）；普通货按常规 30 天。
+  const EXPENSIVE_FEN = 20000
+  const DAYS_LEFT_EXPENSIVE = 15
+  const all = advice.restock.filter((r) => {
+    const pr = pById.get(r.productId) || {}
+    const expensive = Number(pr.suggest_price || 0) >= EXPENSIVE_FEN
+    return r.daysOfStock < (expensive ? DAYS_LEFT_EXPENSIVE : 30)
+  })
+  const list = all.slice(0, limit).map((r) => {
+    const pr = pById.get(r.productId) || {}
+    return {
+      productId: r.productId,
+      id: r.productId,
+      name: nameOf(r.productId),
+      brand: pr.brand || '',
+      model: pr.model || '',
+      sku: pr.sku_code || '',
+      sku_code: pr.sku_code || '',
+      unit: pr.unit || '件',
+      stock: r.stock,
+      daysLeft: Math.floor(r.daysOfStock),
+      sold90: r.sold,
+      suggestQty: r.suggestedQty,
+    }
+  })
+  return { total: all.length, list, deadStockCount: (advice.deadStock || []).length, tiedCapital: advice.totalTiedCapital || 0, advice }
+}
+
 export function dailyTodo(db) {
   // ⚠️ 实测发现（2026-09-21）：这家店 126 个商品里 121 个都低于预警线（大多数库存是 0），
   //    所以"低于预警线"这个信号本身**没有区分度** —— 只报"补 5 样"等于每天说同一句废话。
@@ -185,35 +238,7 @@ export function dailyTodo(db) {
   //    上一版我用的是「低于预警线就提醒」，跑真实数据是「补货 121 样」，全是噪音（库里大多库存是 0 又没卖过）。
   //    正确口径是**已有的 restockAdvice**：按近 90 天真实销量算「还能卖几天」，快断才提醒；
   //    卖不动的不会进补货，而是进滞销（压着多少钱）—— 贵的鱼竿本来就该走滞销那条。
-  const advice = computeRestockAdvice(
-    db.prepare('SELECT * FROM products').all(),
-    db.prepare('SELECT * FROM inventory_batches').all(),
-    db.prepare('SELECT product_id, type, quantity, notes, timestamp FROM transactions').all(),
-  )
-  const pById = new Map(db.prepare('SELECT id, sku_code, brand, model, suggest_price, unit FROM products').all().map((x) => [x.id, x]))
-  // 老板还说「可以按价格来区分」：贵货压的是大钱，不到快断不催（<15 天才提醒）；普通货按常规 30 天。
-  const EXPENSIVE_FEN = 20000
-  const DAYS_LEFT_EXPENSIVE = 15
-  const restockAll = advice.restock.filter((r) => {
-    const pr = pById.get(r.productId) || {}
-    const expensive = Number(pr.suggest_price || 0) >= EXPENSIVE_FEN
-    return r.daysOfStock < (expensive ? DAYS_LEFT_EXPENSIVE : 30)
-  })
-  const restockTotal = restockAll.length
-  const restock = restockAll
-    .slice(0, 5)
-    .map((r) => {
-      const pr = pById.get(r.productId) || {}
-      return {
-        productId: r.productId,
-        name: [pr.brand, pr.model].filter(Boolean).join(' ') || pr.sku_code || '商品',
-        sku: pr.sku_code || '',
-        stock: r.stock,
-        threshold: null,
-        daysLeft: Math.floor(r.daysOfStock),
-        suggestQty: r.suggestedQty,
-      }
-    })
+  const { total: restockTotal, list: restock, advice } = restockForTodo(db, 5)
 
   // 欠款：直接取 customers 的唯一口径，别在这重写
   let cust = []
@@ -231,6 +256,13 @@ export function dailyTodo(db) {
     }))
 
   const anomalies = []
+  // 成本价还是兜底 ¥2 的（老板 2026-09-22：默认价要提醒人去改，否则毛利算不准）
+  try {
+    const dc = db.prepare('SELECT COUNT(*) AS n FROM products WHERE cost_is_default = 1').get()
+    if (dc && Number(dc.n) > 0) {
+      anomalies.push({ kind: 'default-cost', text: '有 ' + dc.n + ' 个商品的成本还是默认的 ¥2，点进去改成真进价，毛利才算得准' })
+    }
+  } catch (e) { /* 老库还没补列，跳过 */ }
   // 滞销压资金（卖不动但占着钱）—— 贵的鱼竿就该出现在这里，而不是"该补货"里
   if (advice.deadStock.length && advice.totalTiedCapital >= 100000) {
     const top = advice.deadStock[0]
