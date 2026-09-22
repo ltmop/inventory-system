@@ -6,7 +6,6 @@ import {
 } from './importParse'
 
 const HEADER = 'sku编码,品类,子类,品牌,型号,进价,建议售价,数量,货位'
-
 /** 用 exceljs 造一个 xlsx buffer（模拟用户上传的文件） */
 async function makeXlsx(rows: (string | number)[][]): Promise<ArrayBuffer> {
   const wb = new ExcelJS.Workbook()
@@ -114,5 +113,38 @@ describe('buildTemplateBlob', () => {
 describe('rowsToImport 边界', () => {
   it('只有表头没有数据行时报错', () => {
     expect(() => rowsToImport([HEADER.split(',')])).toThrow('表格里没有数据')
+  })
+})
+
+// 2026-09-22：老板用 Excel 的「规格」列填尺码，结果全被写进了"型号/系列"（映射写成 规格: 'model'）。
+// 现场口径：sub_category 就是「规格」列。这几条把映射钉死。
+describe('「规格」列必须落到 sub_category（不是 model）', () => {
+  it('表头写「规格」→ sub_category，型号列 → model', () => {
+    const rows = rowsToImport([
+      ['sku编码', '品类', '规格', '品牌', '型号', '进价', '数量'],
+      ['FG-1', '鱼竿', '3.6m', '光威', '赤刃', '100', '5'],
+    ])
+    expect(rows[0].sub_category).toBe('3.6m')
+    expect(rows[0].model).toBe('赤刃')
+  })
+  it('老文件的表头写「子类」照样认（历史导出不用重做）', () => {
+    const rows = rowsToImport([
+      ['sku编码', '品类', '子类', '品牌', '型号', '进价', '数量'],
+      ['FG-2', '鱼竿', '4.5m', '光威', '赤刃', '100', '5'],
+    ])
+    expect(rows[0].sub_category).toBe('4.5m')
+    expect(rows[0].model).toBe('赤刃')
+  })
+  it('表头写「系列」也认成 model（界面现在叫「型号/系列」）', () => {
+    const rows = rowsToImport([
+      ['sku编码', '品类', '规格', '品牌', '系列', '进价', '数量'],
+      ['FG-3', '鱼竿', '5.4m', '光威', '赤刃', '100', '5'],
+    ])
+    expect(rows[0].sub_category).toBe('5.4m')
+    expect(rows[0].model).toBe('赤刃')
+  })
+  it('下载的模板表头里就写着「规格」，不是「子类」', () => {
+    expect(TEMPLATE_HEADERS).toContain('规格')
+    expect(TEMPLATE_HEADERS.indexOf('规格')).toBe(TEMPLATE_HEADERS.indexOf('品牌') - 1)
   })
 })

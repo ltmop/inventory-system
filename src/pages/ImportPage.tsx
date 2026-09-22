@@ -204,7 +204,7 @@ export function ImportPage() {
           </div>
           <div className="text-xs text-muted-foreground space-y-1">
             <p>支持 .xlsx / .csv 文件（老版 .xls 请先在 Excel 里另存为 .xlsx）；表头支持中英文（如"sku编码"或"sku_code"）。</p>
-            <p>必要列：sku编码、品类、进价(元)、数量。可选列：条码、子类、品牌、型号、建议售价、货位，以及可选规格列（长度、型号、颜色、材质、保质期，空着也能导入）。</p>
+            <p>必要列：sku编码、品类、进价(元)、数量。可选列：条码、规格、品牌、型号(系列)、建议售价、货位，以及可选规格列（长度、型号、颜色、材质、保质期，空着也能导入）。</p>
             <p><strong>进价和售价单位为元</strong>（如 45.00），系统自动转换为分存储。</p>
             <p>品类须为以下之一：{categories.map((c) => c.name).join('、') || '（分类表为空，请先到「分类管理」建分类）'}</p>
           </div>
@@ -288,7 +288,7 @@ export function ImportPage() {
                       <TableHead className="w-10">#</TableHead>
                       <TableHead>SKU</TableHead>
                       <TableHead>品类</TableHead>
-                      <TableHead>子类</TableHead>
+                      <TableHead>规格</TableHead>
                       <TableHead>品牌</TableHead>
                       <TableHead>型号</TableHead>
                       <TableHead className="text-right">进价</TableHead>

@@ -465,7 +465,7 @@ export function InventoryPage() {
   // csvCell 已从 @/lib/formatters 导入（含逗号/引号/换行的字段包引号、引号双写）
 
   const exportCsv = () => {
-    const header = 'SKU,条码,品类,子类,品牌,型号,状态,总库存,货位,最近进价(元),长度,调性,硬度,线号,钩号,颜色,材质,保质期'
+    const header = 'SKU,条码,品类,规格,品牌,型号,状态,总库存,货位,最近进价(元),长度,调性,硬度,线号,钩号,颜色,材质,保质期'
     const rows = visibleProducts.map((p) =>
       [
         p.sku_code,

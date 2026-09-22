@@ -73,7 +73,10 @@ for (const [rel, label] of CONSUMERS) {
 
 console.log('\n=== ③ 库存查询里看得见（真缺陷 A：填了也看不见）===')
 const table = code('pages/inventory/InventoryTable.tsx')
-ok('表头有「子类」列', /<TableHead>子类<\/TableHead>/.test(table))
+// 2026-09-22：界面把这一列统一叫「规格」（老板口径：sub_category 就是规格列；
+//   原来叫"子类"时，老板以为规格该填别处 —— 见 docs/设计-品牌品类规格三层与录入归一）。
+//   断言一条没减，只是跟着界面文案改口径。
+ok('表头有「规格」列（就是 sub_category 那一列）', /<TableHead>规格<\/TableHead>/.test(table))
 ok('每行渲染 p.sub_category', /\{p\.sub_category/.test(table))
 // 这一条防"以后又把它删掉"：子类必须真的出现在表格文件里
 ok('子类不再缺席库存表格（去掉注释后仍然出现）', table.includes('sub_category'))
@@ -83,14 +86,14 @@ const page = code('pages/InventoryPage.tsx')
 ok('关键词搜索字段里含 p.sub_category', /p\.sku_code,\s*p\.barcode,\s*p\.brand,\s*p\.model,\s*p\.category,\s*p\.sub_category/.test(page))
 ok('按子类过滤生效', /subCategory !== ALL && \(p\.sub_category \?\? ''\) !== subCategory/.test(page))
 ok('重置筛选会清掉子类', /setSubCategory\(ALL\)/.test(page))
-ok('子类进了 CSV 导出表头', /品类,子类,品牌/.test(page))
+ok('规格进了 CSV 导出表头（表头写「规格」，导入侧两种写法都认）', /品类,规格,品牌/.test(page))
 ok('子类进了 CSV 导出行', /p\.category,\s*p\.sub_category \?\? '',/.test(page))
 
 console.log('\n=== ⑤ 高级筛选里的子类下拉 ===')
 const bar = code('pages/inventory/InventoryFilterBar.tsx')
 ok('筛选栏有子类下拉（Select）', /value=\{subCategory\}/.test(bar) && /subCategories\.map/.test(bar))
 ok('子类计入"高级筛选"角标', /subCategory !== allValue \? 1 : 0/.test(bar))
-ok('搜索框提示语写明能搜子类', /搜索SKU\/品牌\/型号\/子类\/条码/.test(bar))
+ok('搜索框提示语写明能搜规格', /搜索SKU\/品牌\/型号\/规格\/条码/.test(bar))
 
 console.log('\n=== ⑥ 可复用但不受控（真值一个字都不能丢）===')
 for (const [rel, label] of [

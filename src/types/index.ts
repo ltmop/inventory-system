@@ -42,7 +42,7 @@ export interface Product {
   sku_code: string
   barcode: string | null
   category: Category
-  sub_category: string | null  // 子类，如"手竿""PE线""伊势尼""抄网"
+  sub_category: string | null  // 规格（界面统一叫「规格」；老文档/老代码里叫"子类"），如 3.6m / 5.0号 / 伊势尼
   brand: string | null
   model: string | null
   cost_price: number // 单位：分

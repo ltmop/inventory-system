@@ -124,9 +124,9 @@ const server = http.createServer((req, res) => {
   if (errs.length) console.log('  页面错误: ' + JSON.stringify(errs.slice(0, 3)))
 
   ok('代理真的转发到了真机服务（请求数 > 0）', proxied > 0, 'proxied=' + proxied)
-  ok('库存查询表头出现「子类」列', head.ths.includes('子类'), JSON.stringify(head.ths))
+  ok('库存查询表头出现「子类」列', head.ths.includes('规格'), JSON.stringify(head.ths))
 
-  const colIdx = head.ths.indexOf('子类')
+  const colIdx = head.ths.indexOf('规格')
   const grid = await p.evaluate((i) => {
     const th = document.querySelectorAll('th').length
     const rows = Array.from(document.querySelectorAll('tbody tr'))
@@ -140,10 +140,10 @@ const server = http.createServer((req, res) => {
   ok('首屏至少一行显示了真实子类值（不是占位 —）', grid.filled > 0, 'filled=' + grid.filled)
 
   // ───────── 关键词搜索：用一个只可能出现在子类里的片段 ─────────
-  const input = p.locator('input[placeholder*="子类"]')
+  const input = p.locator('input[placeholder*="规格"]')
   ok('搜索框提示语已含「子类」（本次改动的可见证据）', (await input.count()) > 0)
   await p.evaluate(() => {
-    const el = Array.from(document.querySelectorAll('input')).find((x) => (x.placeholder || '').includes('子类'))
+    const el = Array.from(document.querySelectorAll('input')).find((x) => (x.placeholder || '').includes('规格'))
     if (!el) return
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
     setter.call(el, '粗弯倒刺')
@@ -195,7 +195,7 @@ const server = http.createServer((req, res) => {
 
   // ───────── 清掉搜索，验高级筛选里的子类下拉 ─────────
   await p.evaluate(() => {
-    const el = Array.from(document.querySelectorAll('input')).find((x) => (x.placeholder || '').includes('子类'))
+    const el = Array.from(document.querySelectorAll('input')).find((x) => (x.placeholder || '').includes('规格'))
     if (!el) return
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
     setter.call(el, '')
@@ -206,7 +206,7 @@ const server = http.createServer((req, res) => {
   //    合成 el.click() 不触发 → 上一版就是栽在这里（options=0）。
   await p.locator('button', { hasText: '高级筛选' }).first().click()
   await p.waitForTimeout(700)
-  const subTrigger = p.locator('button[role="combobox"]').filter({ hasText: '子类' })
+  const subTrigger = p.locator('button[role="combobox"]').filter({ hasText: '规格' })
   const nTrig = await subTrigger.count()
   ok('高级筛选里出现「子类」下拉触发器', nTrig > 0, 'count=' + nTrig)
   if (nTrig > 0) {
@@ -216,7 +216,7 @@ const server = http.createServer((req, res) => {
   const opts = await p.evaluate(() => Array.from(document.querySelectorAll('[role="option"]')).map((o) => (o.textContent || '').trim()))
   console.log('  子类下拉前 8 项: ' + JSON.stringify(opts.slice(0, 8)))
   ok('下拉展开后有选项', opts.length > 0, 'options=' + opts.length)
-  ok('下拉含「全部子类」', opts.includes('全部子类'), JSON.stringify(opts.slice(0, 3)))
+  ok('下拉含「全部规格」', opts.includes('全部规格'), JSON.stringify(opts.slice(0, 3)))
   ok('下拉选项来自真实子类值（不止"全部子类"一项）', opts.length > 1, 'options=' + opts.length)
 
 

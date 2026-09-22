@@ -8,9 +8,10 @@ const HEADER_MAP: Record<string, string> = {
   sku编码: 'sku_code', sku: 'sku_code', sku_code: 'sku_code',
   条码: 'barcode', 条形码: 'barcode', barcode: 'barcode',
   品类: 'category', 大类: 'category', category: 'category',
-  子类: 'sub_category', sub_category: 'sub_category',
-  品牌: 'brand', brand: 'brand',
-  型号: 'model', 规格: 'model', model: 'model',
+  // 「规格」必须落到 sub_category（现场口径里的「规格」列）。2026-09-22 修：
+  //   原来写的是 `规格: 'model'` —— 老板在 Excel 里用「规格」列填的尺码全进了"型号/系列"。
+  //   「子类」保留为老文件别名，历史导出（表头写子类）照样能导进来。
+  型号: 'model', 系列: 'model', 规格: 'sub_category', 子类: 'sub_category', sub_category: 'sub_category', model: 'model',
   进价: 'cost_price', 成本: 'cost_price', cost_price: 'cost_price', '进价(元)': 'cost_price',
   售价: 'suggest_price', 建议售价: 'suggest_price', suggest_price: 'suggest_price', '建议售价(元)': 'suggest_price',
   数量: 'quantity', 库存: 'quantity', quantity: 'quantity',
@@ -52,7 +53,7 @@ export interface ImportRow {
 }
 
 // 模板列头（第一行）和示例数据（第二行）；规格列可选，空着也能导入
-export const TEMPLATE_HEADERS = ['sku编码', '品类', '子类', '品牌', '型号', '进价(元)', '建议售价(元)', '数量', '货位', '长度', '调性', '硬度', '线号', '钩号', '颜色', '材质', '保质期']
+export const TEMPLATE_HEADERS = ['sku编码', '品类', '规格', '品牌', '型号', '进价(元)', '建议售价(元)', '数量', '货位', '长度', '调性', '硬度', '线号', '钩号', '颜色', '材质', '保质期']
 const TEMPLATE_EXAMPLE = ['SP-001', '饮料', '瓶装水', '农夫山泉', '550ml', 110, 200, 10, 'A区-饮料架', '红色', '塑料', '']
 
 const REQUIRED_LABELS: Record<string, string> = {

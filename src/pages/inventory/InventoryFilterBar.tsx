@@ -98,7 +98,7 @@ export function InventoryFilterBar({
             <Input
               value={keyword}
               onChange={(e) => onKeywordChange(e.target.value)}
-              placeholder="搜索SKU/品牌/型号/子类/条码..."
+              placeholder="搜索SKU/品牌/型号/规格/条码..."
               className="pl-9"
             />
           </div>
