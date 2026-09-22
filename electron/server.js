@@ -1326,21 +1326,31 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
           version TEXT, web_version TEXT, platform TEXT, device TEXT)`)
         const day = (off = 0) => new Date(Date.now() - off * 86400000).toISOString().slice(0, 10)
         const one = (sql, ...args) => Object.values(d.prepare(sql).get(...args))[0]
+        // ⚠️ 2026-09-22 老板问「显示 42 台设备，这是真实的吗？数据从哪来的」——
+        //    不真实。install_id 存在手机 WebView 的 localStorage 里，**重装 / 清数据就换一个新的**，
+        //    浏览器打开也会各算一条。所以原来那个 42 里混进了大量"浏览器探测"和"重装残留"。
+        //    现在把口径收干净：
+        //      · 装机设备 → 只数**原生 APP**（platform 不是 web）
+        //      · 浏览器打开的次数单独给一个数，不混进装机数
+        //      · 机型数按 device 去重（有机型才数），给一个"看得见"的旁证
+        const NATIVE = "COALESCE(platform,'') <> 'web'"
         const days = []
         for (let i = 6; i >= 0; i--) {
           const dd = day(i)
           days.push({
             date: dd,
-            active: one("SELECT COUNT(*) FROM app_installs WHERE date(last_at,'localtime') = ?", dd),
-            added: one("SELECT COUNT(*) FROM app_installs WHERE date(first_at,'localtime') = ?", dd),
+            active: one("SELECT COUNT(*) FROM app_installs WHERE " + NATIVE + " AND date(last_at,'localtime') = ?", dd),
+            added: one("SELECT COUNT(*) FROM app_installs WHERE " + NATIVE + " AND date(first_at,'localtime') = ?", dd),
           })
         }
         return {
-          devices: one('SELECT COUNT(*) FROM app_installs'),
-          today: one("SELECT COUNT(*) FROM app_installs WHERE date(last_at,'localtime') = ?", day(0)),
-          week: one("SELECT COUNT(*) FROM app_installs WHERE date(last_at,'localtime') >= ?", day(6)),
+          devices: one('SELECT COUNT(*) FROM app_installs WHERE ' + NATIVE),
+          webOpen: one("SELECT COUNT(*) FROM app_installs WHERE platform = 'web'"),
+          named: one("SELECT COUNT(DISTINCT device) FROM app_installs WHERE " + NATIVE + " AND COALESCE(device,'') <> ''"),
+          today: one("SELECT COUNT(*) FROM app_installs WHERE " + NATIVE + " AND date(last_at,'localtime') = ?", day(0)),
+          week: one("SELECT COUNT(*) FROM app_installs WHERE " + NATIVE + " AND date(last_at,'localtime') >= ?", day(6)),
           launches: one('SELECT COALESCE(SUM(launches),0) FROM app_installs'),
-          versions: d.prepare('SELECT version, COUNT(*) AS n FROM app_installs GROUP BY version ORDER BY n DESC LIMIT 8').all(),
+          versions: d.prepare("SELECT version, COUNT(*) AS n FROM app_installs WHERE " + NATIVE + " GROUP BY version ORDER BY n DESC LIMIT 8").all(),
           days,
         }
       } catch (e) { return { devices: 0, today: 0, week: 0, launches: 0, versions: [], days: [], error: String(e?.message ?? e) } }
