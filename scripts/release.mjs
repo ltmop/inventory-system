@@ -350,3 +350,9 @@ if (WEB_ONLY) {
   verify()
   verifyWeb()
 }
+
+// 明确用 exitCode 收尾（2026-09-21）：原来脚本跑完不设退出码，外层 shell 有时报 1，
+// 让人误以为"发布失败"，实际三样验证早就全过了。成功就给 0，失败由上面的 throw 兜住。
+console.log('')
+console.log('✅ 发布流程全部完成：' + version)
+process.exit(0) // 明确告诉调用方：这一版发完了
