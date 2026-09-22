@@ -18,6 +18,7 @@
 //   教训与"宁少勿多"同源：宁可什么都不说，也不能说错 —— 说错一次，店主就再也不看了。
 
 import { lowStockProducts, DEFAULT_MIN_STOCK } from './reports.js'
+import { productLabel } from './helpers.js'
 // 功能开关（P3）：**在执行点拦**，不只在界面上藏起来
 import * as flags from '../flags.js'
 
@@ -36,7 +37,7 @@ export const BRIEFING_THRESHOLDS = {
   restockCoverDays: 30,
 }
 
-const label = (p) => [p.brand, p.model].filter(Boolean).join(' ') || p.sku_code || ('#' + p.id)
+const label = (p) => productLabel(p) || '#' + p.id
 const isRetail = (t) => t.selling_price != null
 
 /**

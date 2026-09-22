@@ -34,6 +34,21 @@ describe('productName（null 兜底）', () => {
   it('都为空回退 SKU，绝不出现 "null"', () => {
     expect(productName({ brand: null, model: null, sku_code: 'JC-QT-XX-XX-001' })).toBe('JC-QT-XX-XX-001')
   })
+  // 2026-09-22 老板反馈「商品规格没有合并、名字不统一」：规格必须进显示名
+  it('规格（sub_category）必须出现在名字里', () => {
+    expect(productName({ brand: '光威', model: '赤刃', sub_category: '3.6m', sku_code: 'FG-1' })).toBe('光威 赤刃 3.6m')
+  })
+  it('同系列不同尺码长得不一样（否则列表里根本分不清）', () => {
+    const a = productName({ brand: '光威', model: '赤刃', sub_category: '3.6m', sku_code: 'FG-1' })
+    const b = productName({ brand: '光威', model: '赤刃', sub_category: '4.5m', sku_code: 'FG-2' })
+    expect(a).not.toBe(b)
+  })
+  it('型号里已经带了规格就不重复印', () => {
+    expect(productName({ brand: '光威', model: '赤刃 3.6m', sub_category: '3.6m', sku_code: 'FG-1' })).toBe('光威 赤刃 3.6m')
+  })
+  it('只剩规格时也显示规格（不返回空串）', () => {
+    expect(productName({ brand: null, model: null, sub_category: '5.0号', sku_code: 'XL-1' })).toBe('5.0号')
+  })
 })
 
 describe('formatRelativeTime（备份状态大白话）', () => {

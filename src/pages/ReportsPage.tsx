@@ -374,7 +374,7 @@ export function ReportsPage() {
       if (expiryInDays != null && expiryInDays <= 0) reason.push('已过期')
       else if (expiryInDays != null && expiryInDays <= EXPIRY_URGENT) reason.push('临期' + expiryInDays + '天')
       if (pr.is_clearance) reason.push('已标记清仓')
-      const name = [pr.brand, pr.model].filter(Boolean).join(' ').trim() || pr.sku_code || ('#' + pr.id)
+      const name = productName(pr) || ('#' + pr.id)
       items.push({ id: pr.id, name, category: String(pr.category ?? ''), stock: b.stock, tiedCostYuan: tiedYuan, lastSaleDaysAgo: ls ? noOut : null, dormantTier: noOut >= 180 ? '180天+' : '90天+', expiryInDays, priority, action, suggestRange, reason, guard })
     }
     items.sort((a, b) => rank[a.priority] - rank[b.priority] || b.tiedCostYuan - a.tiedCostYuan)

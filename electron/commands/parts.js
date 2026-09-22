@@ -96,8 +96,8 @@ export function allParts(db, { keyword } = {}) {
   const parents = {}
   if (parentIds.length > 0) {
     const ph = parentIds.map(() => '?').join(',')
-    for (const p of db.prepare(`SELECT id, sku_code, brand, model FROM products WHERE id IN (${ph})`).all(...parentIds)) {
-      parents[p.id] = [p.brand, p.model].filter(Boolean).join(' ') || p.sku_code
+    for (const p of db.prepare(`SELECT id, sku_code, brand, model, sub_category FROM products WHERE id IN (${ph})`).all(...parentIds)) {
+      parents[p.id] = productLabel(p)
     }
   }
   return rows.map((r) => ({ ...r, parent_name: parents[r.parent_id] ?? `#${r.parent_id}` }))

@@ -211,7 +211,7 @@ export function WastePage() {
                     <TableRow key={w.id}>
                       <TableCell className="text-xs text-muted-foreground">{formatDateTime(w.created_at)}</TableCell>
                       <TableCell>
-                        <span>{[w.brand, w.model].filter(Boolean).join(' ') || w.sku_code}</span>
+                        <span>{productName(w)}</span>
                         <span className="ml-2 font-mono text-xs text-muted-foreground">{w.sku_code}</span>
                       </TableCell>
                       <TableCell className="text-right text-red-600">-{w.quantity}</TableCell>

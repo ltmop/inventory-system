@@ -14,6 +14,7 @@ import {
   nextBatchNo,
   today,
   logAudit,
+  productLabel,
 } from './helpers.js'
 
 /**
@@ -49,7 +50,7 @@ export function createPurchaseOrder(db, { supplierId, items, notes, expectedDate
        VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
     )
     for (const l of lines) {
-      const desc = [l.prod.brand, l.prod.model].filter(Boolean).join(' ') || l.prod.sku_code
+      const desc = productLabel(l.prod)
       insItem.run(poId, l.prod.id, desc, l.prod.category, l.quantity, l.unitCost, ts)
     }
     return db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(poId)
@@ -83,14 +84,14 @@ export function purchaseOrderDetail(db, { id }) {
   if (!order) throw new Error('采购订单不存在')
   const items = db
     .prepare(
-      `SELECT i.*, p.sku_code, p.brand, p.model
+      `SELECT i.*, p.sku_code, p.brand, p.model, p.sub_category
        FROM purchase_order_items i LEFT JOIN products p ON p.id = i.product_id
        WHERE i.po_id = ? ORDER BY i.id`,
     )
     .all(id)
     .map((r) => ({
       ...r,
-      product_name: [r.brand, r.model].filter(Boolean).join(' ') || r.sku_code || r.product_desc,
+      product_name: productLabel(r) || r.product_desc,
     }))
   return { order, items }
 }

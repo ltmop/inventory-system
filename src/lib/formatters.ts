@@ -8,9 +8,35 @@ export function formatPrice(cents: number | null | undefined, currency: 'CNY' | 
   return `₫${Math.round(cents / 100).toLocaleString('vi-VN')}`
 }
 
-/** 商品显示名：品牌+型号，都为空时回退 SKU，杜绝界面出现 "null" 或孤零零的空格 */
-export function productName(p: { brand: string | null; model: string | null; sku_code: string }): string {
-  return [p.brand, p.model].filter(Boolean).join(' ') || p.sku_code
+/** 商品显示名的**唯一口径**：品牌 + 型号/系列 + 规格，全空才回退 SKU，杜绝界面出现 "null"。
+ *
+ * 为什么规格必须进名字（老板 2026-09-22 反馈「商品规格没有合并、名字不统一」的界面根源）：
+ *   一个系列几十个尺码（3.6m / 4.5m / 5.0号…），名字若只拼「品牌+型号」，
+ *   库存列表与开单页里同系列几行长得一模一样，店员只能一条条点开看 —— 这不是数据脏，
+ *   是显示名把最有区分度的字段（规格）丢掉了。
+ *   现场口径：`sub_category` 就是「规格」列（见 docs/设计-品牌品类规格三层与录入归一）。
+ *
+ * 同词不重复拼：型号里已经带了规格时（型号「赤刃 3.6m」+ 规格「3.6m」）只显示一次。
+ */
+export function productName(p: {
+  brand: string | null
+  model: string | null
+  sku_code: string
+  sub_category?: string | null
+}): string {
+  return joinNameParts(p.brand, p.model, p.sub_category) || p.sku_code
+}
+
+/** 按「品牌 → 型号/系列 → 规格」顺序拼接显示名，跳过空值与已被包含的重复词 */
+export function joinNameParts(...parts: (string | null | undefined)[]): string {
+  const kept: string[] = []
+  for (const raw of parts) {
+    const part = (raw ?? '').trim()
+    if (!part) continue
+    if (kept.some((x) => x === part || x.includes(part) || part.includes(x))) continue
+    kept.push(part)
+  }
+  return kept.join(' ')
 }
 
 export function formatDate(iso: string | null | undefined): string {

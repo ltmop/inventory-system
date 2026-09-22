@@ -19,6 +19,7 @@ import {
   now,
   logAudit,
   outstandingOf,
+  productLabel,
 } from './helpers.js'
 import { assertOwnerAction } from './users.js'
 
@@ -201,7 +202,7 @@ export function customerStatement(db, { customerId }) {
   const sales = db
     .prepare(
       `SELECT t.id, t.timestamp, t.type, t.product_id, t.quantity, t.selling_price, t.paid_amount,
-              p.brand, p.model, p.sku_code
+              p.brand, p.model, p.sub_category, p.sku_code
        FROM transactions t JOIN products p ON p.id = t.product_id
        WHERE t.customer_id = ? AND t.type IN ('out', 'return') AND t.selling_price IS NOT NULL
        ORDER BY t.timestamp DESC, t.id DESC`,
@@ -215,7 +216,7 @@ export function customerStatement(db, { customerId }) {
         timestamp: r.timestamp,
         type: r.type,
         product_id: r.product_id,
-        product_name: [r.brand, r.model].filter(Boolean).join(' ') || r.sku_code,
+        product_name: productLabel(r),
         quantity: r.quantity,
         due,
         paid,

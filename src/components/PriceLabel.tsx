@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Printer } from 'lucide-react'
 import { drawCode128B } from '@/lib/barcode'
-import { formatPrice, productName } from '@/lib/formatters'
+import { formatPrice, productName, joinNameParts } from '@/lib/formatters'
 import { formatSpecs } from '@/lib/productSpecs'
 import { printArea } from '@/lib/print'
 import type { Product } from '@/types'
@@ -33,10 +33,11 @@ export interface LabelData {
 /** 从商品生成标签数据：价格用建议售价，没设就退回最近进价 */
 export function labelFromProduct(p: Product): LabelData {
   const base = productName(p)
-  // 型号为空时 productName 可能只剩品牌或 SKU，把规格拼上去才不显得空
+  // 型号为空时 productName 可能只剩品牌、规格或 SKU，把 rod_length/号数这类结构化规格拼上去才不显得空；
+  // 用 joinNameParts 去重：productName 已经带了 sub_category，重复的尺码不会再印一次
   const spec = p.model ? '' : formatSpecs(p)
   return {
-    name: [base, spec].filter(Boolean).join(' '),
+    name: joinNameParts(base, spec),
     price: p.suggest_price ?? p.cost_price,
     code: p.barcode ?? p.sku_code,
   }

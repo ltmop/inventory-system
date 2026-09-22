@@ -39,7 +39,7 @@ export interface VoiceOrderPay {
   credit: boolean
 }
 
-const productName = (p: Product) => [p.brand, p.model].filter(Boolean).join(' ') || p.sku_code
+import { productName } from '@/lib/formatters'
 
 interface Props {
   open: boolean

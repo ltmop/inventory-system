@@ -1,5 +1,5 @@
 // 供应商 CRUD 与对账 + 付款登记（v0.1）
-import { inTransaction, logAudit, today } from './helpers.js'
+import { inTransaction, logAudit, today, productLabel } from './helpers.js'
 import { assertOwnerAction } from './users.js'
 
 /** 新增供应商。 */
@@ -71,7 +71,7 @@ export function supplierStatement(db, { supplierId }) {
   const lines = db
     .prepare(
       `SELECT b.id AS batch_id, b.batch_no, b.inbound_date, b.cost_price, b.quantity AS remaining,
-              p.id AS product_id, p.brand, p.model, p.sku_code,
+              p.id AS product_id, p.brand, p.model, p.sub_category, p.sku_code,
               t.quantity AS in_qty, t.timestamp, t.notes
        FROM inventory_batches b
        JOIN products p ON p.id = b.product_id
@@ -88,7 +88,7 @@ export function supplierStatement(db, { supplierId }) {
         batch_no: r.batch_no,
         date: r.inbound_date,
         product_id: r.product_id,
-        product_name: [r.brand, r.model].filter(Boolean).join(' ') || r.sku_code,
+        product_name: productLabel(r),
         sku: r.sku_code,
         quantity,
         remaining: r.remaining,

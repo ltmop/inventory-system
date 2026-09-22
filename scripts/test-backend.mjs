@@ -21,7 +21,7 @@ import * as cmd from '../electron/commands.js'
 import { backupNow, restoreBackup, backupStatus, saveBackupExtraDir, loadBackupConfig } from '../electron/backup.js'
 import { SEED_PRODUCTS, SEED_BATCHES, SEED_TRANSACTIONS } from '../electron/seedData.js'
 import { localFuzzyMatch } from '../electron/localSearch.js'
-import { logAudit } from '../electron/commands/helpers.js'
+import { logAudit, productLabel } from '../electron/commands/helpers.js'
 // analytics 不在 commands.js 桶文件里（server.js 也是直接 import 这个模块）→ 这里照样直接引
 import { analyticsOverview, analyticsTrend, analyticsTop } from '../electron/commands/analytics.js'
 // 通道闸门（2026-09-21）：发布侧（build-web-bundle.mjs 第 ④ 步）与客户端用的是同一套判据，这里也用它，
@@ -3411,6 +3411,36 @@ ok('preload 白名单含 expense 三通道',
   ok('畅销Top：n 传坏值不炸（-5 收成 1 条、非数字回退 10）',
     analyticsTop(adb, -5).length === 1 && analyticsTop(adb, 'abc').length === 3)
   adb.close()
+}
+
+// ============ 商品显示名口径：规格必须进名字（2026-09-22 老板反馈「名字不统一、规格没合并」）============
+// 现场：一个系列几十个尺码，显示名只拼「品牌+型号」→ 库存列表/开单页里同系列几行长得一模一样，
+//   店员只能一条条点开看。这不是数据脏，是显示名把最有区分度的字段丢了。
+//   现场口径：`sub_category` 就是「规格」列（docs/设计-品牌品类规格三层与录入归一）。
+// 这一段同时锁"只允许一处口径"：命令层各模块不许再自己拼 [x.brand, x.model].join(' ')。
+{
+  const P = (o) => productLabel({ sku_code: 'SKU-1', brand: null, model: null, sub_category: null, ...o })
+  ok('显示名：品牌 + 型号 + 规格 三段都在',
+    P({ brand: '光威', model: '赤刃', sub_category: '3.6m' }) === '光威 赤刃 3.6m',
+    P({ brand: '光威', model: '赤刃', sub_category: '3.6m' }))
+  ok('显示名：型号里已经带了规格就不重复印（赤刃 3.6m + 规格 3.6m）',
+    P({ brand: '光威', model: '赤刃 3.6m', sub_category: '3.6m' }) === '光威 赤刃 3.6m',
+    P({ brand: '光威', model: '赤刃 3.6m', sub_category: '3.6m' }))
+  ok('显示名：同系列不同尺码必须长得不一样（老板反馈的核心）',
+    P({ brand: '光威', model: '赤刃', sub_category: '4.5m' }) !== P({ brand: '光威', model: '赤刃', sub_category: '3.6m' }))
+  ok('显示名：只剩规格时也能显示（不返回空串/undefined）',
+    P({ sub_category: '5.0号' }) === '5.0号', P({ sub_category: '5.0号' }))
+  ok('显示名：全空回退 SKU，绝不出现 "null"', P({}) === 'SKU-1', P({}))
+  ok('显示名：只填品牌或只填型号时不带多余空格',
+    P({ brand: '光威' }) === '光威' && P({ model: '赤刃' }) === '赤刃')
+  // 源码级防回退：口径只留 helpers.productLabel 一处
+  const cmdDir = path.resolve('electron/commands')
+  const offenders = fs
+    .readdirSync(cmdDir)
+    .filter((f) => f.endsWith('.js'))
+    .filter((f) => /\[[A-Za-z_.$]+\.brand,\s*[A-Za-z_.$]+\.model\]/.test(fs.readFileSync(path.join(cmdDir, f), 'utf8')))
+  if (offenders.length) console.error('  ✗ 还在自己拼显示名：' + offenders.join(' '))
+  ok('显示名口径唯一：electron/commands/ 里没有第二处自己拼「品牌+型号」', offenders.length === 0)
 }
 
 // ============ 通道闸门：渲染层用到的通道必须全部在壳放行名单里（2026-09-21 补）============

@@ -1,5 +1,5 @@
 // 报表：分级库存预警 / 今日收款方式拆分 / 过期预警
-import { parseExpiryDate } from './helpers.js'
+import { parseExpiryDate, productLabel } from './helpers.js'
 // 欠款口径直接用 customers.js 那一份，绝不在这里再写一遍 —— 两套口径迟早对不上
 import { listCustomers } from './customers.js'
 // 补货建议用**已有的**销量驱动算法，不再自己写一套「低于预警线」的笨规则
@@ -77,7 +77,7 @@ export function expiringProducts(db, { days = 30 } = {}) {
   const rows = db
     .prepare(
       `SELECT b.id AS batch_id, b.batch_no, b.expiry_date, b.quantity AS stock,
-              p.id, p.sku_code, p.brand, p.model
+              p.id, p.sku_code, p.brand, p.model, p.sub_category
        FROM inventory_batches b
        JOIN products p ON p.id = b.product_id
        WHERE b.expiry_date IS NOT NULL AND b.expiry_date <> '' AND b.quantity > 0`,
@@ -86,7 +86,7 @@ export function expiringProducts(db, { days = 30 } = {}) {
   // 商品级兜底（老数据）：商品有 expiry_date 但所有批次都没填到期日 → 按商品级日期预警
   const legacyRows = db
     .prepare(
-      `SELECT p.id, p.sku_code, p.brand, p.model, p.expiry_date, COALESCE(s.q, 0) AS stock
+      `SELECT p.id, p.sku_code, p.brand, p.model, p.sub_category, p.expiry_date, COALESCE(s.q, 0) AS stock
        FROM products p
        LEFT JOIN (SELECT product_id, SUM(quantity) AS q FROM inventory_batches GROUP BY product_id) s
          ON s.product_id = p.id
@@ -109,7 +109,7 @@ export function expiringProducts(db, { days = 30 } = {}) {
       id: r.id,
       batch_id: r.batch_id,
       batch_no: r.batch_no,
-      name: [r.brand, r.model].filter(Boolean).join(' ') || r.sku_code,
+      name: productLabel(r),
       sku: r.sku_code,
       expiry_date: r.expiry_date,
       daysLeft,
@@ -127,7 +127,7 @@ export function expiringProducts(db, { days = 30 } = {}) {
       id: r.id,
       batch_id: null,
       batch_no: null,
-      name: [r.brand, r.model].filter(Boolean).join(' ') || r.sku_code,
+      name: productLabel(r),
       sku: r.sku_code,
       expiry_date: r.expiry_date,
       daysLeft,
@@ -195,12 +195,9 @@ export function restockForTodo(db, limit = 5) {
     db.prepare('SELECT * FROM inventory_batches').all(),
     db.prepare('SELECT product_id, type, quantity, notes, timestamp FROM transactions').all(),
   )
-  const pById = new Map(db.prepare('SELECT id, sku_code, brand, model, suggest_price, unit FROM products').all().map((x) => [x.id, x]))
-  // 品牌/型号在商品档案里可以只填一个，显示名统一在这里拼，调用方别各拼一套
-  const nameOf = (pid) => {
-    const pr = pById.get(pid) || {}
-    return [pr.brand, pr.model].filter(Boolean).join(' ') || pr.sku_code || '商品'
-  }
+  const pById = new Map(db.prepare('SELECT id, sku_code, brand, model, sub_category, suggest_price, unit FROM products').all().map((x) => [x.id, x]))
+  // 品牌/型号/规格在商品档案里可以只填一个，显示名统一走 helpers.productLabel，调用方别各拼一套
+  const nameOf = (pid) => productLabel(pById.get(pid) || {}) || '商品'
   // 老板还说「可以按价格来区分」：贵货压的是大钱，不到快断不催（<15 天才提醒）；普通货按常规 30 天。
   const EXPENSIVE_FEN = 20000
   const DAYS_LEFT_EXPENSIVE = 15
@@ -266,10 +263,9 @@ export function dailyTodo(db) {
   // 滞销压资金（卖不动但占着钱）—— 贵的鱼竿就该出现在这里，而不是"该补货"里
   if (advice.deadStock.length && advice.totalTiedCapital >= 100000) {
     const top = advice.deadStock[0]
-    const tp = pById.get(top.productId) || {}
     anomalies.push({
       kind: 'dead-stock',
-      text: '有 ' + advice.deadStock.length + ' 样货卖不动、压着 ¥' + (advice.totalTiedCapital / 100).toFixed(0) + '（最多的是「' + ([tp.brand, tp.model].filter(Boolean).join(' ') || tp.sku_code || '商品') + '」）',
+      text: '有 ' + advice.deadStock.length + ' 样货卖不动、压着 ¥' + (advice.totalTiedCapital / 100).toFixed(0) + '（最多的是「' + nameOf(top.productId) + '」）',
     })
   }
   // ① 今天 vs 上周同一天（同一星期几比才有意义）

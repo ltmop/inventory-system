@@ -10,6 +10,7 @@
 // 本文件不 import electron，可被 server.js / test-backend.mjs 直接使用。
 
 import { localFuzzyMatch } from '../localSearch.js'
+import { productLabel } from './helpers.js'
 
 /**
  * 搜索用的候选商品名清单。
@@ -19,9 +20,10 @@ export function productNamesForSearch(db) {
   try {
     if (!db) return []
     const rows = db
-      .prepare("SELECT p.brand, p.model, p.sku_code FROM products p WHERE p.status != '停产' ORDER BY p.id LIMIT 300")
+      .prepare("SELECT p.brand, p.model, p.sub_category, p.sku_code FROM products p WHERE p.status != '停产' ORDER BY p.id LIMIT 300")
       .all()
-    return rows.map((r) => [r.brand, r.model].filter(Boolean).join(' ') || r.sku_code || '').filter(Boolean)
+    // 搜索候选名与界面显示名同口径（含规格）：不然「赤刃 3.6m」搜不到，因为名字里只有「光威 赤刃」
+    return rows.map((r) => productLabel(r) || '').filter(Boolean)
   } catch {
     return []
   }
