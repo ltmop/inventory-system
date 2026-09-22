@@ -20,6 +20,7 @@ import { EditProductDialog, type EditProductForm } from './inventory/EditProduct
 import { InventoryFilterBar } from './inventory/InventoryFilterBar'
 import { InventoryTable, LOW_STOCK_THRESHOLD } from './inventory/InventoryTable'
 import { BrandGroupList, type BrandGroup } from './inventory/BrandGroupList'
+import { CategoryGroupList, type CategoryGroup } from './inventory/CategoryGroupList'
 import { BatchActionBar } from './inventory/BatchActionBar'
 import { BatchPriceDialog } from './inventory/BatchPriceDialog'
 import { BatchStatusDialog } from './inventory/BatchStatusDialog'
@@ -65,12 +66,16 @@ export function InventoryPage() {
   // 详见 src/lib/subCategories.ts 顶部说明。
   const [subCategory, setSubCategory] = useState(ALL)
 
-  // 「先进品牌、再进规格」两级视图（2026-09-20 owner 要求）：
+  // 三层视图「品牌 → 品类 → 规格」（2026-09-20 owner 要求前两层，2026-09-22 补第三层）：
   //   原话「在库存里不能一进去就看到某个规格，而是子品牌，我想看有哪些规格的时候，
-  //   再点击进去看规格，规格又分别有哪些数量…一下子把（一个品牌的）所有规格全部摆在明面上，太多了」。
-  //   openBrand === null → 第一层（品牌卡片列表）；开了某个品牌 → 第二层（该品牌的规格明细表）。
+  //   再点击进去看规格，规格又分别有哪些数量…一下子把（一个品牌的）所有规格全部摆在明面上，太多了」
+  //   + 2026-09-22「我点击了一个狼王的鱼竿…商品下面就可以出来很多规格让我选择，就像一个文件夹一样」。
+  //   openBrand === null → 第一层（品牌卡片）；开了品牌 → 第二层（该品牌的品类卡片）；
+  //   再开品类 → 第三层（该品类下的规格明细表，就是原来那张表）。
   //   量过：一行就是一个独立规格（商品数 == 不同 SKU 数），324 行平铺才是"太乱"的根源。
+  //   ⚠️ 品牌下只有 1 个品类时**自动跳过第二层**（直接进规格表）—— 不为一件货多点一下。
   const [openBrand, setOpenBrand] = useState<string | null>(null)
+  const [openCategory, setOpenCategory] = useState<string | null>(null)
   const [stockMin, setStockMin] = useState('')
   const [stockMax, setStockMax] = useState('')
   const [searchParams] = useSearchParams()
@@ -454,13 +459,35 @@ export function InventoryPage() {
     return [...m.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh'))
   }, [filtered, totalStockOf])
 
-  // 屏幕上**真正看得见的**那批规格：
-  //   第一层（品牌列表）→ 就是筛选结果本身；第二层（某个品牌）→ 只有这个品牌的规格。
-  // 导出 CSV / 打开单码 都跟着它走 —— 否则"进了老鬼却导出全店"会很怪。
-  const visibleProducts = useMemo(() => {
+  // 第二层要数的东西：当前品牌下有哪些品类（一个品牌常常同时有鱼竿/鱼线/鱼钩/饵料）
+  const brandProducts = useMemo(() => {
     if (openBrand === null) return sorted
     return sorted.filter((p) => ((p.brand ?? '').trim() || NO_BRAND) === openBrand)
   }, [sorted, openBrand])
+
+  const brandCategoryGroups = useMemo<CategoryGroup[]>(() => {
+    const m = new Map<string, CategoryGroup>()
+    for (const p of brandProducts) {
+      const key = String(p.category ?? '').trim() || '没填品类'
+      const g = m.get(key) ?? { name: key, count: 0, stock: 0, lowCount: 0 }
+      g.count += 1
+      const total = totalStockOf(p.id)
+      g.stock += total
+      if (isLowStock(total, p.min_stock)) g.lowCount += 1
+      m.set(key, g)
+    }
+    // 规格多的品类排前面，同数量按名字
+    return [...m.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh'))
+  }, [brandProducts, totalStockOf])
+
+  // 屏幕上**真正看得见的**那批规格：
+  //   第一层（品牌列表）→ 就是筛选结果本身；第二层（某品牌的品类）→ 该品牌全部规格；第三层 → 该品类。
+  // 导出 CSV / 打开单码 都跟着它走 —— 否则"进了老鬼却导出全店"会很怪。
+  const visibleProducts = useMemo(() => {
+    if (openBrand === null) return sorted
+    if (openCategory === null) return brandProducts
+    return brandProducts.filter((p) => (String(p.category ?? '').trim() || '没填品类') === openCategory)
+  }, [sorted, brandProducts, openBrand, openCategory])
 
   // csvCell 已从 @/lib/formatters 导入（含逗号/引号/换行的字段包引号、引号双写）
 
@@ -590,15 +617,41 @@ export function InventoryPage() {
         />
       )}
 
-      {/* 两级视图（2026-09-20 owner 要求）：
+      {/* 三层视图「品牌 → 品类 → 规格」（第一/二层 2026-09-20 owner 要求；第三层 2026-09-22 补）：
             第一层 = 品牌卡片（每个品牌多少规格 / 共多少件 / 几个缺货）
-            第二层 = 点进去之后，该品牌的规格明细（就是原来那张表）
-          为什么必须有第一层：一行就是一个独立规格（商品数 == 不同 SKU 数），
+            第二层 = 该品牌下的**品类**卡片（一个品牌常常同时有鱼竿/鱼线/鱼钩/饵料）
+            第三层 = 该品类下的规格明细（就是原来那张表）
+          为什么必须有前两层：一行就是一个独立规格（商品数 == 不同 SKU 数），
           平铺出来直接 324 行；而渔具这行一个品牌下动辄几十个规格、品牌又多。
+          ⚠️ 品牌下只有 1 个品类时**自动跳过第二层**（categoryGroups.length > 1 才显示）——
+             不为一件货多点一下；此时第三层的面包屑仍带「返回品牌列表」。
           ⚠️ 第一层用 `filtered.length` 报总数：品牌是从**筛选结果**分出来的，
-             所以搜索/分类/状态/只看缺货 在两级里都照旧生效。 */}
+             所以搜索/分类/状态/只看缺货 在几层里都照旧生效。 */}
       {openBrand === null && brandGroups.length > 0 ? (
-        <BrandGroupList groups={brandGroups} total={filtered.length} onOpen={setOpenBrand} />
+        <BrandGroupList
+          groups={brandGroups}
+          total={filtered.length}
+          onOpen={(k) => {
+            setOpenBrand(k)
+            setOpenCategory(null) // 换品牌必须清掉上一层选的品类，否则会筛出 0 条
+          }}
+        />
+      ) : openBrand !== null && openCategory === null && brandCategoryGroups.length > 1 ? (
+        <div className="space-y-3">
+          <button
+            onClick={() => setOpenBrand(null)}
+            className="flex cursor-pointer items-center gap-1.5 text-sm font-medium text-brand-700 hover:text-brand-900"
+          >
+            <ArrowLeft className="size-4" />
+            返回品牌列表
+          </button>
+          <CategoryGroupList
+            groups={brandCategoryGroups}
+            brandName={brandGroups.find((g) => g.key === openBrand)?.name ?? '—'}
+            total={brandProducts.length}
+            onOpen={setOpenCategory}
+          />
+        </div>
       ) : (
         <div className="space-y-3">
           {/* 返回键只在"确实进了某个品牌"时才出现。
@@ -607,16 +660,35 @@ export function InventoryPage() {
               那时如果还停在第一层分支，整页就是一片空白（连"还没有商品"都没有）。
               所以空的时候落回表格，由它自带空态去说话。 */}
           {openBrand !== null && (
-            <button
-              onClick={() => setOpenBrand(null)}
-              className="flex cursor-pointer items-center gap-1.5 text-sm font-medium text-brand-700 hover:text-brand-900"
-            >
-              <ArrowLeft className="size-4" />
-              返回品牌列表
-              <span className="ml-1 font-normal text-muted-foreground">
-                （当前：{brandGroups.find((g) => g.key === openBrand)?.name ?? '—'} · {visibleProducts.length} 个规格）
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <button
+                onClick={() => {
+                  setOpenBrand(null)
+                  setOpenCategory(null)
+                }}
+                className="flex cursor-pointer items-center gap-1.5 text-sm font-medium text-brand-700 hover:text-brand-900"
+              >
+                <ArrowLeft className="size-4" />
+                返回品牌列表
+              </button>
+              {/* 只有"确实经过了第二层"才给这一步返回 —— 单品类品牌是直接跳进来的，没有上一层可回 */}
+              {openCategory !== null && brandCategoryGroups.length > 1 && (
+                <button
+                  onClick={() => setOpenCategory(null)}
+                  className="cursor-pointer text-sm font-medium text-brand-700 hover:text-brand-900"
+                >
+                  ← 返回品类
+                </button>
+              )}
+              <span className="text-sm text-muted-foreground">
+                当前：
+                {openCategory !== null
+                  ? `${brandGroups.find((g) => g.key === openBrand)?.name ?? '—'} · ${openCategory}`
+                  : `${brandGroups.find((g) => g.key === openBrand)?.name ?? '—'}（全部品类）`}
+                {' · '}
+                {visibleProducts.length} 个规格
               </span>
-            </button>
+            </div>
           )}
           <InventoryTable
             products={visibleProducts}

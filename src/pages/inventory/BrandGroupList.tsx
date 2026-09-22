@@ -46,7 +46,7 @@ export function BrandGroupList({
           共 <span className="font-semibold text-foreground">{groups.length}</span> 个品牌 ·{' '}
           <span className="font-semibold text-foreground">{total}</span> 个规格
         </span>
-        <span className="text-xs">点品牌进去看规格与数量</span>
+        <span className="text-xs">点品牌进去看品类、规格与数量</span>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">

@@ -3485,6 +3485,28 @@ ok('preload 白名单含 expense 三通道',
     /setMobileAdv/.test(settingsSrc))
 }
 
+// ============ 库存页三层视图：品牌 → 品类 → 规格（2026-09-22 老板要「像一个文件夹一样」）============
+// 背景：第一层（品牌）点进去后仍是"一行一个规格"平铺，一个品牌下鱼竿/鱼线/鱼钩/饵料混在一屏，
+//   等于把"太乱"从品牌层挪到了品牌里面。中间插一层品类才是文件夹的感觉。
+{
+  const invSrc = fs.readFileSync(path.resolve('src/pages/InventoryPage.tsx'), 'utf8')
+  const catSrc = fs.readFileSync(path.resolve('src/pages/inventory/CategoryGroupList.tsx'), 'utf8')
+  ok('库存页有三层状态（品牌层 + 品类层）',
+    /const \[openBrand, setOpenBrand\]/.test(invSrc) && /const \[openCategory, setOpenCategory\]/.test(invSrc))
+  ok('第二层卡片组件存在，且按品类分组（每个格子一个品类）',
+    /export function CategoryGroupList/.test(catSrc) && /export interface CategoryGroup/.test(catSrc))
+  ok('第三层按品类过滤（进了某品类只看该品类）',
+    /openCategory === null\) return brandProducts/.test(invSrc) &&
+    /brandProducts\.filter\(\(p\) => \(String\(p\.category/.test(invSrc))
+  ok('品牌下只有 1 个品类时跳过第二层（不为一件货多点一下）',
+    /openCategory === null && brandCategoryGroups\.length > 1/.test(invSrc))
+  ok('换品牌会清掉上一层选的品类（否则会筛出 0 条）',
+    /setOpenBrand\(k\)\s*\n\s*setOpenCategory\(null\)/.test(invSrc))
+  ok('规格明细表还在（三层视图没有把表格弄丢）', /<InventoryTable/.test(invSrc))
+  ok('第三层有「返回品类」这一层（只有真经过第二层才给，单品类品牌不给）',
+    /返回品类/.test(invSrc) && /openCategory !== null && brandCategoryGroups\.length > 1/.test(invSrc))
+}
+
 // ============ 通道闸门：渲染层用到的通道必须全部在壳放行名单里（2026-09-21 补）============
 // 起因：src/pages/AiHubPage.tsx 与 src/pages/settings/AiModelCard.tsx 调 `ai:setEndpoint` /
 //   `ai:syncCentral`，而 electron/preload.cjs 的白名单里**从来没有**这两个（main.js:427-428 有实现）。
