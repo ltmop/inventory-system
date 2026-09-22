@@ -24,6 +24,10 @@ import { localFuzzyMatch } from '../electron/localSearch.js'
 import { logAudit } from '../electron/commands/helpers.js'
 // analytics 不在 commands.js 桶文件里（server.js 也是直接 import 这个模块）→ 这里照样直接引
 import { analyticsOverview, analyticsTrend, analyticsTop } from '../electron/commands/analytics.js'
+// 通道闸门（2026-09-21）：发布侧（build-web-bundle.mjs 第 ④ 步）与客户端用的是同一套判据，这里也用它，
+// 把"发版时才发现"提前成"提交时就红"。见文件末尾那条断言。
+import { channelsUsedInSrc } from './lib/channels.mjs'
+import { readSupportedChannels } from '../electron/webUpdate.js'
 // 中心库配置的主进程事实源（P0 2026-09-15）：纯 Node、不 import electron，可直接单测
 import { initCentralConfig, getCentralConfigLocal, setCentralConfigLocal, isCentralConfigured } from '../electron/centralConfig.js'
 // 功能开关（P3）：出厂默认 + 本机文件 + 服务端下发；"关"永远压过"开"
@@ -3407,6 +3411,34 @@ ok('preload 白名单含 expense 三通道',
   ok('畅销Top：n 传坏值不炸（-5 收成 1 条、非数字回退 10）',
     analyticsTop(adb, -5).length === 1 && analyticsTop(adb, 'abc').length === 3)
   adb.close()
+}
+
+// ============ 通道闸门：渲染层用到的通道必须全部在壳放行名单里（2026-09-21 补）============
+// 起因：src/pages/AiHubPage.tsx 与 src/pages/settings/AiModelCard.tsx 调 `ai:setEndpoint` /
+//   `ai:syncCentral`，而 electron/preload.cjs 的白名单里**从来没有**这两个（main.js:427-428 有实现）。
+//   后果：build-web-bundle.mjs 第 ④ 步直接红 → 前端热更发不出去；真机壳也会拒绝这类热更包
+//   （运行期判据用的是**壳自己**那份 preload：main.js:768 传 `__dirname/preload.cjs`）。
+//   已从已装 1.1.13 的 app.asar 里取证：壳内 preload 这两条 = false、壳内 main.js = true。
+// 这条断言等于把"发版时才红"提前到"提交时就红"，判据与发布侧/客户端完全同一套。
+{
+  const used = channelsUsedInSrc(path.resolve('.'))
+  const supported = readSupportedChannels(
+    path.resolve('electron/preload.cjs'),
+    path.resolve('electron/server.js'),
+  )
+  const missing = [...used].filter((c) => !supported.has(c)).sort()
+  if (missing.length) console.error('  ✗ 壳没放行这些通道：' + missing.join(' '))
+  ok('通道闸门：渲染层用到的通道**全部**在壳放行名单里（少一个，热更包就会被真机拒收）',
+    missing.length === 0)
+  // 防"扫成 0 个通道"的假绿：src 里现在的量级是 140+，若哪天变成个位数说明扫描规则被改坏了
+  ok('通道闸门：确实扫到了通道（防止扫描失效导致的假绿）', used.size > 100)
+
+  // 反例自检：故意抽掉一个已知通道，判据必须报出来 —— 否则这条闸门可能是"永远绿"的假闸门
+  const fakeSupported = new Set(supported)
+  fakeSupported.delete('ai:setEndpoint')
+  const fakeMissing = [...used].filter((c) => !fakeSupported.has(c))
+  ok('通道闸门：反例自检（抽掉一个通道必须报出来，证明它真的在判）',
+    fakeMissing.includes('ai:setEndpoint') && fakeMissing.length === 1)
 }
 
 fs.rmSync(tmp, { recursive: true, force: true })

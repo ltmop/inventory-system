@@ -146,6 +146,13 @@ const CHANNELS = new Set([
   'ai:providers',
   'ai:setProvider',
   'ai:setKey',
+  // 2026-09-21 补：这两个通道 electron/main.js:427-428 早就实现了、src 的 AI 设置页也在调，
+  // 但白名单里从来没有它们 —— 后果有两条：
+  //   ① 真机上「保存 API 地址/密钥」被 preload 拦下（表现就是"点了没反应"）；
+  //   ② 任何引用它们的**前端热更包都会被真机拒收**（运行期判据用的是壳自己那份 preload，main.js:768）。
+  // 从已装 1.1.13 的 app.asar 里取证：壳内 preload 这两条 = false，而壳内 main.js = true。
+  'ai:setEndpoint',
+  'ai:syncCentral',
   'ai:clearKey',
   'ai:test',
   'ai:dailySummary',
