@@ -1,6 +1,6 @@
 {
  "schemaVersion": 2,
- "generatedAt": "2026-09-23T04:46:56.616Z",
+ "generatedAt": "2026-09-23T04:54:54.754Z",
  "source": "main.js(IPC) + server.js(HTTP/WRITE_CHANNELS/ROUTES) + preload.cjs(白名单) + api.ts(本机专属) + commands/*.js(JSDoc)",
  "total": 218,
  "restRoutes": [
@@ -1339,9 +1339,9 @@
    "group": "fund",
    "desc": "设置某个资金账户的期初余额（单位：分）。 期初存在 settings 表（键 account_opening）里的一段 JSON，因此**不新增表、也不新增迁移**。",
    "impl": "setAccountOpening",
-   "ipc": false,
+   "ipc": true,
    "http": true,
-   "preload": false,
+   "preload": true,
    "rest": false,
    "write": true,
    "local": false,

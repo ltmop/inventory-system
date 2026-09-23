@@ -105,6 +105,8 @@ const CHANNELS = new Set([
   'customer:list',
   'customer:statement',
   'payment:record',
+  // 资金账户期初（2026-09-22）：写 settings 里那段 JSON。只读总览不在这里（它走服务端 report 那一路）。
+  'fund:setOpening',
   'expense:create',
   'expense:update',
   'expense:delete',

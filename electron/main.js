@@ -251,6 +251,10 @@ function registerIpc() {
   handle('customer:list', (d) => commands.listCustomers(d))
   handle('customer:statement', (d, p) => commands.customerStatement(d, p))
   handle('payment:record', (d, p) => commands.recordPayment(d, p))
+  // 资金账户期初（2026-09-22）：只读总览走服务端 report 那一路，这里只暴露"设期初"这一个写口。
+  // ⚠️ 新增通道要**下一个壳**才在真机上生效（preload 白名单在壳里）；中心库模式下走 HTTP 那条，
+  //    所以店里（中心库模式）现在就能用。
+  handle('fund:setOpening', (d, p) => commands.setAccountOpening(d, p))
   // 支出记账：记/改/删（列表随 data:loadAll 的 expenses 下发）
   handle('expense:create', (d, p) => commands.createExpense(d, p))
   handle('expense:update', (d, p) => commands.updateExpense(d, p))

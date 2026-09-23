@@ -223,7 +223,10 @@ if (SELFTEST) {
   setTimeout(() => process.exit(0), 250)
 } else {
   const rl = readline.createInterface({ input: process.stdin, terminal: false })
-  rl.on('line', async (line) => {
+  // 在飞的请求数：stdin 关掉时不能立刻退 —— 有些客户端把最后一条请求写完就关管道，
+  // 那时 tools/call 的 HTTP 还在路上，立刻退就把答案丢了（本地探针实测踩到）。
+  let pending = 0
+  rl.on('line', (line) => {
     const s = line.trim()
     if (!s) return
     let msg
@@ -233,14 +236,20 @@ if (SELFTEST) {
       log('收到不是 JSON 的行，已忽略')
       return
     }
-    try {
-      const res = await handle(msg)
-      if (res) process.stdout.write(JSON.stringify(res) + '\n')
-    } catch (e) {
-      process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg?.id ?? null, error: { code: -32603, message: String(e?.message ?? e) } }) + '\n')
-    }
+    pending++
+    handle(msg)
+      .then((res) => { if (res) process.stdout.write(JSON.stringify(res) + '\n') })
+      .catch((e) => {
+        process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg?.id ?? null, error: { code: -32603, message: String(e?.message ?? e) } }) + '\n')
+      })
+      .finally(() => { pending-- })
   })
-  // 同上：stdin 关了也要等一拍再退，别在句柄关闭中途 process.exit
-  rl.on('close', () => { process.exitCode = 0; setTimeout(() => process.exit(0), 250) })
+  rl.on('close', async () => {
+    const t0 = Date.now()
+    while (pending > 0 && Date.now() - t0 < 5000) await new Promise((r) => setTimeout(r, 50))
+    // 同上：stdin 关了也要等一拍再退，别在句柄关闭中途 process.exit
+    process.exitCode = 0
+    setTimeout(() => process.exit(0), 250)
+  })
   log('就绪：' + cfg.url + (ALLOW_WRITE ? '（含写命令）' : '（只读）'))
 }

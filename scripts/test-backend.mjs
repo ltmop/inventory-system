@@ -2492,6 +2492,24 @@ ok('preload 白名单含 product:batchUpdate', preloadSrc.includes("'product:bat
   ok('资金账户：loadAll 的期初是解析后的对象，不是原始字符串',
     typeof cmd.loadAll(fdb).accountOpening === 'object')
 
+  // 通道三处齐全（与项目其它功能同样的要求：桌面能点、手机/中心库能打到、只读令牌不能改）
+  const mSrc2 = fs.readFileSync(path.resolve('electron/main.js'), 'utf8')
+  const pSrc2 = fs.readFileSync(path.resolve('electron/preload.cjs'), 'utf8')
+  const sSrc2 = fs.readFileSync(path.resolve('electron/server.js'), 'utf8')
+  ok('资金账户：main.js 注册 fund:setOpening（桌面模式能设期初）',
+    /handle\('fund:setOpening'/.test(mSrc2))
+  ok('资金账户：preload 白名单含 fund:setOpening',
+    pSrc2.includes("'fund:setOpening'"))
+  ok('资金账户：服务端同时有只读 overview 与写 setOpening',
+    /'fund:overview'/.test(sSrc2) && /'fund:setOpening'/.test(sSrc2))
+  ok('资金账户：setOpening 登记为**写通道**（只读/视图令牌不能改期初）',
+    /WRITE_CHANNELS\s*=\s*new Set\(\[[\s\S]*?'fund:setOpening'/.test(sSrc2))
+  const moneyCard = fs.readFileSync(path.resolve('src/components/MoneyAccountsCard.tsx'), 'utf8')
+  ok('资金账户：界面有「设置期初」入口且真的调 fund:setOpening',
+    /设置期初/.test(moneyCard) && /invoke\('fund:setOpening'/.test(moneyCard))
+  ok('资金账户：保存后刷新（走 loadAll，不自己维护第二份期初）',
+    /await loadAll\(\)/.test(moneyCard))
+
   fdb.close()
 }
 
