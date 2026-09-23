@@ -1,4 +1,5 @@
 // 全量数据查询（启动/数据加载用）
+import { parseOpening, ACCOUNT_OPENING_KEY } from '../lib/moneyAccounts.js'
 
 /** 一次性加载桌面首屏需要的全量基础数据（商品 / 分类 / 单位 / 价格档等），只读。 */
 export function loadAll(db) {
@@ -25,5 +26,17 @@ export function loadAll(db) {
     // 通用版：分类/单位列表（首页/设置动态读取）
     categories: q('SELECT * FROM categories ORDER BY sort_order, id'),
     units: q('SELECT * FROM units ORDER BY sort_order, id'),
+    // 资金账户期初（2026-09-22）：存在 settings 表的那段 JSON，随首屏一起下发 ——
+    // 桌面端因此**不必为资金账户新增 IPC 通道**（新增通道旧壳不认），中心库模式也自动取中心库那份。
+    accountOpening: parseOpening(readSetting(db, ACCOUNT_OPENING_KEY)),
+  }
+}
+
+/** 读 settings 表一个键；表/行不存在一律当没有（老库也不能因此加载失败） */
+function readSetting(db, key) {
+  try {
+    return db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value ?? null
+  } catch {
+    return null
   }
 }

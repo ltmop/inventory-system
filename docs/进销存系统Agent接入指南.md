@@ -57,7 +57,7 @@ node scripts/inv-cli.mjs run stock:transfer --params '{"productId":1,"quantity":
 | **服务端在哪** | 桌面机：`http://127.0.0.1:17532`（「设置 → 手机看店」能看到地址与端口）。中心库模式：门店那台服务器的 `app.junchengzn.com` / `IP:3200` |
 | **鉴权** | 一律 `x-token: <令牌>`（也接受 `?token=`）。缺令牌或错令牌 → **HTTP 401** |
 | **业务口径在哪** | **只在命令层**（`electron/commands/**`）。HTTP/CLI/桌面界面都只是它的入口 —— 所以 Agent 走接口拿到的数字，与界面里看到的**同源** |
-| **命令自省** | `GET /api/commands` 是唯一权威清单（含说明、读写标记、是否本机专属）。当前 **191** 条命令（45 个前缀），其中 **92** 条只读 |
+| **命令自省** | `GET /api/commands` 是唯一权威清单（含说明、读写标记、是否本机专属）。当前 **218** 条命令（51 个前缀），其中 **108** 条只读（数字随注册表走，2026-09-22 重新生成过 `electron/commandRegistry.json`） |
 
 ---
 

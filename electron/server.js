@@ -891,6 +891,9 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
     'undo:apply',
     'customer:create','customer:update','customer:delete','payment:record',
     'expense:create','expense:update','expense:delete','waste:create',
+    // 资金账户期初（2026-09-22）：改 settings 里那段 JSON = 改账目基准，必须算写通道，
+    // 否则只读/视图令牌也能把期初余额改掉（余额会整体平移）。
+    'fund:setOpening',
     // 注：receipt:reconcile 是纯查询（commands/receipt.js 里只有 SELECT），原来误放在写通道，
     // 会让只读账号（财务）点「收款对账」直接 403。已移出。
     'part:set','part:setMany','kit:save','kit:delete','receipt:register',
@@ -1474,6 +1477,11 @@ export function createInventoryServer({ db, dataDir, basePort = DEFAULT_PORT, we
       }
     },
     'report:lowStock': (d) => cmds.lowStockProducts(d),
+    // 资金账户（最小形态，2026-09-22）：账户=收款方式，余额=期初+Σ收−Σ付。
+    // 只派生、不新建账户表 —— 钱已经在 transactions/payments/expenses/supplier_payments 四处记着了。
+    // 名字用 fund 而不是 account：account 在这个项目里指的是「员工账号」（AccountPage），别混。
+    'fund:overview': (d, p) => cmds.moneyAccounts(d, { from: p?.from ?? '', to: p?.to ?? '' }),
+    'fund:setOpening': (d, p) => cmds.setAccountOpening(d, p),
     // 「该补什么货」唯一口径（2026-09-22）：手机端入库页/补货清单/今日页都改调这个。
     // 以前它们各调 report:lowStock（库存<5 就报），和「今天该做的事」算的不是一回事 →
     // 同一天待办说"补货 0"、页面说"库存告急 68 种"，老板直接问"上传说过的没完成？"

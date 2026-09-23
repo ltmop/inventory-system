@@ -14,6 +14,9 @@ export * from './commands/priceTier.js'
 export * from './commands/import.js'
 export * from './commands/reports.js'
 export * from './commands/expenses.js'
+// 资金账户（最小形态，2026-09-22）：账户 = 收款方式，余额 = 期初 + Σ收 − Σ付，不新建账户表。
+// 推导在 electron/lib/moneyAccounts.js（界面那份 src/lib/moneyAccounts.ts 是它的双胞胎）。
+export * from './commands/accounts.js'
 export * from './commands/onboarding.js'
 export * from './commands/waste.js'
 export * from './commands/parts.js'

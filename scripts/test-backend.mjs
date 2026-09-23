@@ -2431,6 +2431,70 @@ ok('preload 白名单含 product:batchUpdate', preloadSrc.includes("'product:bat
   mdb.close()
 }
 
+// 40b. 资金账户（最小形态，2026-09-22）：账户 = 收款方式，余额 = 期初 + Σ收 − Σ付
+//      为什么这么建：库里钱已经在四处记着、且每条都带方式，再建一张账户表就是第二份真相。
+//      这一块用**真库真命令**跑（出库/退货/还款/支出/付供应商），不只看源码字符串。
+{
+  const fdb = openDatabase(path.join(tmp, 'money-accounts.db'))
+  // 清掉自带的演示数据：资金账要按"只有我这几笔"来断言，否则种子流水的金额会混进来源拆分
+  cmd.resetDemoData(fdb)
+  const fp = cmd.createProduct(fdb, { sku_code: '', category: '鱼竿', cost_price: 4000 })
+  cmd.createInbound(fdb, { productId: fp.id, quantity: 20, costPrice: 4000, operator: '测试' })
+  const fcust = cmd.createCustomer(fdb, { name: '资金客户' })
+
+  cmd.confirmOutbound(fdb, { productId: fp.id, quantity: 2, sellingPrice: 8000, payMethod: '微信', operator: '测试' }) // 收 16000
+  cmd.confirmOutbound(fdb, { productId: fp.id, quantity: 1, sellingPrice: 8000, customerId: fcust.id, paidAmount: 3000, payMethod: '支付宝', operator: '测试' }) // 收 3000
+  cmd.createReturn(fdb, { productId: fp.id, quantity: 1, refundPrice: 8000, payMethod: '微信', operator: '测试' }) // 付 8000
+  cmd.recordPayment(fdb, { customerId: fcust.id, amount: 5000, method: '现金' }) // 收 5000（客户还款）
+  cmd.createExpense(fdb, { category: '房租', amount: 20000, method: '支付宝', expenseDate: '2026-09-22' }) // 付 20000
+  const fsup = cmd.createSupplier(fdb, { name: '资金供应商' })
+  cmd.paySupplier(fdb, { supplierId: fsup.id, amount: 4000, method: '现金', payDate: '2026-09-22' }) // 付 4000
+  // 纯赊账：没有现金移动，不该在资金账里占一笔
+  cmd.confirmOutbound(fdb, { productId: fp.id, quantity: 1, sellingPrice: 8000, customerId: fcust.id, paidAmount: 0, operator: '测试' })
+
+  const fv = cmd.moneyAccounts(fdb)
+  const acc = (name) => fv.accounts.find((a) => a.account === name)
+  ok('资金账户：微信 收 16000 / 付 8000 / 余额 8000',
+    acc('微信').inFen === 16000 && acc('微信').outFen === 8000 && acc('微信').closingFen === 8000,
+    JSON.stringify(acc('微信')))
+  ok('资金账户：支付宝 收 3000 / 付 20000（房租）/ 余额 -17000',
+    acc('支付宝').inFen === 3000 && acc('支付宝').outFen === 20000 && acc('支付宝').closingFen === -17000,
+    JSON.stringify(acc('支付宝')))
+  ok('资金账户：现金 收 5000（客户还款）/ 付 4000（付供应商）/ 余额 1000',
+    acc('现金').inFen === 5000 && acc('现金').outFen === 4000 && acc('现金').closingFen === 1000,
+    JSON.stringify(acc('现金')))
+  ok('资金账户：纯赊账不算钱的进出（一笔都不占）', fv.totals.n === 6, 'n=' + fv.totals.n)
+  ok('资金账户：四个账户永远都在（界面不会缺行）',
+    fv.accounts.map((a) => a.account).join(',') === '现金,微信,支付宝,其他')
+  ok('资金账户：来源可拆（销售/退货/还款/支出/付供应商）',
+    fv.sources.salesFen === 19000 && fv.sources.returnsFen === 8000 &&
+    fv.sources.customerRepayFen === 5000 && fv.sources.expensesFen === 20000 && fv.sources.supplierPayFen === 4000,
+    JSON.stringify(fv.sources))
+
+  // 期初：改的是 settings 里那段 JSON（不新建表），改完余额整体平移
+  const set = cmd.setAccountOpening(fdb, { account: '现金', amountFen: 100000, operator: '测试' })
+  ok('资金账户：期初存进 settings 的 account_opening（没有新建表）',
+    set.ok === true && fdb.prepare("SELECT value FROM settings WHERE key = 'account_opening'").get()?.value === '{"现金":100000}')
+  ok('资金账户：期初只影响余额、不影响收付',
+    cmd.moneyAccounts(fdb).accounts.find((a) => a.account === '现金').closingFen === 101000)
+  let openErr = null
+  try { cmd.setAccountOpening(fdb, { account: '银行', amountFen: 1 }) } catch (e) { openErr = e }
+  ok('资金账户：期初账户只能填四个账户之一（拒绝自造账户）',
+    openErr !== null && openErr.message.includes('现金'))
+
+  // 区间：只算区间内的钱
+  ok('资金账户：日期区间生效（把区间放到未来 = 一分钱没有）',
+    cmd.moneyAccounts(fdb, { from: '2099-01-01' }).totals.inFen === 0)
+
+  // loadAll 带出期初：桌面端因此不必为资金账户新增 IPC 通道
+  ok('资金账户：期初随 loadAll 下发（不新增通道）',
+    cmd.loadAll(fdb).accountOpening?.['现金'] === 100000)
+  ok('资金账户：loadAll 的期初是解析后的对象，不是原始字符串',
+    typeof cmd.loadAll(fdb).accountOpening === 'object')
+
+  fdb.close()
+}
+
 // 41. 销售渠道（channel）：首单北极星判据的前置 —— 补列 + 默认「线下」+ Shopee 必须显式传
 //     为什么值得单独测：台账 line 25 的首单判据是 `type=out 且 amount>0 且 channel=Shopee`，
 //     并自带「不得用 amount>0 顶替」的警告。这里把判据**两个方向**都验一遍：
@@ -3603,6 +3667,80 @@ ok('preload 白名单含 expense 三通道',
     /qty > 0/.test(batchDlg) && /addInbound\(/.test(batchDlg))
   ok('批量建族：建档先挂「待盘点」，由入库去翻状态（不从名字/照片推断）',
     /status: '待盘点'/.test(batchDlg))
+}
+
+// ============ MCP 外壳（scripts/mcp-server.mjs，2026-09-22）============
+// 这不是"新能力"：系统早就有自描述的命令注册表 + GET /api/commands + POST /api/command。
+// MCP 只是把同一份清单翻译成标准插座。这里**真的起一个服务端 + 真的跑一次 stdio 会话**，
+// 不只看源码字符串 —— 否则"外壳能用"就只是我说的话。
+{
+  const { spawn } = await import('node:child_process')
+  const mcpDir = path.join(tmp, 'mcp-srv')
+  const mcpDb = openDatabase(path.join(tmp, 'mcp.db'))
+  const srv = createInventoryServer({ db: mcpDb, dataDir: mcpDir, basePort: 0 })
+  const st = await srv.start()
+  const base = `http://127.0.0.1:${st.port}`
+  const tok = fs.readFileSync(path.join(mcpDir, 'server-token.txt'), 'utf8').trim()
+
+  const child = spawn(process.execPath, ['scripts/mcp-server.mjs', '--url', base, '--token', tok], {
+    cwd: path.resolve('.'), stdio: ['pipe', 'pipe', 'pipe'],
+  })
+  let buf = ''
+  const replies = []
+  child.stdout.on('data', (d) => {
+    buf += d.toString()
+    let i
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i).trim()
+      buf = buf.slice(i + 1)
+      if (line) { try { replies.push(JSON.parse(line)) } catch { /* 非 JSON 忽略 */ } }
+    }
+  })
+  const send = (o) => child.stdin.write(JSON.stringify(o) + '\n')
+  const waitFor = async (id, ms = 15000) => {
+    const t0 = Date.now()
+    while (Date.now() - t0 < ms) {
+      const hit = replies.find((x) => x.id === id)
+      if (hit) return hit
+      await new Promise((r) => setTimeout(r, 50))
+    }
+    return null
+  }
+
+  send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', clientInfo: { name: 'test', version: '1' } } })
+  const init = await waitFor(1)
+  ok('MCP：stdio 握手成功（initialize 有回包）',
+    init?.result?.serverInfo?.name === 'inventory-system', JSON.stringify(init?.result?.serverInfo ?? init))
+  ok('MCP：声明了 tools 能力（客户端据此拿工具清单）', init?.result?.capabilities?.tools !== undefined)
+
+  send({ jsonrpc: '2.0', id: 2, method: 'tools/list' })
+  const list = await waitFor(2)
+  const names = (list?.result?.tools ?? []).map((t) => t.name)
+  ok('MCP：tools/list 给出工具清单（来自注册表，不是手写清单）', names.length > 50, 'tools=' + names.length)
+  ok('MCP：工具名符合 MCP 命名规范（不含冒号等非法字符）', names.length > 0 && names.every((n) => /^[A-Za-z0-9_-]+$/.test(n)))
+  ok('MCP：默认**不暴露写命令**（只读白名单，防"接上就能改账"）',
+    !names.includes('product_create') && !names.includes('fund_setOpening'), names.filter((n) => /create|set/.test(n)).slice(0, 5).join(','))
+  ok('MCP：暴露了自省工具（查清单 / 取接入说明）',
+    names.includes('inventory_command_doc') && names.includes('inventory_agent_guide'))
+
+  send({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'fund_overview', arguments: {} } })
+  const call = await waitFor(3)
+  const callText = call?.result?.content?.[0]?.text ?? ''
+  ok('MCP：tools/call 真的调到了业务命令（fund:overview 返回账户账目）',
+    call?.result?.isError === false && /"accounts"/.test(callText), callText.slice(0, 120))
+
+  send({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'inventory_command_doc', arguments: { name: 'fund:overview' } } })
+  const doc = await waitFor(4)
+  ok('MCP：自省工具能查到某条命令的说明与读写标记',
+    /资金账户/.test(doc?.result?.content?.[0]?.text ?? ''))
+
+  send({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: '不存在的工具', arguments: {} } })
+  const bad = await waitFor(5)
+  ok('MCP：未知工具返回 isError（不抛、不静默）', bad?.result?.isError === true)
+
+  child.kill()
+  await srv.stop()
+  mcpDb.close()
 }
 
 fs.rmSync(tmp, { recursive: true, force: true })

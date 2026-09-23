@@ -40,6 +40,7 @@ import {
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { ErrorBanner, PageHeader, SuccessBanner } from '@/components/feedback'
+import { MoneyAccountsCard } from '@/components/MoneyAccountsCard'
 
 // 支出记账：老板视角的"钱出去了"账本。净利 = 毛利 − 支出（经营报表同口径）
 
@@ -235,6 +236,10 @@ export function ExpensesPage() {
 
       {success && <SuccessBanner>{success}</SuccessBanner>}
       {pageError && <ErrorBanner>{pageError}</ErrorBanner>}
+
+      {/* 资金账户（最小形态，2026-09-22）：钱的进出按收款方式汇总成一本账。
+          放这一页是因为「支出」和「资金」是同一件事的两面 —— 都是钱怎么动的。 */}
+      <MoneyAccountsCard />
 
       {/* 概览：今日 / 本月 */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

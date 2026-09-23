@@ -213,7 +213,11 @@ const CHANNEL_DOCS = {
  */
 function inferImpl(seg, knownFns) {
   const names = new Set()
-  for (const m of seg.matchAll(/\b(?:cmds|commands)\.(\w+)\s*\(/g)) names.add(m[1])
+  // ⚠️ 2026-09-22 修：点号分支原来**不看 knownFns**，于是 `cmds.productLabel(r)` 这种
+  //   **纯格式化帮手**被当成了"这条通道的实现"。实测后果：`ai:parseInboundNote` 与
+  //   `voice:transcribe` 两条通道的 impl 都被挂成 productLabel，进而被判"说明串台"。
+  //   判据收紧成：只有**命令层真的导出过**的名字才算实现（helpers 里的帮手不在此列时就不认）。
+  for (const m of seg.matchAll(/\b(?:cmds|commands)\.(\w+)\s*\(/g)) if (knownFns.has(m[1])) names.add(m[1])
   for (const m of seg.matchAll(/\b([A-Za-z_]\w*)\s*\(/g)) if (knownFns.has(m[1])) names.add(m[1])
   return names.size === 1 ? [...names][0] : null
 }

@@ -1,8 +1,8 @@
 {
  "schemaVersion": 2,
- "generatedAt": "2026-09-16T00:37:24.814Z",
+ "generatedAt": "2026-09-23T04:46:56.616Z",
  "source": "main.js(IPC) + server.js(HTTP/WRITE_CHANNELS/ROUTES) + preload.cjs(白名单) + api.ts(本机专属) + commands/*.js(JSDoc)",
- "total": 191,
+ "total": 218,
  "restRoutes": [
   "/api/summary",
   "/api/low-stock",
@@ -21,6 +21,7 @@
   "/api/agent"
  ],
  "writes": [
+  "ai:applyConfig",
   "ai:bindLicense",
   "ai:clearKey",
   "ai:setKey",
@@ -29,6 +30,8 @@
   "backup:now",
   "backup:restore",
   "backup:setExtraDir",
+  "brand:photo:delete",
+  "brand:photo:save",
   "category:create",
   "category:delete",
   "category:move",
@@ -57,8 +60,10 @@
   "feedback:send",
   "flags:refresh",
   "flags:set",
+  "fund:setOpening",
   "import:batch",
   "inbound:create",
+  "inbound:fromNote",
   "kit:delete",
   "kit:save",
   "knowledge:delete",
@@ -68,6 +73,8 @@
   "kws:push",
   "kws:reset",
   "license:activate",
+  "license:applyConfig",
+  "notify:save",
   "onboarding:finish",
   "onboarding:reset",
   "outbound:checkout",
@@ -88,13 +95,16 @@
   "priceTier:set",
   "product:batchUpdate",
   "product:create",
+  "product:createSpecs",
   "product:delete",
   "product:mark",
+  "product:priceFromCost",
   "product:update",
   "receipt:register",
   "server:regenerateToken",
   "server:toggle",
   "site:setContact",
+  "stock:adjust",
   "stock:transfer",
   "stocktake:complete",
   "stocktake:create",
@@ -106,6 +116,7 @@
   "supplier:update",
   "template:apply",
   "tts:download",
+  "undo:apply",
   "unit:create",
   "unit:delete",
   "unit:move",
@@ -122,8 +133,8 @@
   "webupdate:restart"
  ],
  "health": {
-  "withDesc": 191,
-  "withImpl": 95,
+  "withDesc": 200,
+  "withImpl": 107,
   "descShareMismatch": 0
  },
  "commands": [
@@ -139,6 +150,19 @@
    "write": false,
    "local": true,
    "descFrom": "table"
+  },
+  {
+   "name": "ai:applyConfig",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": true,
+   "local": false,
+   "descFrom": ""
   },
   {
    "name": "ai:bindLicense",
@@ -289,7 +313,7 @@
    "desc": "一段文字/备注 → 入库草稿（解析成商品行）",
    "impl": null,
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
    "rest": false,
    "write": false,
@@ -328,12 +352,25 @@
    "desc": "某功能当前版本今日额度（剩余次数）；大师版返回 Infinity",
    "impl": "aiQuotaStatus",
    "ipc": true,
-   "http": false,
+   "http": true,
    "preload": true,
    "rest": false,
    "write": false,
    "local": true,
    "descFrom": "jsdoc"
+  },
+  {
+   "name": "ai:setEndpoint",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false,
+   "write": false,
+   "local": true,
+   "descFrom": ""
   },
   {
    "name": "ai:setKey",
@@ -386,6 +423,19 @@
    "write": false,
    "local": false,
    "descFrom": "table"
+  },
+  {
+   "name": "ai:syncCentral",
+   "group": "ai",
+   "desc": "",
+   "impl": null,
+   "ipc": true,
+   "http": false,
+   "preload": true,
+   "rest": false,
+   "write": false,
+   "local": true,
+   "descFrom": ""
   },
   {
    "name": "ai:test",
@@ -505,6 +555,32 @@
    "descFrom": "table"
   },
   {
+   "name": "app:ping",
+   "group": "app",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": false,
+   "local": false,
+   "descFrom": ""
+  },
+  {
+   "name": "app:stats",
+   "group": "app",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": false,
+   "local": false,
+   "descFrom": ""
+  },
+  {
    "name": "audit:list",
    "group": "audit",
    "desc": "操作日志查询：按时间倒序，可按 action 筛选（如 '入库'/'改价'）",
@@ -594,6 +670,45 @@
    "write": false,
    "local": true,
    "descFrom": "table"
+  },
+  {
+   "name": "brand:photo:delete",
+   "group": "brand",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": true,
+   "local": false,
+   "descFrom": ""
+  },
+  {
+   "name": "brand:photo:save",
+   "group": "brand",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": true,
+   "local": false,
+   "descFrom": ""
+  },
+  {
+   "name": "brand:photos",
+   "group": "brand",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": false,
+   "local": false,
+   "descFrom": ""
   },
   {
    "name": "category:create",
@@ -1207,6 +1322,32 @@
    "descFrom": "table"
   },
   {
+   "name": "fund:overview",
+   "group": "fund",
+   "desc": "资金账户总览（只读）：按收款方式汇总钱的进出与余额。 账户 = 现金/微信/支付宝/其他（就是现有 pay_method 的取值域，不新增概念）；余额 = 期初 + Σ收 − Σ付。 钱来自四处已有记录：出库实收与退货退款（transactions）、客户还款（payments）、支出（expenses）、付供应商（supplier_payments）。 方式没记的进「未登记方式」桶，不摊到任何账",
+   "impl": "moneyAccounts",
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": false,
+   "local": false,
+   "descFrom": "jsdoc"
+  },
+  {
+   "name": "fund:setOpening",
+   "group": "fund",
+   "desc": "设置某个资金账户的期初余额（单位：分）。 期初存在 settings 表（键 account_opening）里的一段 JSON，因此**不新增表、也不新增迁移**。",
+   "impl": "setAccountOpening",
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": true,
+   "local": false,
+   "descFrom": "jsdoc"
+  },
+  {
    "name": "import:batch",
    "group": "import",
    "desc": "批量导入商品 + 批次，每条商品自动生成批次入库记录。 逐行校验：坏行（数量非法、缺成本价、品类不在 20 大类内）记入 errors 并跳过该行， 不再让一行坏数据导致整批回滚。 SKU 规则与手动新建一致：显式 SKU 原样用 > 有条码用条码 > 无条码自动编纯数字号（1001 起）。 合法行仍在同一事务里整体提交，批次号与手动入库同规则。 mode： - 'skip'（默认，向后兼容）：已",
@@ -1231,6 +1372,19 @@
    "write": true,
    "local": false,
    "descFrom": "jsdoc"
+  },
+  {
+   "name": "inbound:fromNote",
+   "group": "inbound",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": true,
+   "local": false,
+   "descFrom": ""
   },
   {
    "name": "kit:delete",
@@ -1402,6 +1556,32 @@
    "descFrom": "table"
   },
   {
+   "name": "license:applyConfig",
+   "group": "license",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": true,
+   "local": false,
+   "descFrom": ""
+  },
+  {
+   "name": "license:level",
+   "group": "license",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": false,
+   "local": false,
+   "descFrom": ""
+  },
+  {
    "name": "license:quota",
    "group": "license",
    "desc": "各版本额度（每日 AI 次数等）",
@@ -1426,6 +1606,45 @@
    "write": false,
    "local": true,
    "descFrom": "table"
+  },
+  {
+   "name": "notify:config",
+   "group": "notify",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": false,
+   "local": false,
+   "descFrom": ""
+  },
+  {
+   "name": "notify:save",
+   "group": "notify",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": true,
+   "local": false,
+   "descFrom": ""
+  },
+  {
+   "name": "notify:test",
+   "group": "notify",
+   "desc": "",
+   "impl": "dailyTodo",
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": false,
+   "local": false,
+   "descFrom": ""
   },
   {
    "name": "onboarding:finish",
@@ -1636,6 +1855,19 @@
    "descFrom": "table"
   },
   {
+   "name": "photo:list",
+   "group": "photo",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": false,
+   "local": false,
+   "descFrom": ""
+  },
+  {
    "name": "photo:save",
    "group": "photo",
    "desc": "保存商品图片到本机（返回相对文件名）",
@@ -1792,6 +2024,19 @@
    "descFrom": "jsdoc"
   },
   {
+   "name": "product:createSpecs",
+   "group": "product",
+   "desc": "一次建好一个商品的多个规格 —— 老板 2026-09-22 的核心诉求。 他的原话：「一个品牌的产品，规格很多，但却要每一个都录入，而且还得拍照，规格命名格式不同一」 「我点击了一个狼王的鱼竿的一个商品，商品下面就可以出来很多规格让我选择」 「就像一个文件夹一样…而且名字是统一的」 设计（对着他的话来的）： · 品牌 + 商品名 = **文件夹名**；规格 = 文件夹里的文件；名字统一由 spe",
+   "impl": "createProductSpecs",
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": true,
+   "local": false,
+   "descFrom": "jsdoc"
+  },
+  {
    "name": "product:delete",
    "group": "product",
    "desc": "仅允许删除没有任何批次和流水的商品，防止库存历史断链",
@@ -1844,6 +2089,19 @@
    "descFrom": "jsdoc"
   },
   {
+   "name": "product:priceFromCost",
+   "group": "product",
+   "desc": "按成本批量定价（2026-09-20）：导入的库存常常只有成本、没有售价，导致开单每次都要现场输价。 规则：售价 = round(成本 × ratio)，最常见的是 ratio=2（成本×2），老板觉得不合适再单个改。 - onlyEmpty=true（默认）：只补「还没定价」的（suggest_price 为 NULL 或 ≤0），不动已定过价的； - 成本 ≤0 的跳过并计数（×2 还是 0，",
+   "impl": "priceFromCost",
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": true,
+   "local": false,
+   "descFrom": "jsdoc"
+  },
+  {
    "name": "product:search",
    "group": "product",
    "desc": "按关键词搜商品（轻量，给下拉与语音用）",
@@ -1866,6 +2124,19 @@
    "preload": true,
    "rest": false,
    "write": true,
+   "local": false,
+   "descFrom": "jsdoc"
+  },
+  {
+   "name": "promo:plan",
+   "group": "promo",
+   "desc": "算一份活动方案。",
+   "impl": "buildPromoPlan",
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": false,
    "local": false,
    "descFrom": "jsdoc"
   },
@@ -1935,6 +2206,32 @@
    "descFrom": "jsdoc"
   },
   {
+   "name": "report:posQuickPicks",
+   "group": "report",
+   "desc": "",
+   "impl": null,
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": false,
+   "local": false,
+   "descFrom": ""
+  },
+  {
+   "name": "report:restock",
+   "group": "report",
+   "desc": "该补的货（**全站唯一口径**）。 老板 2026-09-22：「补货提醒这个问题，上传说过的没完成，或者说页面没有同步」—— 病根是同一个问题有两套算法： · 「今天该做的事」走这里（按近 90 天真实动销算「还能卖几天」，快断才提醒，贵货门槛更严） · 入库页 / 补货清单 / 今日页走的是 report:lowStock（**只要库存 < 5 就报**） 于是同一天，待办说「补货 0」，页面",
+   "impl": "restockForTodo",
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": false,
+   "local": false,
+   "descFrom": "jsdoc"
+  },
+  {
    "name": "report:today",
    "group": "report",
    "desc": "今日收款方式拆分（单位：分），桌面仪表盘与手机看店共用同一口径： - byMethod：按流水 pay_method 聚合——出库实收记正、退货退款记负（换货退旧腿、冲减欠款的退货不算现金移动） - unrecorded：收到钱但没记方式的净额（老数据/未选方式） - credit：今日新增赊账（应付 − 实收）",
@@ -1946,6 +2243,19 @@
    "write": false,
    "local": false,
    "descFrom": "jsdoc"
+  },
+  {
+   "name": "report:todo",
+   "group": "report",
+   "desc": "",
+   "impl": "dailyTodo",
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": false,
+   "local": false,
+   "descFrom": ""
   },
   {
    "name": "server:regenerateToken",
@@ -2011,6 +2321,32 @@
    "write": true,
    "local": true,
    "descFrom": "table"
+  },
+  {
+   "name": "spec:templates",
+   "group": "spec",
+   "desc": "",
+   "impl": "allSpecTemplates",
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": false,
+   "local": false,
+   "descFrom": ""
+  },
+  {
+   "name": "stock:adjust",
+   "group": "stock",
+   "desc": "单品改库存（老板 2026-09-21：「库存里无法改数量」）。 实现上就是**给这一个商品开一张只有一行的盘点单**（sku 模式），再走同一套落账逻辑： · 和「盘点管理」里盘出来的差异完全同源 —— 同样摊批次、同样写 audit_log、同样能在盘点单里回看； · 绝不直接 UPDATE inventory_batches：库存是账，绕过盘点就没有差异记录， 事后谁也说不清这批货为什么少了",
+   "impl": "adjustProductStock",
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": true,
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "stock:byLocation",
@@ -2245,6 +2581,32 @@
    "write": false,
    "local": true,
    "descFrom": "table"
+  },
+  {
+   "name": "undo:apply",
+   "group": "undo",
+   "desc": "撤回一条：按快照恢复（同一事务；撤不了就抛错，绝不半截）",
+   "impl": "applyUndo",
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": true,
+   "local": false,
+   "descFrom": "jsdoc"
+  },
+  {
+   "name": "undo:list",
+   "group": "undo",
+   "desc": "最近可撤回的操作（默认 20 条；含已撤回的，界面自己置灰）",
+   "impl": "listUndo",
+   "ipc": false,
+   "http": true,
+   "preload": false,
+   "rest": false,
+   "write": false,
+   "local": false,
+   "descFrom": "jsdoc"
   },
   {
    "name": "unit:allowsDecimal",

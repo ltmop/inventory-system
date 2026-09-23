@@ -206,6 +206,12 @@ interface AppState {
   priceTiers: PriceTier[]
 
   expenses: Expense[]
+  /**
+   * 资金账户期初余额（分），按账户名索引；**由 loadAll 带出**（存在库里 settings 表的一段 JSON）。
+   * 为什么跟着 loadAll 走：期初是「账目基准」而不是本机配置，中心库模式必须取中心库那份；
+   * 而 loadAll 是既有通道，不必为资金账户新增 IPC 通道（新增通道旧壳不认）。
+   */
+  accountOpening: Partial<Record<string, number>>
   /** 操作日志（audit:list 口径，时间倒序）；mock 路径写操作时本地顺手记，生产环境一律以后端 audit_log 表为准 */
   auditLogs: AuditLogEntry[]
   /** 组合商品：列表 + 明细（loadAll 已带） */
@@ -556,6 +562,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   purchaseOrderItems: [],
   priceTiers: [],
   expenses: [],
+  accountOpening: {},
   auditLogs: [],
   kits: [],
   kitItems: [],
