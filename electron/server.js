@@ -1991,7 +1991,18 @@ async function handle(req, res) {
       return
     }
     // 桌面网页版（整机共享）：其他电脑/平板浏览器打开用全功能系统
-    if (url.pathname === '/app' || url.pathname.startsWith('/app/')) {
+    // 网页版网址归一：/app（无斜杠）→ **308 跳到 /app/** —— 与下面 /m 那条同一个坑，这次是真踩到了。
+    // 2026-09-23 实测（真浏览器打开线上 /app?token=…）：dist/index.html 里是相对路径
+    //   `./assets/index-xxx.js`，浏览器在 /app（无斜杠）时按**根目录**解析 → /assets/… → 404
+    //   → 脚本根本没加载，#root 是空的 → **整页白屏**。
+    //   而 server.js 自己生成的 appUrl 恰恰就是 `/app?token=…`（没有斜杠），所以这个白屏是默认路径。
+    // 308 = 永久重定向且保留请求方法；**必须带上 url.search**，否则 ?token= 丢了就白跳一次再 401。
+    if (url.pathname === '/app') {
+      res.writeHead(308, { ...SECURITY_HEADERS, Location: '/app/' + (url.search || '') })
+      res.end()
+      return
+    }
+    if (url.pathname === '/app/' || url.pathname.startsWith('/app/')) {
       serveApp(res, url.pathname)
       return
     }

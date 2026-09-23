@@ -2700,9 +2700,17 @@ ok('preload 白名单含 outbound:checkout', preloadSrc.includes("'outbound:chec
   ok('状态含 appUrl（/app?token=）', typeof stA.appUrl === 'string' && stA.appUrl.includes(`/app?token=${aToken}`))
 
   // /app 托管：index.html / 静态资源 MIME / 404 / 防穿越
-  const rApp = await fetch(`${aBase}/app`)
+  // ⚠️ 2026-09-23 改：/app（无斜杠）现在 **308 跳到 /app/** —— 与 /m 同一个坑，这次真踩到了。
+  //   真浏览器打开线上 /app?token=… 时测到的：dist/index.html 用相对路径 ./assets/index-xxx.js，
+  //   无斜杠时浏览器按**根目录**解析 → /assets/… 404 → 脚本没加载 → #root 是空的 → 整页白屏。
+  //   而 server.js 自己生成的 appUrl 恰恰就是 `/app?token=…`（无斜杠），所以白屏是默认路径。
+  const rAppNoSlash = await fetch(`${aBase}/app?token=${aToken}`, { redirect: 'manual' })
+  ok('GET /app（无斜杠）308 跳到 /app/ 且保留 ?token=（不跳就整页白屏）',
+    rAppNoSlash.status === 308 && (rAppNoSlash.headers.get('location') ?? '').includes(`/app/?token=${aToken}`),
+    `${rAppNoSlash.status} ${rAppNoSlash.headers.get('location')}`)
+  const rApp = await fetch(`${aBase}/app/`)
   const appHtml = await rApp.text()
-  ok('GET /app 返回桌面版 index.html', rApp.status === 200 && appHtml.includes('渔具库存桌面版'))
+  ok('GET /app/ 返回桌面版 index.html', rApp.status === 200 && appHtml.includes('渔具库存桌面版'))
   ok('/app 响应带 CSP 头', (rApp.headers.get('content-security-policy') ?? '').includes("default-src 'self'"))
   const rCss = await fetch(`${aBase}/app/assets/app.css`)
   ok('静态资源 MIME 正确（css）', rCss.status === 200 && (rCss.headers.get('content-type') ?? '').includes('text/css'))
