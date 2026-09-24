@@ -12,6 +12,7 @@ import { useAppStore, priceForCustomer } from '@/store/appStore'
 import { backend } from '@/lib/api'
 import { previewFifo } from '@/lib/fifo'
 import { validateQty, unitOf, isDecimalUnit } from '@/lib/quantity'
+import { BULK_AMOUNTS_FEN, isBulkWeightProduct, qtyForAmount, actualFenForAmount } from '@/lib/bulkSell'
 import { playSound } from '@/lib/sounds'
 import { formatPrice, isToday, productName } from '@/lib/formatters'
 import type { CreditOptions } from '@/store/appStore'
@@ -455,6 +456,53 @@ export function OutboundPage() {
     }
   }
 
+  // 把一行并进清单（同商品合并数量、单价用最新一次录入的）；成功返回 null，失败返回给用户看的原因。
+  // 单独抽出来是为了 **散货按金额快选** 也能复用同一条入车路径（校验/合并/库存上限一处都不用重写）。
+  const pushCartLine = (p: NonNullable<typeof selected>, lineQty: number, linePriceCents: number): string | null => {
+    const unit = unitOf(p)
+    const stock = totalStockOf(p.id)
+    const existing = cart.find((i) => i.product.id === p.id)
+    const mergedQty = (existing?.quantity ?? 0) + lineQty
+    if (mergedQty > stock) {
+      return `清单里已有 ${existing?.quantity ?? 0} ${unit}，再加 ${lineQty} ${unit}超过当前库存（共 ${stock} ${unit}）`
+    }
+    setCart((c) =>
+      existing
+        ? c.map((i) => (i.product.id === p.id ? { ...i, quantity: mergedQty, priceCents: linePriceCents } : i))
+        : [...c, { product: p, quantity: lineQty, priceCents: linePriceCents }],
+    )
+    return null
+  }
+
+  // 散货：客户说「来 5 块钱的」——按金额一键入车，重量由系统按单价折算（收银不用心算 5 块钱几克）。
+  // 2026-09-23 老板原话：「正常 5 块钱是 35 克蚯蚓」（¥70/斤 = ¥0.14/克 → 5 ÷ 0.14 ≈ 35.7 克）。
+  const addBulkAmount = (amountFen: number) => {
+    if (!selected) return
+    const perUnit = yuanToCents(priceYuan)
+    if (perUnit === null || perUnit <= 0) {
+      setError('先填单价（散货要填「每克的价钱」，比如 ¥70/斤 就填 0.14），才能按金额快选')
+      playSound('error')
+      return
+    }
+    const lineQty = qtyForAmount(amountFen, perUnit)
+    if (lineQty === null) {
+      setError(`按当前单价 ¥${priceYuan}/${unitOf(selected)}，¥${amountFen / 100} 算不出有效重量`)
+      playSound('error')
+      return
+    }
+    const err = pushCartLine(selected, lineQty, perUnit)
+    if (err) {
+      setError(err)
+      playSound('error')
+      return
+    }
+    const actual = actualFenForAmount(amountFen, perUnit) ?? amountFen
+    playSound('success')
+    setSuccess(
+      `已加入清单：${productName(selected)} ¥${(amountFen / 100).toFixed(2)}（${lineQty} ${unitOf(selected)}，实收 ¥${(actual / 100).toFixed(2)}）`,
+    )
+  }
+
   // 加入清单：校验同单品出库；同商品已在清单里则合并数量（单价用最新一次录入的）
   const addToCart = () => {
     if (!selected) return
@@ -469,20 +517,12 @@ export function OutboundPage() {
       playSound('error')
       return
     }
-    const unit = unitOf(selected)
-    const stock = totalStockOf(selected.id)
-    const existing = cart.find((i) => i.product.id === selected.id)
-    const mergedQty = (existing?.quantity ?? 0) + qty
-    if (mergedQty > stock) {
-      setError(`清单里已有 ${existing?.quantity ?? 0} ${unit}，再加 ${qty} ${unit}超过当前库存（共 ${stock} ${unit}）`)
+    const err = pushCartLine(selected, qty, price)
+    if (err) {
+      setError(err)
       playSound('error')
       return
     }
-    setCart((c) =>
-      existing
-        ? c.map((i) => (i.product.id === selected.id ? { ...i, quantity: mergedQty, priceCents: price } : i))
-        : [...c, { product: selected, quantity: qty, priceCents: price }],
-    )
     playSound('success')
     setSuccess(`已加入清单：${productName(selected)} × ${qty}`)
     resetSelection()
@@ -1129,6 +1169,29 @@ export function OutboundPage() {
           <Button size="sm" variant="ghost" onClick={() => setReceipt(null)}>
             不用了
           </Button>
+        </div>
+      )}
+
+      {/* 散货快选（2026-09-23 老板：「客户都是买整数，5 块、10 块」）：
+          选中散货商品后点金额 → 按单价折算重量直接入车，收银不用心算 5 块钱几克。
+          只有「重量类单位 + 允许小数」的商品才出现（件/包/盒这种不该按金额卖）。 */}
+      {selected && isBulkWeightProduct(selected) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-brand-200 bg-brand-50/40 px-4 py-3">
+          <span className="text-sm font-semibold text-brand-800">散货快选</span>
+          {BULK_AMOUNTS_FEN.map((fen) => (
+            <Button
+              key={fen}
+              size="lg"
+              variant="outline"
+              className="min-w-[74px] font-semibold"
+              onClick={() => addBulkAmount(fen)}
+            >
+              ¥{fen / 100}
+            </Button>
+          ))}
+          <span className="text-xs text-muted-foreground">
+            按单价 ¥{priceYuan || '—'}/{unitOf(selected)} 折算重量
+          </span>
         </div>
       )}
 

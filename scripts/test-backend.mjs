@@ -3695,6 +3695,26 @@ ok('preload 白名单含 expense 三通道',
     /status: '待盘点'/.test(batchDlg))
 }
 
+// ============ 散货按金额卖（2026-09-23 老板：蚯蚓按斤进、客户说"来 5 块钱的"）============
+// 老板原话：「不是 5 克，是 5 块钱；正常 5 块钱是 35 克蚯蚓」→ 卖的动作是**按金额**，
+// 重量由系统按单价折算。数学部分由 vitest（src/lib/bulkSell.test.ts）盯，这里盯"接得对不对"。
+{
+  const bulkLib = fs.readFileSync(path.resolve('src/lib/bulkSell.ts'), 'utf8')
+  const outSrc = fs.readFileSync(path.resolve('src/pages/OutboundPage.tsx'), 'utf8')
+  ok('散货口径库存在，且写明"按金额折算重量"（不是让收银心算克数）',
+    /export function qtyForAmount/.test(bulkLib) && /export function actualFenForAmount/.test(bulkLib))
+  ok('散货口径库有「按斤报价 → 每克价」的换算（老板报价习惯是 ¥70/斤）',
+    /export function perGramFenFromPerJin/.test(bulkLib) && /GRAMS_PER_JIN = 500/.test(bulkLib))
+  ok('散货只有"重量类单位 + 允许小数"的商品才算（件/包/盒不该按金额卖）',
+    /export function isBulkWeightProduct/.test(bulkLib) && /p\.unit_decimal/.test(bulkLib))
+  ok('开单页有散货快选按钮（¥5/¥10/¥15/¥20 一键入车）',
+    /BULK_AMOUNTS_FEN\.map/.test(outSrc) && /const addBulkAmount/.test(outSrc))
+  ok('快选只对散货商品出现（不给整件商品误加按钮）',
+    /selected && isBulkWeightProduct\(selected\)/.test(outSrc))
+  ok('普通入车与散货快选共用同一条入车路径（校验/合并/库存上限只写一处）',
+    (outSrc.match(/pushCartLine/g) || []).length >= 3 && /return `清单里已有/.test(outSrc))
+}
+
 // ============ MCP 外壳（scripts/mcp-server.mjs，2026-09-22）============
 // 这不是"新能力"：系统早就有自描述的命令注册表 + GET /api/commands + POST /api/command。
 // MCP 只是把同一份清单翻译成标准插座。这里**真的起一个服务端 + 真的跑一次 stdio 会话**，
