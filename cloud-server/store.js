@@ -120,6 +120,8 @@ export function saveBackup(userId, date, iv, data) {
 }
 
 export function loadBackup(userId, date) {
+  // 兜底：date 参与拼接路径，调用方漏校验时也不允许非日期形状（含 ../ 或路径分隔符）
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) return null
   const file = path.join(userDir(userId), 'backups', `${date}.enc`)
   if (!fs.existsSync(file)) return null
   try {
@@ -681,8 +683,135 @@ const cockpitFailures = new Map() // phone -> { count, lastAt }
 const COCKPIT_MAX_FAILS = 5
 const COCKPIT_LOCK_MS = 15 * 60 * 1000
 
+/* ===== 驾驶舱会话「记住登录」（2026-09-20）=====================================
+ * 用户反馈：「每次重新进入驾驶舱都要重新登录一遍，驾驶舱记不住账号。」
+ * 两个根因（都在这一层）：
+ *   ① 会话只活在内存 Map 里 —— 进程一重启（pm2 restart / 部署 / 崩溃）全体掉线；
+ *   ② TTL 只有 12 小时 —— 用户第二天早上打开必然过期，等于「每天都要登一次」。
+ * 修法（只动驾驶舱会话，**不碰进销存的 sessions**，把影响面锁死在驾驶舱）：
+ *   · 会话落盘 cockpit-sessions.json（0600、原子写），启动时加载并剔除过期项；
+ *   · 驾驶舱会话 TTL 12h → 30 天；
+ *   · 滑动续期：有效期过半时续满 —— 只要还在用，就不会在用的过程中掉线。
+ * 注意：这里不引入定时器（定时器会拖住进程退出、也让测试难写），
+ *      滑动续期用「最多 60 秒落一次盘」的节流写，语义不变、写放大可控。
+ * 安全：token 仍是 32 字节随机、可随时 revoke；落盘文件与其他凭据同权限（0600）。 */
+const COCKPIT_SESSION_FILE = path.join(DATA_ROOT, 'cockpit-sessions.json')
+const COCKPIT_SESSION_TTL_MS = Number(process.env.COCKPIT_SESSION_TTL_MS) > 0 ? Number(process.env.COCKPIT_SESSION_TTL_MS) : 30 * 24 * 60 * 60 * 1000
+/** 滑动续期的落盘节流窗口（生产 60s；可用环境变量调小，便于测试与运维观测） */
+const COCKPIT_SESSION_FLUSH_MS = Number(process.env.COCKPIT_SESSION_FLUSH_MS) > 0 ? Number(process.env.COCKPIT_SESSION_FLUSH_MS) : 60 * 1000
+let cockpitSessionsSavedAt = 0
+let cockpitSessionsFlushTimer = null
+function saveCockpitSessions() {
+  if (cockpitSessionsFlushTimer) { try { clearTimeout(cockpitSessionsFlushTimer) } catch { } cockpitSessionsFlushTimer = null }
+  try {
+    ensureDir(DATA_ROOT)
+    const o = {}
+    for (const [tk, v] of cockpitSessions) o[tk] = v
+    atomicWrite(COCKPIT_SESSION_FILE, JSON.stringify(o))
+    cockpitSessionsSavedAt = Date.now()
+    return true
+  } catch (e) {
+    try { console.error('[cloud-server] 驾驶舱会话落盘失败: ' + (e && e.message)) } catch { }
+    return false
+  }
+}
+/** 节流落盘：滑动续期每个请求都会发生，不能每请求都写盘。
+ *  被节流时**不是丢掉这次更新**，而是排一个一次性定时器补写；
+ *  定时器 unref()，不拖住进程退出（否则 pm2 stop 会卡住）。 */
+function saveCockpitSessionsSoon() {
+  const wait = COCKPIT_SESSION_FLUSH_MS - (Date.now() - cockpitSessionsSavedAt)
+  if (wait <= 0) return saveCockpitSessions()
+  if (cockpitSessionsFlushTimer) return
+  cockpitSessionsFlushTimer = setTimeout(function () { cockpitSessionsFlushTimer = null; saveCockpitSessions() }, wait)
+  if (cockpitSessionsFlushTimer && typeof cockpitSessionsFlushTimer.unref === 'function') cockpitSessionsFlushTimer.unref()
+}
+function loadCockpitSessions() {
+  try {
+    const o = JSON.parse(fs.readFileSync(COCKPIT_SESSION_FILE, 'utf8'))
+    let alive = 0
+    let dropped = 0
+    for (const tk of Object.keys(o || {})) {
+      const v = o[tk]
+      if (!v || typeof v !== 'object' || !v.expiresAt) { dropped++; continue }
+      if (Date.now() > Number(v.expiresAt)) { dropped++; continue }
+      cockpitSessions.set(tk, v)
+      alive++
+    }
+    try { console.log('[cloud-server] 驾驶舱会话已恢复 ' + alive + ' 个（丢弃过期/损坏 ' + dropped + ' 个）') } catch { }
+  } catch { /* 首次运行没有该文件，正常 */ }
+}
+loadCockpitSessions()
+/** 滑动续期：剩余不足一半就把有效期续满（只要还在用就不掉线） */
+function renewCockpitSession(s) {
+  if (!s) return
+  if (Number(s.expiresAt) - Date.now() > COCKPIT_SESSION_TTL_MS / 2) return
+  s.expiresAt = Date.now() + COCKPIT_SESSION_TTL_MS
+  saveCockpitSessionsSoon()
+}
+
+
 function loadCockpitAccs() { try { return JSON.parse(fs.readFileSync(COCKPIT_ACC_FILE, 'utf8')) } catch { return {} } }
 function saveCockpitAccs(accs) { ensureDir(DATA_ROOT); atomicWrite(COCKPIT_ACC_FILE, JSON.stringify(accs)) }
+
+// ---------- 驾驶舱邀请码（2026-09-13）----------
+// 店长生成的邀请码 = 「担保建号」凭据：员工凭码自助注册，免短信验证码（未接真实 SMS 前的可用路径）。
+// 邀请码【不会】授予店主身份（owner 仍只认 ADMIN_KEY 路径）。独立文件 invites.json，不影响进销存。
+const INVITES_FILE = path.join(DATA_ROOT, 'invites.json')
+function loadInvites() { try { return JSON.parse(fs.readFileSync(INVITES_FILE, 'utf8')) } catch { return {} } }
+function saveInvites(o) { ensureDir(DATA_ROOT); atomicWrite(INVITES_FILE, JSON.stringify(o)) }
+function normCode(c) { return String(c == null ? '' : c).trim().toUpperCase() }
+
+export function createInvite(opts = {}) {
+  const o = loadInvites()
+  let code = ''
+  do { code = crypto.randomBytes(4).toString('hex').toUpperCase() } while (o[code])
+  const ttlH = Number(opts.ttlHours) > 0 ? Number(opts.ttlHours) : 72
+  const rec = {
+    code,
+    role: String(opts.role || 'member').slice(0, 32),
+    note: String(opts.note || '').slice(0, 120),
+    maxUses: Math.max(1, Number(opts.maxUses) || 1),
+    used: 0,
+    usedBy: [],
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + ttlH * 3600 * 1000).toISOString(),
+    createdBy: String(opts.createdBy || ''),
+    enabled: true,
+  }
+  o[code] = rec
+  saveInvites(o)
+  return rec
+}
+export function listInvites() {
+  return Object.values(loadInvites()).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+}
+export function revokeInvite(code) {
+  const o = loadInvites(); const c = normCode(code)
+  if (!o[c]) return { error: '邀请码不存在' }
+  o[c].enabled = false
+  saveInvites(o)
+  return { ok: true, invite: o[c] }
+}
+/** 只校验不消费（注册前置检查） */
+export function verifyInvite(code) {
+  const c = normCode(code)
+  if (!c) return { ok: false, error: '缺少邀请码' }
+  const iv = loadInvites()[c]
+  if (!iv) return { ok: false, error: '邀请码无效' }
+  if (iv.enabled === false) return { ok: false, error: '邀请码已被停用' }
+  if (iv.expiresAt && Date.now() > Date.parse(iv.expiresAt)) return { ok: false, error: '邀请码已过期' }
+  if ((iv.used || 0) >= (iv.maxUses || 1)) return { ok: false, error: '邀请码已用完' }
+  return { ok: true, invite: iv }
+}
+/** 注册成功后再消费，避免校验通过但建号失败导致白扣 */
+export function consumeInvite(code, who) {
+  const o = loadInvites(); const c = normCode(code); const iv = o[c]
+  if (!iv) return { ok: false, error: '邀请码无效' }
+  iv.used = (iv.used || 0) + 1
+  iv.usedBy = (iv.usedBy || []).concat([{ who: String(who || ''), at: new Date().toISOString() }])
+  saveInvites(o)
+  return { ok: true, invite: iv }
+}
 
 export function cockpitScryptHash(password, salt) {
   return crypto.scryptSync(String(password), String(salt), 64).toString('hex')
@@ -765,26 +894,37 @@ export function getCockpitSlotKey(userId) {
 }
 
 // 会话（可撤销+过期，每账号独立槽）
-export function createCockpitSession(token, account, ttlMs = 12 * 60 * 60 * 1000) {
-  cockpitSessions.set(token, { phone: account.phone, name: account.name, userId: account.userId, isOwner: !!account.isOwner, expiresAt: Date.now() + ttlMs })
+// 2026-09-20：TTL 不再接受「比 COCKPIT_SESSION_TTL_MS 更短」的入参 ——
+// 调用点（index.js）历史上硬编码了 12h，若只改默认值等于没改。这里取 max 兜底。
+export function cockpitSessionTtlMs(ttlMs) { return Math.max(Number(ttlMs) || 0, COCKPIT_SESSION_TTL_MS) }
+/** 会话有效期（秒），给接口响应的 expiresIn 用 —— 别让响应体继续谎报 12 小时 */
+export function cockpitSessionTtlSec() { return Math.round(COCKPIT_SESSION_TTL_MS / 1000) }
+export function createCockpitSession(token, account, ttlMs) {
+  cockpitSessions.set(token, { phone: account.phone, name: account.name, userId: account.userId, isOwner: !!account.isOwner, expiresAt: Date.now() + cockpitSessionTtlMs(ttlMs) })
+  saveCockpitSessions()
 }
 export function validateCockpitSession(token) {
   if (!token) return null
   const s = cockpitSessions.get(token); if (!s) return null
-  if (Date.now() > s.expiresAt) { cockpitSessions.delete(token); return null }
+  if (Date.now() > s.expiresAt) { cockpitSessions.delete(token); saveCockpitSessionsSoon(); return null }
   // 契约 v1.1：成员会话（kind='member'）与店主会话并存；成员的有效性看成员本身 + 所属租户账号
   if (s.kind === 'member') {
     const m = findTenantMemberByPhone(s.phone)
-    if (!m || !m.enabled) { cockpitSessions.delete(token); return null }
+    if (!m || !m.enabled) { cockpitSessions.delete(token); saveCockpitSessionsSoon(); return null }
     const t = findCockpitAccByUserId(s.userId)
-    if (!t || !t.enabled) { cockpitSessions.delete(token); return null }
+    if (!t || !t.enabled) { cockpitSessions.delete(token); saveCockpitSessionsSoon(); return null }
+    renewCockpitSession(s)
     return Object.assign({}, s, { account: t, member: publicTenantMember(m) })
   }
   const a = findCockpitAccByPhone(s.phone)
-  if (!a || !a.enabled) { cockpitSessions.delete(token); return null }
+  if (!a || !a.enabled) { cockpitSessions.delete(token); saveCockpitSessionsSoon(); return null }
+  renewCockpitSession(s)
   return Object.assign({}, s, { account: a })
 }
-export function revokeCockpitSession(token) { if (token) cockpitSessions.delete(token) }
+export function revokeCockpitSession(token) { if (token) { cockpitSessions.delete(token); saveCockpitSessions() } }
+/** 会话落盘文件路径（供自检/运维查看，不暴露 token 内容） */
+export function cockpitSessionStoreFile() { return COCKPIT_SESSION_FILE }
+export function cockpitSessionCount() { return cockpitSessions.size }
 export function touchCockpitSeen(phone) { const a = findCockpitAccByPhone(phone); if (a) updateCockpitAcc(phone, { lastSeenAt: new Date().toISOString() }) }
 
 // 登录失败锁定（内存，按手机号）
@@ -933,13 +1073,14 @@ export function setTenantMemberEnabled(phone, enabled) {
 }
 
 /** 成员会话：userId = 租户槽（数据与店主同源），memberId/role 决定权限 */
-export function createTenantMemberSession(token, member, tenant, ttlMs = 12 * 60 * 60 * 1000) {
+export function createTenantMemberSession(token, member, tenant, ttlMs) {
   cockpitSessions.set(token, {
     kind: 'member', phone: member.phone, name: member.name,
     userId: member.tenantUserId || tenant.userId, isOwner: false,
     memberId: member.memberId, role: member.role,
-    expiresAt: Date.now() + ttlMs,
+    expiresAt: Date.now() + cockpitSessionTtlMs(ttlMs),
   })
+  saveCockpitSessions()
 }
 export function pendingTenantInvites() { return INVITES.size }
 
@@ -1114,4 +1255,124 @@ export function tenantBizStats(userId) {
   const byKind = {}
   for (const r of Object.values(lg.records)) byKind[r.kind] = (byKind[r.kind] || 0) + 1
   return { cursor: Number(lg.cursor) || 0, totalRecords: Object.keys(lg.records).length, byKind }
+}
+
+// ===================================================================
+// 通用版驾驶舱：一个账号 = 一个团队（2026-09-14）
+//
+// 模型（阿杜 2026-09-14 选定）：
+//   注册 = 新建自己的团队，注册者即该团队 owner，持有**自己的**空数据槽；
+//   团队成员沿用既有 tenant 会员制（TENANT_MEMBERS_FILE + 一次性邀请码 + MEMBER_ROLES）。
+//
+// 关键决定：teamId **就是** owner 账号的 userId，不另造一套标识 ——
+//   云端已有的一切（槽位密钥 getCockpitSlotKey(userId)、快照、业务日志、审计）
+//   都以 userId 为主键，另造 teamId 只会制造两套需要同步的真相。
+//
+// 与旧自助注册的差别（这是「通用版」的要害）：
+//   旧 /api/cockpit/register 的自助注册一律 isOwner=false（空槽、无团队、拿不到任何团队数据）；
+//   owner 只能由 ADMIN_KEY 指定。所以外人注册完其实什么也做不了。
+//   现在 createTeamAccount() 让注册者直接成为自己团队的 owner —— 谁都可以从零建一个团队。
+// ===================================================================
+
+/** 角色 → 驾驶舱可见范围（scope）。与 ROLE_ACTIONS 的 cockpit.fullView 对齐，一处定义。 */
+const ROLE_COCKPIT_SCOPE = { owner: 'ceo', manager: 'ceo', cashier: 'guest', stock: 'guest', viewer: 'guest' }
+export function roleCockpitScope(role) {
+  return ROLE_COCKPIT_SCOPE[String(role || '')] || 'guest'
+}
+
+/** 团队公开视图（脱敏）：teamId = 店主 userId；不含任何密钥/哈希 */
+export function publicTeam(ownerUserId) {
+  const owner = findCockpitAccByUserId(String(ownerUserId || '').trim())
+  if (!owner) return null
+  const members = listTenantMembers(owner.userId).map(publicTenantMember)
+  return {
+    teamId: owner.userId,
+    name: owner.teamName || ((owner.name || '我') + '的团队'),
+    ownerName: owner.name || '',
+    members,
+    memberCount: members.length,
+    roles: listRoles().filter((r) => r !== 'owner'),
+    roleScope: Object.assign({}, ROLE_COCKPIT_SCOPE),
+    createdAt: owner.createdAt || '',
+  }
+}
+
+/** 自助建团队：注册即成为自己团队的 owner，槽位独立，绝不接触任何既有数据 */
+export function createTeamAccount({ phone, name, password, teamName }) {
+  const r = createCockpitAcc({ phone, name, password, isOwner: true })
+  if (r.error) return r
+  const tn = String(teamName || '').trim().slice(0, 40)
+  if (tn) updateCockpitAcc(r.account.phone, { teamName: tn })
+  getCockpitSlotKey(r.account.userId) // 提前落地独立槽位密钥，首次同步不用等
+  const acc = findCockpitAccByPhone(r.account.phone)
+  return { ok: true, account: acc, team: publicTeam(acc.userId), recoveryCode: r.recoveryCode }
+}
+
+/** 改成员角色（owner 不能通过这里授予 —— 与 inviteTenantMember 的规则保持一致） */
+export function setTenantMemberRole(phone, role) {
+  const ph = String(phone || '').trim()
+  const rl = String(role || '').trim()
+  if (!MEMBER_ROLES.includes(rl)) return { error: '角色不合法（可选：' + MEMBER_ROLES.filter((r) => r !== 'owner').join(' / ') + '）' }
+  if (rl === 'owner') return { error: 'owner 只能通过团队创建者账号使用' }
+  const members = loadTenantMembers()
+  if (!members[ph]) return { error: '成员不存在' }
+  members[ph].role = rl
+  saveTenantMembers(members)
+  return { ok: true, member: publicTenantMember(members[ph]) }
+}
+
+/** 把成员从团队移除（只解除归属；其手机号可被重新邀请，历史数据仍归团队槽位） */
+export function removeTenantMember(phone) {
+  const ph = String(phone || '').trim()
+  const members = loadTenantMembers()
+  if (!members[ph]) return { error: '成员不存在' }
+  const m = members[ph]
+  delete members[ph]
+  saveTenantMembers(members)
+  return { ok: true, removed: publicTenantMember(m) }
+}
+
+/**
+ * 管理员（团队创建者）**直接开号**：手机号 + 姓名 + 角色 + 初始密码。
+ * 2026-09-14 阿杜要求：「我直接给同事创建账号和密码，给他们使用即可」。
+ * 与 inviteTenantMember 的差别：不生成邀请码、不需要对方自己设密码 —— 创建者直接给定。
+ * 纪律不变：不能开 owner；手机号若已是店主账号、或已在别的团队，一律拒绝。
+ */
+export function createTenantMemberDirect({ tenantUserId, phone, name, role, password, createdBy }) {
+  const t = String(tenantUserId || '').trim()
+  if (!t) return { error: '缺少 tenantUserId' }
+  const ph = String(phone || '').trim()
+  if (!/^1\d{10}$/.test(ph)) return { error: '手机号格式不正确' }
+  const rl = String(role || '').trim()
+  if (!MEMBER_ROLES.includes(rl)) return { error: '角色不合法（可选：' + MEMBER_ROLES.filter((r) => r !== 'owner').join(' / ') + '）' }
+  if (rl === 'owner') return { error: 'owner 只能通过团队创建者账号使用' }
+  if (!password || String(password).length < 6) return { error: '初始密码至少 6 位' }
+  if (loadCockpitAccs()[ph]) return { error: '该手机号本身是店主账号，不能用成员身份开通' }
+  const exist = findTenantMemberByPhone(ph)
+  if (exist && exist.tenantUserId !== t) return { error: '该手机号已加入其他团队' }
+  if (exist) return { error: '该成员已在本团队中（可直接改角色或重置密码）' }
+  const members = loadTenantMembers()
+  const salt = crypto.randomBytes(16).toString('hex')
+  const memberId = 'm_' + crypto.randomBytes(8).toString('hex')
+  members[ph] = {
+    memberId, tenantUserId: t, phone: ph, name: String(name || '').trim() || ph.slice(-4), role: rl,
+    enabled: true, salt, passHash: cockpitScryptHash(password, salt),
+    invitedBy: String(createdBy || 'admin'), createdAt: new Date().toISOString(), lastLoginAt: null, directCreate: true,
+  }
+  saveTenantMembers(members)
+  const rc = issueRecoveryCode('member', ph)
+  return { ok: true, member: publicTenantMember(members[ph]), recoveryCode: rc.recoveryCode }
+}
+
+/** 管理员重置成员密码（直接开号后的"忘了密码"兜底；成员自己改密走 ADR-001 的恢复码/短信） */
+export function setTenantMemberPassword(phone, password) {
+  const ph = String(phone || '').trim()
+  if (!password || String(password).length < 6) return { error: '密码至少 6 位' }
+  const members = loadTenantMembers()
+  if (!members[ph]) return { error: '成员不存在' }
+  const salt = crypto.randomBytes(16).toString('hex')
+  members[ph].salt = salt
+  members[ph].passHash = cockpitScryptHash(password, salt)
+  saveTenantMembers(members)
+  return { ok: true, member: publicTenantMember(members[ph]) }
 }

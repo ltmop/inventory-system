@@ -208,56 +208,74 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
-  // ======== GET /updates/* —— 自动更新源（latest.yml + 安装包静态托管） ========
-  if (req.method === 'GET' && pathname.startsWith('/updates/')) {
-    const __dirname = fileURLToPath(new URL('.', import.meta.url))
-    const rel = pathname.slice('/updates/'.length)
-    const safe = rel.split('/').filter((p) => p && p !== '..' && !p.includes('\\')).join('/')
-    const full = path.join(__dirname, 'updates', safe)
-    try {
-      const st = fs.statSync(full)
-      if (st.isFile()) {
-        const ext = full.split('.').pop().toLowerCase()
-        const types = { yml: 'text/yaml', yaml: 'text/yaml', exe: 'application/octet-stream', blockmap: 'application/octet-stream' }
-        res.writeHead(200, {
-          'Content-Type': types[ext] || 'application/octet-stream',
-          'Content-Length': st.size,
-          'Cache-Control': 'no-cache',
-          'Access-Control-Allow-Origin': '*',
-        })
-        fs.createReadStream(full).pipe(res)
-        return
-      }
-    } catch { /* 404 below */ }
-    return json(res, 404, { ok: false, error: 'update file not found' })
-  }
-
-  // ======== GET /cockpit-updates/* —— 驾驶舱自动更新源（latest.yml + Setup exe 静态托管；独立于进销存 /updates/*） ========
-  if (req.method === 'GET' && pathname.startsWith('/cockpit-updates/')) {
-    const __dirname = fileURLToPath(new URL('.', import.meta.url))
-    // FIX 2026-09-11: pathname is the raw (percent-encoded) request path, so any artifact whose name
-    // contains a space or a non-ASCII char could never be served (statSync on '%E4%BB%BB...' always
-    // failed -> 404), which silently broke auto-update for every previous release. Decode first.
-    let rel = pathname.slice('/cockpit-updates/'.length)
+  // ======== 静态更新源：GET / HEAD / Range（2026-09-14 修）========
+  // 原来两块各自只处理 GET，且一律整文件 200 全量返回。两个真实后果：
+  //   1. **HEAD 一律 404**：部署脚本 deploy-update.ps1 的 Probe()、以及任何 curl -I /
+  //      Invoke-WebRequest -Method Head 都会落到末尾的 JSON 404 —— 看起来像「文件没发布成功」，
+  //      实际文件在、GET 也是 200。发布校验因此长期不可信。
+  //   2. **不支持 Range**：electron-updater 的差分下载（blockmap + 分段请求）退化为全量下载，
+  //      blockmap 白拿；弱网/移动端升级体验差。
+  // 现在统一走 serveStatic：GET/HEAD 都认，Range 返回 206 + Content-Range + Accept-Ranges。
+  const STATIC_TYPES = { yml: 'text/yaml', yaml: 'text/yaml', exe: 'application/octet-stream', blockmap: 'application/octet-stream' }
+  const serveStatic = function (req, res, baseDir, relRaw) {
+    // 请求路径是原始 percent-encoded 串；中文/空格名必须先解码（2026-09-11 的教训），
+    // ASCII 名解码是空操作，因此 /updates/* 与 /cockpit-updates/* 统一解码。
+    let rel = relRaw
     try { rel = decodeURIComponent(rel) } catch (e) { rel = '' }
     const safe = rel.split('/').filter((p) => p && p !== '..' && !p.includes('\\')).join('/')
-    const full = path.join(__dirname, 'cockpit-updates', safe)
-    try {
-      const st = fs.statSync(full)
-      if (st.isFile()) {
-        const ext = full.split('.').pop().toLowerCase()
-        const types = { yml: 'text/yaml', yaml: 'text/yaml', exe: 'application/octet-stream', blockmap: 'application/octet-stream' }
-        res.writeHead(200, {
-          'Content-Type': types[ext] || 'application/octet-stream',
-          'Content-Length': st.size,
-          'Cache-Control': 'no-cache',
-          'Access-Control-Allow-Origin': '*',
-        })
-        fs.createReadStream(full).pipe(res)
-        return
+    const full = path.join(baseDir, safe)
+    let st = null
+    try { st = fs.statSync(full) } catch (e) { st = null }
+    if (!st || !st.isFile()) return json(res, 404, { ok: false, error: 'update file not found' })
+
+    const ext = full.split('.').pop().toLowerCase()
+    const headers = {
+      'Content-Type': STATIC_TYPES[ext] || 'application/octet-stream',
+      'Cache-Control': 'no-cache',
+      'Access-Control-Allow-Origin': '*',
+      'Accept-Ranges': 'bytes',
+    }
+
+    let start = 0
+    let end = st.size - 1
+    let status = 200
+    const range = req.headers.range
+    if (range) {
+      const m = /^bytes=(\d*)-(\d*)$/.exec(String(range).trim())
+      if (m && (m[1] || m[2])) {
+        if (m[1]) {
+          start = Number(m[1])
+          end = m[2] ? Number(m[2]) : st.size - 1
+        } else {
+          start = Math.max(0, st.size - Number(m[2]))
+          end = st.size - 1
+        }
+        if (start > end || start >= st.size) {
+          res.writeHead(416, { 'Content-Range': 'bytes */' + st.size, 'Access-Control-Allow-Origin': '*' })
+          return res.end()
+        }
+        if (end > st.size - 1) end = st.size - 1
+        status = 206
+        headers['Content-Range'] = 'bytes ' + start + '-' + end + '/' + st.size
       }
-    } catch { /* 404 below */ }
-    return json(res, 404, { ok: false, error: 'update file not found' })
+    }
+    headers['Content-Length'] = end - start + 1
+    res.writeHead(status, headers)
+    if (req.method === 'HEAD') return res.end()
+    if (status === 206) return fs.createReadStream(full, { start: start, end: end }).pipe(res)
+    return fs.createReadStream(full).pipe(res)
+  }
+
+  const STATIC_ROOT = fileURLToPath(new URL('.', import.meta.url))
+
+  // ======== GET/HEAD /updates/* —— 自动更新源（latest.yml + 安装包静态托管） ========
+  if ((req.method === 'GET' || req.method === 'HEAD') && pathname.startsWith('/updates/')) {
+    return serveStatic(req, res, path.join(STATIC_ROOT, 'updates'), pathname.slice('/updates/'.length))
+  }
+
+  // ======== GET/HEAD /cockpit-updates/* —— 驾驶舱自动更新源（latest.yml + Setup exe；独立于进销存 /updates/*） ========
+  if ((req.method === 'GET' || req.method === 'HEAD') && pathname.startsWith('/cockpit-updates/')) {
+    return serveStatic(req, res, path.join(STATIC_ROOT, 'cockpit-updates'), pathname.slice('/cockpit-updates/'.length))
   }
 
   try {
@@ -405,6 +423,8 @@ const server = http.createServer(async (req, res) => {
       if (!userId) return
       const date = url.searchParams.get('date')
       if (!date) return json(res, 400, { ok: false, error: '缺少 date' })
+      // 与上传侧（x-date）同一条白名单：date 会被拼进文件路径，不校验即可用 ../ 穿越读他人备份
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json(res, 400, { ok: false, error: 'date 格式应为 YYYY-MM-DD' })
       const backup = store.loadBackup(userId, date)
       if (!backup) return json(res, 404, { ok: false, error: '备份不存在' })
       return json(res, 200, { ok: true, iv: backup.iv, data: backup.data })
@@ -500,10 +520,10 @@ const server = http.createServer(async (req, res) => {
       if (owner) { store.migrateSharedSlotToOwner(r.account.userId); store.getCockpitSlotKey(r.account.userId) }
       store.touchCockpitSeen(r.account.phone)
       const token = randomHex(32)
-      store.createCockpitSession(token, r.account, 12 * 60 * 60 * 1000)
+      store.createCockpitSession(token, r.account)
       const slotKey = store.getCockpitSlotKey(r.account.userId)
       store.audit('cockpit.register', r.account.name, r.account.phone, r.account.userId)
-      return json(res, 201, { ok: true, phone: r.account.phone, name: r.account.name, isOwner: r.account.isOwner, userId: r.account.userId, token, slotKey, expiresIn: 12 * 60 * 60, recoveryCode: r.recoveryCode })
+      return json(res, 201, { ok: true, phone: r.account.phone, name: r.account.name, isOwner: r.account.isOwner, userId: r.account.userId, token, slotKey, expiresIn: store.cockpitSessionTtlSec(), recoveryCode: r.recoveryCode })
     }
 
     // ======== POST /api/cockpit/login（手机号或账号名 + 密码；失败锁定限流） ========
@@ -519,6 +539,24 @@ const server = http.createServer(async (req, res) => {
       if (!allow.allowed) return json(res, 429, { ok: false, error: allow.error })
       if (store.cockpitLoginLocked(id)) return json(res, 429, { ok: false, error: '尝试过多，账号已临时锁定，请稍后再试' })
       let acc = store.findCockpitAccByPhone(id) || store.findCockpitAccByName(id)
+      // 通用版（2026-09-14）：团队成员与团队创建者共用一个登录口 —— 同一个输入框、同一套限流。
+      // 先按创建者账号验；不是账号再按团队成员验（tenant 会员制）；两边都不过才算登录失败。
+      if (!acc) {
+        const ml = store.tenantMemberLogin(id, password)
+        if (ml && ml.ok) {
+          store.clearCockpitFail(id)
+          store.reportLoginResult(ip, limKey, true)
+          const mtoken = randomHex(32)
+          store.createTenantMemberSession(mtoken, ml.member, ml.tenant)
+          store.audit('cockpit.team.member.login', ml.member.name, ml.member.phone, ml.member.tenantUserId)
+          return json(res, 200, {
+            ok: true, kind: 'member', token: mtoken, userId: ml.tenant.userId, memberId: ml.member.memberId,
+            phone: ml.member.phone, name: ml.member.name, isOwner: false, role: ml.member.role,
+            scope: store.roleCockpitScope(ml.member.role), actions: store.roleMatrix()[ml.member.role] || [],
+            slotKey: store.getCockpitSlotKey(ml.tenant.userId), expiresIn: store.cockpitSessionTtlSec(),
+          })
+        }
+      }
       if (!acc || !store.cockpitVerifyScrypt(password, acc.passHash, acc.salt)) {
         store.recordCockpitFail(id)
         store.reportLoginResult(ip, limKey, false)
@@ -529,11 +567,11 @@ const server = http.createServer(async (req, res) => {
       store.clearCockpitFail(id)
       store.reportLoginResult(ip, limKey, true)
       const token = randomHex(32)
-      store.createCockpitSession(token, acc, 12 * 60 * 60 * 1000)
+      store.createCockpitSession(token, acc)
       store.updateCockpitAcc(acc.phone, { lastLoginAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() })
       const slotKey = store.getCockpitSlotKey(acc.userId)
       store.audit('cockpit.login', acc.name, acc.phone, acc.userId)
-      return json(res, 200, { ok: true, phone: acc.phone, name: acc.name, isOwner: acc.isOwner, userId: acc.userId, token, slotKey, expiresIn: 12 * 60 * 60 })
+      return json(res, 200, { ok: true, kind: 'owner', phone: acc.phone, name: acc.name, isOwner: acc.isOwner, role: acc.isOwner ? 'owner' : 'viewer', scope: store.roleCockpitScope(acc.isOwner ? 'owner' : 'viewer'), userId: acc.userId, token, slotKey, expiresIn: store.cockpitSessionTtlSec() })
     }
 
     // ======== POST /api/cockpit/forgot（找密码：手机号+短验码重置） ========
@@ -603,6 +641,134 @@ const server = http.createServer(async (req, res) => {
       const rcOwner = store.issueRecoveryCode('owner', acc.phone)
       store.audit('cockpit.owner.set', acc.name, acc.phone, acc.userId)
       return json(res, 200, { ok: true, phone: acc.phone, isOwner: true, userId: acc.userId, recoveryCode: rcOwner.recoveryCode, message: '已设为店主，KB 槽位归属该账号；恢复码仅显示这一次' })
+    }
+
+    // ===================================================================
+    // 通用版驾驶舱：一个账号 = 一个团队（2026-09-14）
+    // 命名空间仍在 /api/cockpit/ 下，不动 /api/tenant/*（进销存在用）与 /api/account/*。
+    // teamId = 团队创建者的 userId（与槽位、快照、业务日志同主键）。
+    // ===================================================================
+
+    // ======== POST /api/cockpit/team/register（自助注册 = 新建自己的团队） ========
+    if (req.method === 'POST' && pathname === '/api/cockpit/team/register') {
+      const body = JSON.parse((await readBody(req)).toString())
+      const ip = clientIp(req)
+      const regOk = store.checkRegisterAllowed(ip)
+      if (!regOk.allowed) return json(res, 429, { ok: false, error: regOk.error })
+      if (CAPTCHA_REQUIRED && !store.verifyCaptcha(body.captchaId, body.captchaAnswer)) {
+        return json(res, 400, { ok: false, error: '图形验证码错误，请刷新重试' })
+      }
+      const codeOk = store.verifyCode(body.phone, body.sms_code)
+      if (!codeOk.ok) return json(res, 400, { ok: false, error: codeOk.error || '验证码错误或已过期' })
+      const r = store.createTeamAccount({ phone: body.phone, name: body.name, password: body.password, teamName: body.team_name })
+      if (r.error) return json(res, 400, { ok: false, error: r.error })
+      const token = randomHex(32)
+      store.createCockpitSession(token, r.account)
+      store.touchCockpitSeen(r.account.phone)
+      store.audit('cockpit.team.register', r.account.name, (r.team && r.team.name) || '', r.account.userId)
+      return json(res, 201, {
+        ok: true, kind: 'owner', token, userId: r.account.userId, name: r.account.name, phone: r.account.phone,
+        isOwner: true, role: 'owner', scope: store.roleCockpitScope('owner'),
+        slotKey: store.getCockpitSlotKey(r.account.userId), team: r.team, recoveryCode: r.recoveryCode, expiresIn: store.cockpitSessionTtlSec(),
+      })
+    }
+
+    // ======== GET /api/cockpit/team（我的团队：店主与成员都可看；成员名单脱敏） ========
+    if (req.method === 'GET' && pathname === '/api/cockpit/team') {
+      const sess = store.validateCockpitSession(req.headers['x-token'] || url.searchParams.get('token') || '')
+      if (!sess) return json(res, 401, { ok: false, error: '未登录或会话已过期' })
+      const team = store.publicTeam(sess.userId)
+      if (!team) return json(res, 404, { ok: false, error: '团队不存在' })
+      const role = store.sessionRole(sess)
+      store.touchCockpitSeen(sess.phone)
+      return json(res, 200, {
+        ok: true, role, memberId: sess.memberId || '', isOwner: !!sess.isOwner,
+        scope: store.roleCockpitScope(role), actions: store.roleMatrix()[role] || [], team,
+      })
+    }
+
+    // ======== POST /api/cockpit/team/invite（团队创建者邀请成员 → 一次性邀请码，本人转达） ========
+    if (req.method === 'POST' && pathname === '/api/cockpit/team/invite') {
+      const body = JSON.parse((await readBody(req)).toString())
+      const sess = store.validateCockpitSession(req.headers['x-token'] || body.token || '')
+      if (!sess || !sess.isOwner) return json(res, 401, { ok: false, error: '仅团队创建者可邀请成员' })
+      const r = store.inviteTenantMember({ tenantUserId: sess.userId, phone: body.phone, name: body.name, role: body.role, invitedBy: sess.name || sess.phone })
+      if (r.error) return json(res, 400, { ok: false, error: r.error })
+      store.audit('cockpit.team.invite', r.phone, r.role, sess.userId)
+      return json(res, 201, Object.assign({ ok: true }, r, { message: '把邀请码 ' + r.inviteCode + ' 发给 ' + r.phone + '（10 分钟内有效，用后即焚）' }))
+    }
+
+    // ======== POST /api/cockpit/team/join（未登录：凭邀请码加入团队并首次设密码） ========
+    if (req.method === 'POST' && pathname === '/api/cockpit/team/join') {
+      const body = JSON.parse((await readBody(req)).toString())
+      const r = store.acceptTenantInvite({ phone: body.phone, inviteCode: body.invite_code, password: body.password })
+      if (r.error) return json(res, 400, { ok: false, error: r.error })
+      store.audit('cockpit.team.join', (r.member && r.member.name) || '', String(body.phone || ''), (r.member && r.member.tenantUserId) || '')
+      return json(res, 201, {
+        ok: true, member: r.member, role: r.member.role, scope: store.roleCockpitScope(r.member.role),
+        recoveryCode: r.recoveryCode, message: '已加入团队，请用手机号 + 刚设置的密码登录',
+      })
+    }
+
+    // ======== POST /api/cockpit/team/member/login（成员登录：手机号 + 密码） ========
+    if (req.method === 'POST' && pathname === '/api/cockpit/team/member/login') {
+      const body = JSON.parse((await readBody(req)).toString())
+      const id = String(body.phone || body.username || '').trim()
+      const ip = clientIp(req)
+      const limKey = 'cockpit:' + id.toLowerCase()
+      const allow = store.checkLoginAllowed(ip, limKey)
+      if (!allow.allowed) return json(res, 429, { ok: false, error: allow.error })
+      const lg = store.tenantMemberLogin(id, body.password || '')
+      if (lg.error) { store.reportLoginResult(ip, limKey, false); return json(res, 401, { ok: false, error: lg.error }) }
+      store.reportLoginResult(ip, limKey, true)
+      const token = randomHex(32)
+      store.createTenantMemberSession(token, lg.member, lg.tenant)
+      store.audit('cockpit.team.member.login', lg.member.name, lg.member.phone, lg.member.tenantUserId)
+      return json(res, 200, {
+        ok: true, kind: 'member', token, userId: lg.tenant.userId, memberId: lg.member.memberId,
+        phone: lg.member.phone, name: lg.member.name, isOwner: false, role: lg.member.role,
+        scope: store.roleCockpitScope(lg.member.role), actions: store.roleMatrix()[lg.member.role] || [],
+        slotKey: store.getCockpitSlotKey(lg.tenant.userId), expiresIn: store.cockpitSessionTtlSec(),
+      })
+    }
+
+    // ======== POST /api/cockpit/team/member（团队创建者：停用/启用/改角色/移除） ========
+    if (req.method === 'POST' && pathname === '/api/cockpit/team/member') {
+      const body = JSON.parse((await readBody(req)).toString())
+      const sess = store.validateCockpitSession(req.headers['x-token'] || body.token || '')
+      if (!sess || !sess.isOwner) return json(res, 401, { ok: false, error: '仅团队创建者可管理成员' })
+      const target = store.findTenantMemberByPhone(body.phone)
+      if (!target) return json(res, 404, { ok: false, error: '成员不存在' })
+      // 跨租户防护：只能管理自己团队里的人（与 /api/tenant/member 同一条纪律）
+      if (target.tenantUserId !== sess.userId) return json(res, 403, { ok: false, error: '跨团队操作被拒绝' })
+      if (target.role === 'owner') return json(res, 403, { ok: false, error: '不能改动团队创建者' })
+      const act = String(body.action || '').trim()
+      let r
+      if (act === 'disable') r = store.setTenantMemberEnabled(body.phone, false)
+      else if (act === 'enable') r = store.setTenantMemberEnabled(body.phone, true)
+      else if (act === 'role') r = store.setTenantMemberRole(body.phone, body.role)
+      else if (act === 'remove') r = store.removeTenantMember(body.phone)
+      else if (act === 'password') r = store.setTenantMemberPassword(body.phone, body.password)
+      else return json(res, 400, { ok: false, error: '不支持的动作（可选：enable / disable / role / remove / password）' })
+      if (r.error) return json(res, 400, { ok: false, error: r.error })
+      store.audit('cockpit.team.member.' + act, (target && target.name) || '', String(body.phone || ''), sess.userId)
+      return json(res, 200, Object.assign({ ok: true, action: act }, r, { team: store.publicTeam(sess.userId) }))
+    }
+
+    // ======== POST /api/cockpit/team/member/create（创建者**直接给同事开号**：手机号+姓名+角色+初始密码）========
+    // 2026-09-14 阿杜：「我直接给同事创建账号和密码，给他们使用即可」—— 免邀请码、免短信网关。
+    // 同事拿到手机号+初始密码后在登录页直接登录，即落在本团队、按角色可见。
+    if (req.method === 'POST' && pathname === '/api/cockpit/team/member/create') {
+      const body = JSON.parse((await readBody(req)).toString())
+      const sess = store.validateCockpitSession(req.headers['x-token'] || body.token || '')
+      if (!sess || !sess.isOwner) return json(res, 401, { ok: false, error: '仅团队创建者可直接开号' })
+      const r = store.createTenantMemberDirect({ tenantUserId: sess.userId, phone: body.phone, name: body.name, role: body.role, password: body.password, createdBy: (sess.name || sess.phone) })
+      if (r.error) return json(res, 400, { ok: false, error: r.error })
+      store.audit('cockpit.team.member.create', (r.member && r.member.name) || '', String(body.phone || ''), sess.userId)
+      return json(res, 201, Object.assign({ ok: true }, r, {
+        team: store.publicTeam(sess.userId),
+        message: '已开通，把手机号和初始密码交给ta即可登录（无需验证码）',
+      }))
     }
 
     // ======== POST /api/cockpit/logout（撤销会话令牌） ========
@@ -708,7 +874,7 @@ const server = http.createServer(async (req, res) => {
       store.createTenantMemberSession(token, lg.member, lg.tenant)
       const slotKey = store.getCockpitSlotKey(lg.tenant.userId)
       store.audit('cockpit.member.accept', lg.member.name, '', lg.member.tenantUserId)
-      return json(res, 200, { ok: true, memberId: lg.member.memberId, role: lg.member.role, name: lg.member.name, phone: lg.member.phone, userId: lg.tenant.userId, isOwner: false, token, slotKey, expiresIn: 12 * 60 * 60, recoveryCode: rt.recoveryCode })
+      return json(res, 200, { ok: true, memberId: lg.member.memberId, role: lg.member.role, name: lg.member.name, phone: lg.member.phone, userId: lg.tenant.userId, isOwner: false, token, slotKey, expiresIn: store.cockpitSessionTtlSec(), recoveryCode: rt.recoveryCode })
     }
 
     // POST /api/cockpit/members/login（成员登录：手机号 + 密码）
@@ -727,7 +893,7 @@ const server = http.createServer(async (req, res) => {
       store.createTenantMemberSession(token, lg.member, lg.tenant)
       const slotKey = store.getCockpitSlotKey(lg.tenant.userId)
       store.audit('cockpit.member.login', lg.member.name, '', lg.member.tenantUserId)
-      return json(res, 200, { ok: true, memberId: lg.member.memberId, role: lg.member.role, name: lg.member.name, phone: lg.member.phone, userId: lg.tenant.userId, isOwner: false, token, slotKey, expiresIn: 12 * 60 * 60 })
+      return json(res, 200, { ok: true, memberId: lg.member.memberId, role: lg.member.role, name: lg.member.name, phone: lg.member.phone, userId: lg.tenant.userId, isOwner: false, token, slotKey, expiresIn: store.cockpitSessionTtlSec() })
     }
 
     // POST /api/cockpit/members/disable（停用成员；仅店主；跨租户操作直接拒绝）
@@ -851,6 +1017,8 @@ const server = http.createServer(async (req, res) => {
         const body = JSON.parse((await readBody(req)).toString())
         const userId = body.userId
         if (!userId) return json(res, 400, { ok: false, error: '缺少 userId' })
+        // userId 会被拼进文件路径（loadMeta/saveMeta → userDir），必须限定为 32 位 hex
+        if (!/^[0-9a-f]{32}$/.test(String(userId))) return json(res, 400, { ok: false, error: 'userId 非法' })
         const meta = store.loadMeta(userId)
         if (meta.viewToken) meta.viewTokenOld.push(meta.viewToken)
         meta.viewToken = randomHex(16)
@@ -862,6 +1030,8 @@ const server = http.createServer(async (req, res) => {
       if (pathname === '/admin/delete' && req.method === 'POST') {
         const body = JSON.parse((await readBody(req)).toString())
         if (!body.userId) return json(res, 400, { ok: false, error: '缺少 userId' })
+        // 下面会递归删除该目录：userId 必须限定为 32 位 hex，否则可删任意目录
+        if (!/^[0-9a-f]{32}$/.test(String(body.userId))) return json(res, 400, { ok: false, error: 'userId 非法' })
         const dir = store.userDir(body.userId)
         if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true })
         return json(res, 200, { ok: true })
