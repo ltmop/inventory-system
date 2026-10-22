@@ -1,7 +1,7 @@
 // 报损登记：活饵死亡 / 饵料临期报废 / 破损等损耗。
 // 报损 = 从批次扣库存（优先最早到期批次，临期先处理）+ 记 waste_logs（带该批次的进价，供成本报表按批算）
 //      + 写一条 type='waste' 流水，让报损像出入库一样能在"商品进出记录"里翻到（哪天、谁、报损了啥）。
-import { assertQuantity, inTransaction, now, productLabel, logAudit } from './helpers.js'
+import { assertQuantity, qtyUnitOf, inTransaction, now, productLabel, logAudit } from './helpers.js'
 import { pushUndo } from './undo.js'
 
 /** 登记报损：减少批次库存 + 记损耗 + 写报损流水。数量必须 ≥1，库存不足直接拒绝 */
@@ -9,7 +9,7 @@ export function createWaste(db, { productId, quantity: rawQuantity, reason, oper
   // 计量单位（通用版）：允许小数单位报损小数
   const prod0 = db.prepare('SELECT unit FROM products WHERE id = ?').get(productId)
   if (!prod0) throw new Error('商品不存在')
-  const quantity = assertQuantity(rawQuantity, '报损数量', prod0.unit === '米' ? '米' : '件')
+  const quantity = assertQuantity(rawQuantity, '报损数量', qtyUnitOf(prod0))
   return inTransaction(db, () => {
     const prod = db.prepare('SELECT * FROM products WHERE id = ?').get(productId)
     if (!prod) throw new Error('商品不存在')

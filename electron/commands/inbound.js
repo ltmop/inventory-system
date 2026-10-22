@@ -1,6 +1,7 @@
 // 入库
 import {
   assertQuantity,
+  qtyUnitOf,
   assertFen,
   inTransaction,
   now,
@@ -17,7 +18,7 @@ export function createInbound(db, { productId, quantity, costPrice, location, su
   // 计量单位（通用版）：允许小数单位（斤/米）入库小数
   const prod = db.prepare('SELECT * FROM products WHERE id = ?').get(productId)
   if (!prod) throw new Error('商品不存在')
-  const qty = assertQuantity(quantity, '入库数量', prod.unit === '米' ? '米' : '件')
+  const qty = assertQuantity(quantity, '入库数量', qtyUnitOf(prod))
   assertFen(costPrice, '入库成本价')
   // 成本兜底（老板 2026-09-22：「先默认成本价为 2 块钱」）。
   // 毛利 = 售价 − **批次成本**，所以入库这一步不给进价，卖出去的毛利就等于营业额（虚高）。

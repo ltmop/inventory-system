@@ -56,6 +56,27 @@ function throws(name, fn, needle) {
   try { fn(); fail++; console.log('  FAIL  ' + name + '  ← 没有抛错') }
   catch (e) { ok(name, !needle || String(e.message).includes(needle), '报错内容：' + e.message) }
 }
+// STALE 与 FAIL 分开计数、分开措辞：
+//   FAIL  = 改写逻辑或线上页面坏了（发布故障）；
+//   STALE = 本地站点检出比发布版本旧（**流程漂移**，不是发布坏了）。
+// ⚠️ 2026-09-22 现场教训：release.mjs 是**直接把页面写到线上**的，它不回写 D:\junchengzn.com。
+//    所以只要没人手工同步检出，站点检出就会一直停在旧版本，B 段于是长期报红。
+//    那种红是**真问题（检出漂移）**，但原来的措辞是「当前版本位已是 1.2.0 ← 仍是：桌面 v 文案」，
+//    看起来像发布链坏了 —— 错的措辞会把人引向错误的排查方向。所以现在分开报。
+// STALE 与 FAIL 分开计数、分开措辞，而且**只有 FAIL 影响退出码**：
+//   FAIL  = 改写逻辑或线上页面坏了（发布故障）→ 必须挡
+//   STALE = 本地站点检出比发布版本旧（**流程漂移**）→ 只告警，不挡
+// ⚠️ 2026-09-22 现场教训（两层）：
+//   ① release.mjs 是**直接把页面写到线上**的，不回写 D:\junchengzn.com，所以检出必然漂移。
+//      把漂移算成失败，会让 check:web 长期常红 —— 而**常红的闸门等于没有闸门**，
+//      下次真故障时没人会看。这条纪律是我自己上一轮刚写下的，随即又犯了。
+//   ② 更糟的是：检出漂移时 B 段直接 continue，那段"真实 DOM 往返"的覆盖**静默消失**了。
+//      所以 B 段现在会在检出过期时**退回到线上页面**做同样的往返测试，覆盖不再丢。
+let staleCount = 0
+function stale(name, detail) {
+  staleCount++
+  console.log('  STALE ' + name + '  ← ' + detail)
+}
 
 console.log('=== A. 固定夹具（离线）===')
 console.log('  目标版本（读 package.json）:', VERSION)
@@ -211,6 +232,8 @@ ok('A10 版本号里的点号被正确转义（不当成通配）', !hasChangelo
 // ── B. 真实页面往返 ────────────────────────────────────────────────────────
 console.log('')
 console.log('=== B. 真实页面往返（站点检出不在则跳过）===')
+console.log('  ⚠️ 前提：站点检出 == 已发布版本。release.mjs 直接写线上、不回写检出，')
+console.log('     所以检出落后时会报 STALE（流程漂移），那是检出需要同步，不是发布故障。')
 console.log('  站点目录:', SITE_DIR)
 const REAL_PAGES = [
   'index.html',
@@ -220,32 +243,60 @@ const REAL_PAGES = [
   'products/minidb.html',
   'docs/index.html',
 ]
-if (!fs.existsSync(SITE_DIR)) {
-  console.log('  跳过  站点目录不存在（可用 SITE_DIR 环境变量指定）')
-} else {
-  for (const rel of REAL_PAGES) {
-    const p = path.join(SITE_DIR, rel)
-    if (!fs.existsSync(p)) { console.log('  跳过  ' + rel + '（文件不存在）'); continue }
-    const real = fs.readFileSync(p, 'utf8')
-    // 真实页面当前应当已是目标版本 —— 这是"当前版本位"的定义
-    const pre = replaceSiteDesktopVersion(real, VERSION)
-    if (pre.touched.length) {
-      ok('B ' + rel + ' 当前版本位已是 ' + VERSION, false, '仍是：' + pre.touched.join(' / '))
-      continue
-    }
-    // 往返：降到旧版本 → 再升回目标版本 → 必须逐字节还原。
-    // 只有真实 DOM 才暴露得出来的错（缩进、换行、HTML 实体、属性顺序），手写夹具永远发现不了。
-    const down = replaceSiteDesktopVersion(real, STALE)
-    const up = replaceSiteDesktopVersion(down.html, VERSION)
-    ok('B ' + rel + ' 降版确有改动（该页确实含桌面版本位）', down.touched.length > 0)
-    ok('B ' + rel + ' 升回后逐字节还原', up.html === real,
-      '差异处：' + firstDiff(up.html, real))
-    // 手机上不许在往返里被动过
-    const apksBefore = (real.match(/fishing-inventory-mobile-[0-9.]+\.apk/g) || []).sort()
-    const apksAfter = (up.html.match(/fishing-inventory-mobile-[0-9.]+\.apk/g) || []).sort()
-    eq('B ' + rel + ' 手机版 apk 往返后不变', apksAfter, apksBefore)
-    ok('B ' + rel + ' 自检通过', assertSiteCurrent(real, VERSION, rel))
+// 检出里对应的线上 URL —— 检出过期时退回来对**线上**页面做同样的往返测试。
+// 为什么要有这个退路：release.mjs 单向写线上、不回写检出，所以检出必然漂移。
+// 若因为检出过期就 continue 掉，这段"真实 DOM 往返"的覆盖就**静默消失**了 ——
+// 而它正是本脚本最有价值的一段（手写夹具发现不了真实 DOM 的坑）。
+const REL_TO_URL = {
+  'index.html': '/',
+  'download/index.html': '/download/',
+  'products/inventory.html': '/products/inventory.html',
+  'products/cockpit.html': '/products/cockpit.html',
+  'products/minidb.html': '/products/minidb.html',
+  'docs/index.html': '/docs/',
+}
+const SITE_URL = 'https://junchengzn.com'
+
+for (const rel of REAL_PAGES) {
+  const p = path.join(SITE_DIR, rel)
+  let real = null, src = ''
+  if (fs.existsSync(p)) {
+    const local = fs.readFileSync(p, 'utf8')
+    if (replaceSiteDesktopVersion(local, VERSION).touched.length === 0) { real = local; src = '检出' }
   }
+  if (real == null) {
+    // 检出过期/缺席 → 用线上页面（仍是真实 DOM，覆盖不丢）
+    const url = SITE_URL + (REL_TO_URL[rel] || '/')
+    let live = null
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(20000) })
+      if (r.ok) live = await r.text()
+    } catch { live = null }
+    if (live != null && replaceSiteDesktopVersion(live, VERSION).touched.length === 0) {
+      real = live; src = '线上'
+    }
+  }
+  if (real == null) {
+    // 两边都拿不到"当前版本位正确"的页面 —— 报出检出停在哪个版本，但不计为发布故障
+    const found = fs.existsSync(p)
+      ? [...new Set([...desktopLabels(fs.readFileSync(p, 'utf8')), ...pMoreVersions(fs.readFileSync(p, 'utf8')),
+          ...exeVersions(fs.readFileSync(p, 'utf8')), ...parenVersions(fs.readFileSync(p, 'utf8'))])].sort().join(' / ')
+      : '(检出里没有)'
+    stale('B ' + rel, '检出停在 ' + found + '，发布版本是 ' + VERSION + '；线上也没取到，本页往返测试未跑')
+    continue
+  }
+  // 往返：降到旧版本 → 再升回目标版本 → 必须逐字节还原。
+  // 只有真实 DOM 才暴露得出来的错（缩进、换行、HTML 实体、属性顺序），手写夹具永远发现不了。
+  const down = replaceSiteDesktopVersion(real, STALE)
+  const up = replaceSiteDesktopVersion(down.html, VERSION)
+  ok('B ' + rel + ' (' + src + ') 降版确有改动（该页确实含桌面版本位）', down.touched.length > 0)
+  ok('B ' + rel + ' (' + src + ') 升回后逐字节还原', up.html === real,
+    '差异处：' + firstDiff(up.html, real))
+  // 手机上不许在往返里被动过
+  const apksBefore = (real.match(/fishing-inventory-mobile-[0-9.]+\.apk/g) || []).sort()
+  const apksAfter = (up.html.match(/fishing-inventory-mobile-[0-9.]+\.apk/g) || []).sort()
+  eq('B ' + rel + ' (' + src + ') 手机版 apk 往返后不变', apksAfter, apksBefore)
+  ok('B ' + rel + ' (' + src + ') 自检通过', assertSiteCurrent(real, VERSION, rel))
 }
 
 /** 报出第一处差异的位置与上下文，省得改了 40 行才反推是哪一处 */
@@ -297,5 +348,11 @@ if (online) {
 
 console.log('')
 console.log('================ 结果 ================')
-console.log('PASS ' + pass + '   FAIL ' + fail)
+console.log('PASS ' + pass + '   FAIL ' + fail + (staleCount ? '（其中 STALE ' + staleCount + ' 项 = 站点检出漂移）' : ''))
+if (staleCount) {
+  console.log('')
+  console.log('STALE 的含义：D:\\junchengzn.com 这个检出停在旧版本，而线上/发布已经是新版本。')
+  console.log('这不是发布故障 —— release.mjs 直接把页面写到服务器，从不回写该检出。')
+  console.log('要消掉它：把线上页面同步回检出并提交，或让发布脚本在发布后回写检出。')
+}
 process.exit(fail === 0 ? 0 : 1)

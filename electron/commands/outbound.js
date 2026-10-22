@@ -1,6 +1,7 @@
 // 出库（FIFO）、收银开单、退货、换货
 import {
   assertQuantity,
+  qtyUnitOf,
   assertFen,
   assertPayMethod,
   PRICE_TIERS,
@@ -34,7 +35,7 @@ export function confirmOutbound(db, { productId, quantity: rawQuantity, sellingP
   // 入口先校验：数量为 0/负数时直接抛错；允许小数单位出库
   const prod0 = db.prepare('SELECT unit FROM products WHERE id = ?').get(productId)
   if (!prod0) throw new Error('商品不存在')
-  const quantity = assertQuantity(rawQuantity, '出库数量', prod0.unit === '米' ? '米' : '件')
+  const quantity = assertQuantity(rawQuantity, '出库数量', qtyUnitOf(prod0))
   if (sellingPrice != null) assertFen(sellingPrice, '出库售价')
   payMethod = assertPayMethod(payMethod)
   // 销售渠道：不传 → undefined（交给数据库层触发器兜默认「线下」）；
@@ -179,7 +180,7 @@ export function confirmCheckout(db, { items, customerId, paidAmount, payMethod, 
     // 计量单位：允许小数单位开单
     const prod0 = db.prepare('SELECT unit FROM products WHERE id = ?').get(it.productId)
     if (!prod0) throw new Error(`商品不存在（ID：${it.productId}）`)
-    const quantity = assertQuantity(it.quantity, `第 ${i + 1} 行数量`, prod0.unit === '米' ? '米' : '件')
+    const quantity = assertQuantity(it.quantity, `第 ${i + 1} 行数量`, qtyUnitOf(prod0))
     if (!Number.isInteger(it.sellingPrice) || it.sellingPrice <= 0) {
       throw new Error(`第 ${i + 1} 行售价必须大于 0（单位：分），收到：${it.sellingPrice}`)
     }
@@ -319,7 +320,7 @@ export function createReturn(db, { productId, quantity: rawQuantity, refundPrice
   // 计量单位：允许小数单位退货
   const prod0 = db.prepare('SELECT unit FROM products WHERE id = ?').get(productId)
   if (!prod0) throw new Error('商品不存在')
-  const quantity = assertQuantity(rawQuantity, '退货数量', prod0.unit === '米' ? '米' : '件')
+  const quantity = assertQuantity(rawQuantity, '退货数量', qtyUnitOf(prod0))
   if (refundPrice != null) assertFen(refundPrice, '退款金额')
   payMethod = assertPayMethod(payMethod, '退款方式')
   return inTransaction(db, () => {
@@ -364,7 +365,7 @@ export function createExchange(db, { oldProductId, newProductId, quantity: rawQu
   // 计量单位：按新货（出库那条腿）的单位校验，米商品允许小数
   const newProd0 = db.prepare('SELECT unit FROM products WHERE id = ?').get(newProductId)
   if (!newProd0) throw new Error('商品不存在')
-  const quantity = assertQuantity(rawQuantity, '换货数量', newProd0.unit === '米' ? '米' : '件')
+  const quantity = assertQuantity(rawQuantity, '换货数量', qtyUnitOf(newProd0))
   if (sellingPrice != null) assertFen(sellingPrice, '换货售价')
   if (diffPaidAmount != null) assertFen(diffPaidAmount, '差价实收')
   return inTransaction(db, () => {

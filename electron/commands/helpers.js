@@ -19,23 +19,47 @@ export function roundQty(v) {
 }
 
 /**
- * 按商品计量单位校验数量（v2.2）：
- * - 件（默认）：必须是正整数（与 assertPositiveInt 同口径）
- * - 米：必须是有限正数，且最多 1 位小数（roundQty 归一后无精度损失）
+ * 称重/量度类单位：数量天然是小数。
+ * 老板 2026-09-25 反馈：蚯蚓进 55 元/斤、卖 70 元/斤，顾客只买 5 块、10 块 ——
+ * 5 块钱 = 5/70 = 0.071429 斤。原来只有「米」允许小数，其它单位一律按整数件，
+ * 结果蚯蚓只能录成「1 斤卖 5 元」，毛利被算成 −65 元。
+ */
+export const DECIMAL_UNITS = ['米', '斤', '公斤', '千克', '克', '升']
+
+/** 这个计量单位是否允许小数数量 */
+export function isDecimalUnit(unit) {
+  return DECIMAL_UNITS.indexOf(String(unit ?? '').trim()) >= 0
+}
+
+/** 按商品给出数量口径：称重类返回它自己的单位，其余一律按「件」（整数） */
+export function qtyUnitOf(product) {
+  const u = String((product && product.unit) ?? '').trim()
+  return isDecimalUnit(u) ? u : '件'
+}
+
+/** 归一化到 4 位小数（散装按金额卖会出现 5/70=0.071429 斤这种数，1 位小数不够） */
+export function roundQty4(v) {
+  return Math.round((Number(v) + Number.EPSILON) * 1e4) / 1e4
+}
+
+/**
+ * 按商品计量单位校验数量（v2.3）：
+ * - 称重类（米/斤/公斤/千克/克/升）：必须是有限正数，最多 4 位小数
+ * - 其余（件/个/包/袋/盒…）：必须是正整数
  * 非法直接 throw，合法返回归一化数量。
  */
 export function assertQuantity(v, name, unit) {
   const n = Number(v)
   if (!Number.isFinite(n)) throw new Error(`${name}必须是数字，收到：${v}`)
-  if (unit === '米') {
-    if (n <= 0) throw new Error(`${name}必须大于 0，收到：${v}`)
-    const rounded = roundQty(n)
+  if (n <= 0) throw new Error(`${name}必须大于 0，收到：${v}`)
+  if (isDecimalUnit(unit)) {
+    const rounded = roundQty4(n)
     if (Math.abs(rounded - n) >= 1e-9) {
-      throw new Error(`${name}最多 1 位小数，收到：${v}`)
+      throw new Error(`${name}最多 4 位小数，收到：${v}`)
     }
     return rounded
   }
-  if (!Number.isInteger(n) || n <= 0) {
+  if (!Number.isInteger(n)) {
     throw new Error(`${name}必须是正整数，收到：${v}`)
   }
   return n

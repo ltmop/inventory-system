@@ -95,6 +95,78 @@ function compareVer(a, b) {
 
 // 官网下载页的版本号改写逻辑在 scripts/lib/download-page.mjs（见文件顶部 import）
 
+// 官网页面备份目录 —— **必须在 web 根之外**。
+// ⚠️ 2026-09-22：这里以前是 `sudo cp -p <页面> <页面>.bak-<时间戳>`，即在对外目录里原地备份。
+//    每次发布给 5 个页面各留一份，日积月累 web 根里堆了 63 个 .bak。Caddy 的 @sensitive 规则
+//    让它们返回 404，所以不是泄露；但 2026-09-16 刚清理过一次，是发布脚本自己又造回来的。
+//    现在统一落到 /home/ubuntu 下，并展开路径避免同名（products/ 与 docs/ 各有一个 index.html）。
+const SITE_BACKUP_DIR = '/home/ubuntu/site-backups-release'
+function backupPageCmd(remote) {
+  const flat = remote.replace('/var/www/junchengzn/', '').replace(/\//g, '__')
+  return 'sudo mkdir -p ' + SITE_BACKUP_DIR + ' && sudo cp -p ' + remote + ' ' +
+    SITE_BACKUP_DIR + '/' + flat + '.$(date +%Y%m%d-%H%M%S)'
+}
+
+// 站点检出目录（回写目标）。用环境变量覆盖，**不硬编码** —— 这是之前踩过的教训。
+const SITE_DIR = process.env.SITE_DIR || 'D:\\junchengzn.com'
+
+/**
+ * 发布后把线上页面回写进站点检出 —— 治「检出一路漂移」。
+ *
+ * 为什么需要它：deployWeb 是**单向**的（读线上 → 改写版本号 → 写线上），从不回写检出。
+ * 于是 D:\junchengzn.com 必然越来越旧，而"检出还权威吗"变成一个没人知道答案的问题。
+ * 2026-09-22 实测：检出停在桌面 1.1.10 / 手机 1.3.0，线上已是 1.2.0 / 1.3.2；
+ * 我甚至据此误判成"有另一个会话在跟我抢同一个仓库"，白查一轮。
+ *
+ * 三条安全约束（都必须守）：
+ *   ① 检出目录不存在 → 跳过（这台机器上没有该检出是正常情况）
+ *   ② 检出有未提交改动 → **跳过**，绝不覆盖人正在写的东西
+ *   ③ 只写文件，**不 commit 也不 push** —— 提交是人的决定
+ * 无论是否回写，都会把「检出与线上差多少」打出来，让漂移不再隐形。
+ */
+function syncCheckout(remotes) {
+  console.log('')
+  console.log('=== [4c] 回写站点检出（治漂移）===')
+  if (!fs.existsSync(SITE_DIR)) {
+    console.log('  跳过：检出目录不存在 ' + SITE_DIR + '（用 SITE_DIR 环境变量可指定）')
+    return
+  }
+  const st = sh('git -C "' + SITE_DIR + '" status --porcelain')
+  if (st.status !== 0) {
+    console.log('  ⚠️ 跳过：' + SITE_DIR + ' 不是可用的 git 仓库；检出漂移请人工处理')
+    return
+  }
+  const dirty = st.stdout.trim()
+  if (dirty) {
+    console.log('  ⚠️ 跳过回写：站点检出有未提交改动（' + dirty.split('\n').length + ' 项）')
+    console.log('     不覆盖正在写的东西。先提交或丢弃，下次发布会自动回写。')
+    console.log('     注意：**现在检出与线上不一致**，别把检出当成线上用。')
+    return
+  }
+  let wrote = 0
+  for (const remote of remotes) {
+    const rel = remote.replace('/var/www/junchengzn/', '')
+    const r = ssh('cat ' + remote)
+    if (r.status !== 0) { console.log('  ⚠️ 读不到 ' + rel + '，跳过该页'); continue }
+    const dst = path.join(SITE_DIR, rel.split('/').join(path.sep))
+    const before = fs.existsSync(dst) ? fs.readFileSync(dst, 'utf8') : null
+    if (before === r.stdout) continue
+    fs.mkdirSync(path.dirname(dst), { recursive: true })
+    fs.writeFileSync(dst, r.stdout, 'utf8')
+    wrote++
+    console.log('  回写 ' + rel)
+  }
+  // 回写完再复核一次，证明检出确实追上了线上
+  const after = sh('git -C "' + SITE_DIR + '" status --porcelain')
+  const afterN = after.stdout.trim() ? after.stdout.trim().split('\n').length : 0
+  if (!wrote) {
+    console.log('  检出已与线上一致（' + remotes.length + ' 个页面全部相同）OK')
+  } else {
+    console.log('  回写 ' + wrote + ' 个文件，检出现有 ' + afterN + ' 项待提交。**未提交** —— 请 review 后 commit：')
+    console.log('    git -C "' + SITE_DIR + '" status --short')
+  }
+}
+
 function preCheck({ webOnly = false } = {}) {
   console.log('=== [1/5] 前置检查 ===')
   if (!PUB_URL.startsWith('https://')) throw new Error('publish.url 不是 https: ' + PUB_URL + '（复盘 3.1：发布前验证发布配置）')
@@ -196,6 +268,20 @@ function deployWeb(a) {
   if (dl.status !== 0) throw new Error('部署 download/ 失败: ' + (dl.stderr || dl.stdout))
   console.log('  download/ 根目录:', dl.stdout.trim().split('\n').join(' '), 'OK')
 
+  // ①b 归档过期 APK：只保留现存最新的那一个，其余移进 archive/。
+  //     为什么放这里：APK 是手机端发布的，桌面端 release.mjs 以前只管 exe，
+  //     于是 download/ 里堆了 1.2.0 / 1.2.1 / 1.3.0 / 1.3.1 / 1.3.2 五个 APK，
+  //     旧版仍能公网直接下载（让人下到旧版，也留下死链风险）。
+  //     这里**不依赖"手机端当前版本是多少"**，只保留现存最新那个，所以不会因为
+  //     手机端与桌面端的发版节奏不同而误删正在用的包。
+  const apk = ssh(
+    'cd ' + DOWNLOAD_DIR + ' && sudo mkdir -p archive && ' +
+    'newest=$(ls -1 fishing-inventory-mobile-*.apk 2>/dev/null | sed "s/.*mobile-//;s/[\\.]apk$//" | sort -V | tail -1); ' +
+    'if [ -n "$newest" ]; then for f in fishing-inventory-mobile-*.apk; do case "$f" in *"$newest"*) ;; *) sudo mv "$f" archive/ || exit 1; echo "  archived $f";; esac; done; echo "kept apk $newest"; else echo "no apk present"; fi'
+  )
+  if (apk.status !== 0) throw new Error('归档过期 APK 失败: ' + (apk.stderr || apk.stdout))
+  console.log('  APK：', apk.stdout.trim().split('\n').filter(Boolean).join(' | '))
+
   // ② 真正的下载页就是 download/index.html
   // ⚠️ 2026-09-13 修正：这段以前只改 /var/www/junchengzn/index.html 与 docs/index.html 的版本文案，
   //    而站点改版后**下载页是 /download/index.html**、桌面按钮直指更新源的 exe。
@@ -225,7 +311,7 @@ function deployWeb(a) {
   console.log('  版本信息：' + (facts.touched.length
     ? facts.touched.join(' / ') + ' 已更新 → ' + releaseDate + ' / ' + a.size + ' B / ' + a.sha.slice(0, 16)
     : '三处已是当前值') + ' OK')
-  ssh('sudo cp -p ' + pagePath + ' ' + pagePath + '.bak-$(date +%Y%m%d%H%M%S)')
+  ssh(backupPageCmd(pagePath))
   const tmpPage = path.join(os.tmpdir(), 'fi-web-download-index.html')
   fs.writeFileSync(tmpPage, page, 'utf8')
   scpTo(tmpPage, '/tmp/web-download-index.html')
@@ -254,7 +340,7 @@ function deployWeb(a) {
     if (!rr.touched.length) { console.log('  ' + label + ' 已是 ' + version + ' OK'); continue }
     const tmp = path.join(os.tmpdir(), 'fi-cross-' + (crossSeq++) + '.html')
     fs.writeFileSync(tmp, rr.html, 'utf8')
-    ssh('sudo cp -p ' + remote + ' ' + remote + '.bak-$(date +%Y%m%d%H%M%S)')
+    ssh(backupPageCmd(remote))
     scpTo(tmp, '/tmp/fi-cross.html')
     const mv = ssh('sudo mv /tmp/fi-cross.html ' + remote)
     if (mv.status !== 0) throw new Error(label + ' 上传失败')
@@ -272,6 +358,9 @@ function deployWeb(a) {
   const chk = ssh("grep -c '" + version + "' " + pagePath)
   if (!chk.stdout.trim() || chk.stdout.trim() === '0') throw new Error('下载页更新后未找到 ' + version)
   console.log('  复核：下载页含 ' + version + '（' + chk.stdout.trim() + ' 行）OK')
+
+  // ⑤ 回写站点检出，让「本地 == 线上」重新成立（见 syncCheckout 的三条安全约束）
+  syncCheckout([pagePath, ...crossPages.map(([r]) => r)])
 }
 
 function deploy(a) {
@@ -334,6 +423,25 @@ function verifyWeb() {
 
 const args = process.argv.slice(2)
 const WEB_ONLY = args.includes('--web-only')
+
+// 只同步检出、不发版：把线上页面拉回 SITE_DIR 并写盘（不 commit）。
+// 用途：① 平时发现检出漂移时补一刀；② 让 syncCheckout 可以被独立验证，
+// 不必真发一版才知道回写逻辑对不对。安全检查与发布时完全一样。
+const ALL_SITE_PAGES = [
+  '/var/www/junchengzn/index.html',
+  '/var/www/junchengzn/download/index.html',
+  '/var/www/junchengzn/products/inventory.html',
+  '/var/www/junchengzn/products/cockpit.html',
+  '/var/www/junchengzn/products/minidb.html',
+  '/var/www/junchengzn/docs/index.html',
+]
+if (args.includes('--sync-checkout')) {
+  console.log('=== 站点检出同步（不发版）===')
+  console.log('  目标检出:', SITE_DIR, '（SITE_DIR 可覆盖）')
+  syncCheckout(ALL_SITE_PAGES)
+  process.exit(0)
+}
+
 if (args.includes('--check')) { preCheck({ webOnly: WEB_ONLY }); console.log(''); console.log('✅ 前置检查通过，可发布 ' + version); process.exit(0) }
 preCheck({ webOnly: WEB_ONLY })
 const built = args.includes('--skip-build')

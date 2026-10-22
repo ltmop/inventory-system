@@ -17,6 +17,7 @@
 
 import {
   assertQuantity,
+  qtyUnitOf,
   assertFen,
   inTransaction,
   now,
@@ -52,7 +53,7 @@ export function transferStock(db, { productId, quantity, fromLocation, toLocatio
   if (!flags.isEnabled('stockTransfer')) throw new Error('「库位调拨」当前已关闭（功能开关）')
   const prod = db.prepare('SELECT * FROM products WHERE id = ?').get(productId)
   if (!prod) throw new Error('商品不存在')
-  const qty = assertQuantity(quantity, '调拨数量', prod.unit === '米' ? '米' : '件')
+  const qty = assertQuantity(quantity, '调拨数量', qtyUnitOf(prod))
   const to = normLoc(toLocation)
   const from = fromLocation === undefined ? undefined : normLoc(fromLocation)
   if (from !== undefined && from === to) throw new Error('源库位与目标库位相同，不需要调拨')
@@ -68,7 +69,7 @@ export function transferStock(db, { productId, quantity, fromLocation, toLocatio
     if (pool.length === 0) throw new Error(from === undefined ? '这个商品没有任何库存可调' : `库位「${from || '未填'}」里没有这个商品的库存`)
 
     const total = pool.reduce((s, b) => s + b.quantity, 0)
-    if (total < qty) throw new Error(`库存不足：库位「${from ?? '任意'}」只有 ${total} ${prod.unit === '米' ? '米' : '件'}，要调 ${qty}`)
+    if (total < qty) throw new Error(`库存不足：库位「${from ?? '任意'}」只有 ${total} ${qtyUnitOf(prod)}，要调 ${qty}`)
 
     let left = qty
     const fromBatches = [], toBatches = [], unitCosts = []

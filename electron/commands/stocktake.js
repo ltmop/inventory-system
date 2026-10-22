@@ -6,6 +6,8 @@ import {
   nextTakeNo,
   logAudit,
   roundQty,
+  roundQty4,
+  isDecimalUnit,
   productLabel,
   nextBatchNo,
   today,
@@ -89,17 +91,17 @@ export function updateStockTakeItem(db, { itemId, actualQty, reason }) {
     )
     .get(itemId)
   if (!row) throw new Error('盘点明细不存在')
-  const unit = row.unit === '米' ? '米' : '件'
+  const unit = qtyUnitOf(row)
   const qty = Number(actualQty)
-  if (unit === '米') {
-    if (!Number.isFinite(qty) || qty < 0 || Math.abs(roundQty(qty) - qty) >= 1e-9) {
-      throw new Error(`实盘数量最多 1 位小数且不能为负，收到：${actualQty}`)
+  if (isDecimalUnit(unit)) {
+    if (!Number.isFinite(qty) || qty < 0 || Math.abs(roundQty4(qty) - qty) >= 1e-9) {
+      throw new Error(`实盘数量最多 4 位小数且不能为负，收到：${actualQty}`)
     }
   } else if (!Number.isInteger(qty) || qty < 0) {
     throw new Error(`实盘数量必须是非负整数，收到：${actualQty}`)
   }
   db.prepare('UPDATE stock_take_items SET actual_qty = ?, reason = ? WHERE id = ?').run(
-    roundQty(qty),
+    roundQty4(qty),
     reason ?? '',
     itemId,
   )
@@ -149,10 +151,10 @@ function applyStockTake(db, takeId, items, operator) {
     const qty = Number(it.actualQty)
     if (!Number.isFinite(qty) || qty < 0) continue
     const unitRow = itemUnit.get(Number(it.itemId))
-    const unit = unitRow?.unit === '米' ? '米' : '件'
+    const unit = qtyUnitOf(unitRow)
     const valid =
-      unit === '米' ? Math.abs(roundQty(qty) - qty) < 1e-9 : Number.isInteger(qty)
-    if (valid) updItem.run(roundQty(qty), String(it.reason ?? ''), it.itemId, takeId)
+      isDecimalUnit(unit) ? Math.abs(roundQty4(qty) - qty) < 1e-9 : Number.isInteger(qty)
+    if (valid) updItem.run(roundQty4(qty), String(it.reason ?? ''), it.itemId, takeId)
   }
   if (isSkuMode) {
     // 按 SKU 合并：一个商品一行（batch_id NULL），把商品实盘总数按各批次数量比例摊回批次库存
@@ -176,7 +178,7 @@ function applyStockTake(db, takeId, items, operator) {
       if (explicit) {
         for (const a of explicit) {
           if (a.batchId != null && a.quantity != null) {
-            updBatch.run(roundQty(Number(a.quantity)), Number(a.batchId))
+            updBatch.run(roundQty4(Number(a.quantity)), Number(a.batchId))
             batchCount++
           }
         }
@@ -206,7 +208,7 @@ function applyStockTake(db, takeId, items, operator) {
           i === batchList.length - 1
             ? target - allocated
             : Math.max(0, Math.round(((target * b.quantity) / sys) * precision) / precision)
-        updBatch.run(roundQty(Math.max(0, share)), b.id)
+        updBatch.run(roundQty4(Math.max(0, share)), b.id)
         allocated += share
         batchCount++
       }

@@ -9,3 +9,6 @@ sync-workbench.mjs
 
 # 激活码私钥（泄露=任何人都能发码），只留在老板发码机
 scripts/license-private.pem
+# 经营数据（含营收/毛利/现金流，禁止入公开仓库）
+_wb-sync.json
+.first-order-notified
